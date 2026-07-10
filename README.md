@@ -42,3 +42,20 @@ object PaymentsSpec extends ZIOSpecDefault:
 One DSL, every effect system: embedded (in-process, no Docker), connect (any running Rift
 admin endpoint), spawn, or container — full feature surface on each, including stateful
 scenarios, fault injection, spaces/flow-state, and TLS-MITM intercept.
+
+## Building
+
+Scala 3, sbt multi-module. Requires JDK 21+ (CI builds on JDK 21 and 22).
+
+```sh
+sbt compile          # compile every module
+sbt test             # run all tests
+sbt scalafmtCheckAll # verify formatting (scalafmtAll to fix)
+```
+
+Each module in the table above is a separate sbt project (`rift-scala-<name>`) with the
+dependency graph `model ◁ bridge ◁ {zio, cats, kyo, pure}`, `zio ◁ zio-testkit`,
+`cats ◁ {cats-testkit, fs2}`. A module's external library dependencies (zio, cats-effect,
+fs2, kyo, rift-java) are introduced by that module's own feature issue, not the build
+bootstrap. Artifacts publish to Sonatype under `io.github.etacassiopeia` via
+`sbt-ci-release` on a `v*` tag.
