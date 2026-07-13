@@ -130,14 +130,14 @@ Published artifacts (`io.github.etacassiopeia`, Scala 3):
 | `rift-scala-bridge` | `rift.bridge` | model, `rift-java-core`; `rift-java-testcontainers` `% Optional` | #3 |
 | `rift-scala-zio` | `rift.zio` | bridge, `zio`, `zio-streams` | #4 |
 | `rift-scala-zio-testkit` | `rift.zio.testkit` | zio, `zio-test` | #5 |
-| `rift-scala-zio-json` | `rift.json.zio` | model, `zio-json` | new (M3) |
+| `rift-scala-zio-json` | `rift.json.zio` | model, `zio-json` | #16 |
 | `rift-scala-cats` | `rift.cats` | bridge, `cats-effect` | #8 |
 | `rift-scala-cats-testkit` | `rift.cats.testkit` | cats, `munit-cats-effect` `% Optional`, `weaver-cats` `% Optional` | #10 |
 | `rift-scala-fs2` | `rift.fs2` | cats, `fs2-core` | #9 |
-| `rift-scala-circe` | `rift.json.circe` | model, `circe-core` + `circe-parser` | new (M4) |
+| `rift-scala-circe` | `rift.json.circe` | model, `circe-core` + `circe-parser` | #17 |
 | `rift-scala-kyo` | `rift.kyo` | bridge, `kyo-core` | #11 |
 | `rift-scala-pure` | `rift.pure` | bridge | #12 |
-| `rift-scala-zio-bdd` | `rift.ziobdd` | zio module, `zio-bdd-mock` | new (M5) |
+| `rift-scala-zio-bdd` | `rift.ziobdd` | zio module, `zio-bdd-mock` | #18 |
 
 Root package is `rift` (as the README promises: `import rift.dsl.*`, `import rift.zio.*`).
 **Convention for library sources:** inside `package rift.zio` / `rift.cats` / `rift.fs2`, the
@@ -812,13 +812,13 @@ Failure output contract (the "readable diffs" acceptance): a failed `assertRecei
 
 ---
 
-### 5.5 `rift-scala-zio-json` *(new issue, M3)*
+### 5.5 `rift-scala-zio-json` *(issue #16)*
 
 One file: `given [A](using JsonCodec[A]): JsonBody[A]` bridging zio-json to the model
 typeclass, plus `Json <-> zio.json.ast.Json` converters. Lets ZIO users write
 `ok.json(User(1, "Alice"))` and `recorded.bodyAs[User]` with their existing codecs.
 
-### 5.9 `rift-scala-circe` *(new issue, M4)*
+### 5.9 `rift-scala-circe` *(issue #17)*
 
 Same shape for circe: `given [A](using Encoder[A], Decoder[A]): JsonBody[A]`,
 `Json <-> io.circe.Json` converters.
@@ -1038,7 +1038,7 @@ Using.resource(Rift.embeddedUnsafe()) { rift =>
 
 ---
 
-### 5.12 `rift-scala-zio-bdd` — `MockControl` adapter *(new issue, M5)*
+### 5.12 `rift-scala-zio-bdd` — `MockControl` adapter *(issue #18)*
 
 zio-bdd already ships two bespoke Rift adapters (container + embedded-FFM). This module lets
 zio-bdd (and any library built on its `MockControl` SPI) run on rift-scala instead — one
@@ -1168,9 +1168,9 @@ The zio-bdd adapter (5.12) and the two testkits are reference implementations of
 
 | Milestone | Issues | Modules |
 |---|---|---|
-| **M3 — model, bridge, ZIO** | #2 model · #3 bridge · #4 zio · #5 zio-testkit · zio-json (new) · #6 ZIO conformance · #7 ledger sample | model, bridge, zio, zio-testkit, zio-json, conformance |
-| **M4 — Cats, FS2, Kyo, pure** | #8 cats · #9 fs2 · #10 cats-testkit · circe (new) · #11 kyo · #12 pure · #13 cats conformance + parity + release automation | cats, fs2, cats-testkit, circe, kyo, pure |
-| **M5 — ecosystem integrations** | zio-bdd adapter (new) | zio-bdd |
+| **M3 — model, bridge, ZIO** | #2 model · #3 bridge · #4 zio · #5 zio-testkit · #16 zio-json · #6 ZIO conformance · #7 ledger sample | model, bridge, zio, zio-testkit, zio-json, conformance |
+| **M4 — Cats, FS2, Kyo, pure** | #8 cats · #9 fs2 · #10 cats-testkit · #17 circe · #11 kyo · #12 pure · #13 cats conformance + parity + release automation | cats, fs2, cats-testkit, circe, kyo, pure |
+| **M5 — ecosystem integrations** | #18 zio-bdd adapter | zio-bdd |
 
 Dependency chain: #2 → #3 → {#4 → #5 → #6/#7, #8 → {#9, #10, #13}, #11, #12} → M5.
 rift-java 0.1.1 is released — nothing in M3 is blocked anymore.
