@@ -1179,12 +1179,15 @@ rift-java 0.1.1 is released — nothing in M3 is blocked anymore.
 
 1. **Typed verify over the facade** — rift-java's `Imposter.verify` throws
    `VerificationException` with a string diff; the engine's `POST /imposters/{port}/verify`
-   returns structured `closest.failedPredicates` we can't reach through the facade. Upstream
-   ask (rift-java): expose the structured verify result. Until then D5's client-side matcher
-   fills the gap.
-2. **SSE request tail** — engine feature request; polling is the design until then (D6).
+   returns structured `closest.failedPredicates` we can't reach through the facade. Filed
+   upstream as [rift-java#127](https://github.com/EtaCassiopeia/rift-java/issues/127). Until
+   then D5's client-side matcher fills the gap.
+2. **SSE request tail** — filed upstream as
+   [rift#603](https://github.com/EtaCassiopeia/rift/issues/603); polling is the design until
+   then (D6), with stream signatures shaped so the upgrade is an internal swap.
 3. **`rift-scala-bom` / sbt natives helper** — if classifier selection proves to be a support
    burden, ship `RiftNatives.currentClassifier` as a tiny sbt plugin or documented snippet
    first (bridge README), promote to an artifact on demand.
-4. **zio-bdd convergence** — once 5.12 passes zio-bdd's conformance matrix, propose upstream
-   that zio-bdd's bespoke rift adapters delegate to rift-scala.
+4. **zio-bdd convergence** — once 5.12 (#18) passes zio-bdd's conformance matrix, zio-bdd's
+   bespoke rift adapters can delegate to rift-scala — already tracked upstream as
+   [zio-bdd#285](https://github.com/EtaCassiopeia/zio-bdd/issues/285).
