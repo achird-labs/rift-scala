@@ -4,8 +4,9 @@ Official Scala 3 SDK for [Rift](https://github.com/EtaCassiopeia/rift) — a hig
 Mountebank-compatible HTTP/HTTPS mock server written in Rust. Effect-library-native:
 ZIO, Cats Effect 3 / FS2, Kyo, or no effect system at all.
 
-> **Status: design phase.** API design and milestones are tracked in the issues of this repo
-> (milestones M3/M4). No artifacts are published yet.
+> **Status: design accepted, implementation phase.** The full API design lives in
+> [docs/DESIGN.md](docs/DESIGN.md); milestones M3/M4/M5 are tracked in the issues of this
+> repo. No artifacts are published yet.
 
 ## What it will look like
 
@@ -38,6 +39,8 @@ object PaymentsSpec extends ZIOSpecDefault:
 | `rift-scala-fs2` | `Stream[F, RecordedRequest]` tailing + verification pipes |
 | `rift-scala-kyo` | ops as `A < (Async & Abort[RiftError] & Resource)` |
 | `rift-scala-pure` | `Either`-based sync surface, `Using`-friendly |
+| `rift-scala-zio-json` / `rift-scala-circe` | `JsonBody[A]` codec side-cars (typed request/response bodies) |
+| `rift-scala-zio-bdd` | [zio-bdd](https://github.com/EtaCassiopeia/zio-bdd) `MockControl` adapter backed by rift-scala |
 
 One DSL, every effect system: embedded (in-process, no Docker), connect (any running Rift
 admin endpoint), spawn, or container — full feature surface on each, including stateful
@@ -54,8 +57,9 @@ sbt scalafmtCheckAll # verify formatting (scalafmtAll to fix)
 ```
 
 Each module in the table above is a separate sbt project (`rift-scala-<name>`) with the
-dependency graph `model ◁ bridge ◁ {zio, cats, kyo, pure}`, `zio ◁ zio-testkit`,
-`cats ◁ {cats-testkit, fs2}`. A module's external library dependencies (zio, cats-effect,
+dependency graph `model ◁ bridge ◁ {zio, cats, kyo, pure}`, `zio ◁ zio-testkit ◁ zio-bdd`,
+`cats ◁ {cats-testkit, fs2}`, plus the model-only codec side-cars `zio-json` and `circe`
+(full picture in [docs/DESIGN.md](docs/DESIGN.md) §3). A module's external library dependencies (zio, cats-effect,
 fs2, kyo, rift-java) are introduced by that module's own feature issue, not the build
 bootstrap. Artifacts publish to Sonatype under `io.github.etacassiopeia` via
 `sbt-ci-release` on a `v*` tag.
