@@ -17,6 +17,21 @@ object Dependencies {
 
   val zioJsonDeps: Seq[ModuleID] = Seq("dev.zio" %% "zio-json" % zioJson)
 
+  /** Codec side-car (D7): the only place circe is allowed, keeping `rift-scala-cats`
+    * cats-effect-only and honouring "cats-core never leaks into other modules" in both directions.
+    */
+  val circe = "0.14.16"
+
+  /** Compile scope is `circe-core` alone — the side-car bridges `Encoder`/`Decoder` and the two
+    * JSON ASTs, and parses nothing, so it does not impose circe-parser downstream. Derivation needs
+    * nothing extra either: `derives Codec.AsObject` lives in circe-core (`io.circe.derivation`),
+    * and the tests use it rather than circe-generic precisely so the build proves that claim.
+    */
+  val circeDeps: Seq[ModuleID] = Seq(
+    "io.circe" %% "circe-core" % circe,
+    "io.circe" %% "circe-parser" % circe % Test
+  )
+
   /** Test-only. `model` is zero-dependency at compile scope, and munit keeps it effect-agnostic:
     * the module is the shared base for the ZIO, Cats, Kyo and pure surfaces, so its own tests must
     * not import an effect system (same reasoning as D1's rejection of zio-json).
