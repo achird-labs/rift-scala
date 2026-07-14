@@ -1,6 +1,6 @@
-package rift.json.zio
+package rift.json.ziojson
 
-import _root_.zio.json.{DeriveJsonCodec, JsonCodec}
+import zio.json.{DeriveJsonCodec, JsonCodec}
 import rift.dsl.*
 import rift.json.Json
 import rift.model.Method.*

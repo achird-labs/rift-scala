@@ -1,10 +1,10 @@
-package rift.json.zio
+package rift.json.ziojson
 
-// This package is named `rift.json.zio`, so an unqualified `zio.*` would resolve here rather than to
-// the ZIO organisation's root package — every zio-json reference below must stay `_root_`-anchored.
-import _root_.zio.Chunk
-import _root_.zio.json.JsonCodec
-import _root_.zio.json.ast.Json as ZJson
+// The package is `rift.json.ziojson`, not `rift.json.zio`: a segment spelled `zio` would shadow the
+// ZIO root package for anyone wildcard-importing this one's parent (#24).
+import zio.Chunk
+import zio.json.JsonCodec
+import zio.json.ast.Json as ZJson
 import rift.json.Json
 import rift.model.JsonBody
 
@@ -17,7 +17,7 @@ import rift.model.JsonBody
   *
   * {{{
   * import rift.dsl.*
-  * import rift.json.zio.given
+  * import rift.json.ziojson.given
   * import zio.json.{DeriveJsonCodec, JsonCodec}
   *
   * case class User(id: Int, name: String) derives JsonCodec
