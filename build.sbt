@@ -54,7 +54,28 @@ def riftModule(id: String, dir: String): Project =
       moduleName := s"rift-scala-$dir"
     )
 
+// Enforces DESIGN.md §5.1's "zero dependencies" promise for `model`: the pure wire model is the
+// shared base for the ZIO, Cats, Kyo and pure surfaces, so a compile-scope dep here would leak into
+// all of them (the same reasoning that rejected zio-json in D1).
+lazy val zeroDepCheck = taskKey[Unit]("Fail if the module declares any non-Test dependency.")
+
 lazy val model = riftModule("model", "model")
+  .settings(
+    libraryDependencies ++= Dependencies.munitDeps,
+    zeroDepCheck := {
+      // sbt injects the Scala library itself via autoScalaLibrary; "zero dependencies" means zero
+      // *third-party* ones.
+      val offenders = libraryDependencies.value
+        .filterNot(_.configurations.exists(_.contains("test")))
+        .filterNot(_.organization == "org.scala-lang")
+      if (offenders.nonEmpty)
+        sys.error(
+          s"rift-scala-model must be zero-dependency (DESIGN.md §5.1); found compile-scope: " +
+            offenders.map(m => s"${m.organization}:${m.name}").mkString(", ")
+        )
+    },
+    Test / test := (Test / test).dependsOn(zeroDepCheck).value
+  )
 
 lazy val bridge = riftModule("bridge", "bridge")
   .dependsOn(model)
