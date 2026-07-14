@@ -130,19 +130,35 @@ Published artifacts (`io.github.etacassiopeia`, Scala 3):
 | `rift-scala-bridge` | `rift.bridge` | model, `rift-java-core`; `rift-java-testcontainers` `% Optional` | #3 |
 | `rift-scala-zio` | `rift.zio` | bridge, `zio`, `zio-streams` | #4 |
 | `rift-scala-zio-testkit` | `rift.zio.testkit` | zio, `zio-test` | #5 |
-| `rift-scala-zio-json` | `rift.json.zio` | model, `zio-json` | #16 |
+| `rift-scala-zio-json` | `rift.json.ziojson` | model, `zio-json` | #16 |
 | `rift-scala-cats` | `rift.cats` | bridge, `cats-effect` | #8 |
 | `rift-scala-cats-testkit` | `rift.cats.testkit` | cats, `munit-cats-effect` `% Optional`, `weaver-cats` `% Optional` | #10 |
 | `rift-scala-fs2` | `rift.fs2` | cats, `fs2-core` | #9 |
-| `rift-scala-circe` | `rift.json.circe` | model, `circe-core` + `circe-parser` | #17 |
+| `rift-scala-circe` | `rift.json.circe` | model, `circe-core` | #17 |
 | `rift-scala-kyo` | `rift.kyo` | bridge, `kyo-core` | #11 |
 | `rift-scala-pure` | `rift.pure` | bridge | #12 |
 | `rift-scala-zio-bdd` | `rift.ziobdd` | zio module, `zio-bdd-mock` | #18 |
 
 Root package is `rift` (as the README promises: `import rift.dsl.*`, `import rift.zio.*`).
+
 **Convention for library sources:** inside `package rift.zio` / `rift.cats` / `rift.fs2`, the
 enclosing-package member shadows the root library package, so all internal imports of effect
-libraries use `_root_.zio.*` / `_root_.cats.*` / `_root_.fs2.*`. Users are unaffected.
+libraries use `_root_.zio.*` / `_root_.cats.*` / `_root_.fs2.*`.
+
+**The same shadowing reaches users, and is accepted for the backend packages only** (#24). A
+wildcard import of a *parent* binds its subpackage names, so `import rift.*` shadows the root `zio` /
+`cats` / `fs2` packages in that file. That is tolerable here because `rift` holds a single symbol
+(`RiftError`), making `import rift.*` a rare spelling with an easy precise alternative — and because
+these names are the product's headline ergonomics (`rift.zio.Rift`) and mirror the artifact names.
+The rule of thumb: **don't wildcard-import `rift` in a file that imports an effect library by its
+root name.**
+
+It is *not* tolerable for a codec side-car, which is why `rift-scala-zio-json` is `rift.json.ziojson`
+rather than `rift.json.zio`: `rift.json` holds the `Json` AST and friends, so `import rift.json.*` is
+a natural line, and every user of that artifact has `zio.*` imports in the same codebase. Adding the
+artifact would have broken previously-valid files with an error that never names the cause. Any
+future side-car must avoid a segment spelled like its library's root package (`rift.json.circe` is
+fine — circe roots at `io.circe`).
 
 ---
 
