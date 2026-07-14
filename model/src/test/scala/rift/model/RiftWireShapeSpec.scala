@@ -133,3 +133,109 @@ class RiftWireShapeSpec extends munit.FunSuite:
   test("JavaScript engine decodes from both 'js' and 'javascript'"):
     assertEquals(ScriptEngine.fromJson(Json.Str("js")), Right(ScriptEngine.JavaScript))
     assertEquals(ScriptEngine.fromJson(Json.Str("javascript")), Right(ScriptEngine.JavaScript))
+
+  // ── 10. WaitBehavior — all four forms round-trip to their own spelling ───────────────────────
+  // Proof: the rift#608 ruling (2026-07-14) — "Both forms are canonical. The engine adds an
+  // `Inject { inject: String }` variant; the bare string remains the Mountebank-compatible
+  // spelling", and serialization must round-trip so `GET /imposters?replayable=true` preserves the
+  // author's spelling. Variant set mirrors rift-java WaitSpec.java:7-10 (Fixed|Range|Inject|Script);
+  // engine behaviors/wait.rs:33-46 carries Fixed|Range|Function today.
+  test("wait: fixed millis is a bare number"):
+    val json = parse("100")
+    val w = WaitBehavior.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(w, WaitBehavior.Fixed(100L))
+    assert(w.toJson.semanticEquals(json))
+
+  test("wait: range is {min,max} — a Rift extension with no Mountebank equivalent"):
+    val json = parse("""{"min":100,"max":500}""")
+    val w = WaitBehavior.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(w, WaitBehavior.Range(100L, 500L))
+    assert(w.toJson.semanticEquals(json))
+
+  test("wait: inject is {inject: <script>} — the Rift/SDK spelling"):
+    val json = parse("""{"inject":"function () { return 42; }"}""")
+    val w = WaitBehavior.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(w, WaitBehavior.Inject("function () { return 42; }"))
+    assert(w.toJson.semanticEquals(json))
+
+  test("wait: a bare string is the Mountebank-compatible Script spelling"):
+    val json = parse(""""function () { return 42; }"""")
+    val w = WaitBehavior.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(w, WaitBehavior.Script("function () { return 42; }"))
+    assert(w.toJson.semanticEquals(json))
+
+  /** The two object shapes are disjoint (`inject` vs `min`+`max`), which is what makes the untagged
+    * decode unambiguous — the engine ruling relies on the same property.
+    */
+  test("wait: the object forms do not collide"):
+    assertEquals(
+      WaitBehavior.fromJson(parse("""{"inject":"f"}""")),
+      Right(WaitBehavior.Inject("f"))
+    )
+    assertEquals(
+      WaitBehavior.fromJson(parse("""{"min":1,"max":2}""")),
+      Right(WaitBehavior.Range(1L, 2L))
+    )
+
+  test("wait: an object that is neither inject nor min/max is a decode error"):
+    assert(WaitBehavior.fromJson(parse("""{"bogus":true}""")).isLeft)
+
+  test("wait: {min} without {max} is a decode error, not a silent default"):
+    assert(WaitBehavior.fromJson(parse("""{"min":1}""")).isLeft)
+    assert(WaitBehavior.fromJson(parse("""{"max":2}""")).isLeft)
+
+  test("wait: a non-number, non-string, non-object is a decode error"):
+    assert(WaitBehavior.fromJson(parse("true")).isLeft)
+    assert(WaitBehavior.fromJson(parse("null")).isLeft)
+
+  /** The engine types waits as `u64` and rift-java's `asLong` throws on a non-integral number, so a
+    * fractional or out-of-range wait must be loud here too. `BigDecimal.toLong` would silently
+    * truncate `1.5` to `1` and wrap `1e30` to 5076944270305263616 — re-encoding a config the author
+    * never wrote.
+    */
+  test("wait: a fractional or out-of-range number is a decode error, not a truncation"):
+    assert(WaitBehavior.fromJson(parse("1.5")).isLeft, "1.5 must not truncate to 1")
+    assert(WaitBehavior.fromJson(parse("1e30")).isLeft, "1e30 must not wrap around")
+    assert(WaitBehavior.fromJson(parse("""{"min":1.5,"max":2}""")).isLeft)
+    assert(WaitBehavior.fromJson(parse("""{"min":1,"max":1e30}""")).isLeft)
+
+  /** `inject` wins over `min`/`max`, matching rift-java's `WaitSpec.read` ordering. Pinned so the
+    * precedence is a decision rather than an accident of match order.
+    */
+  test("wait: inject takes precedence over min/max on a malformed mixed object"):
+    assertEquals(
+      WaitBehavior.fromJson(parse("""{"inject":"f","min":1,"max":2}""")),
+      Right(WaitBehavior.Inject("f"))
+    )
+
+  /** Decode stays faithful to the wire even when the range is inverted — validation belongs to the
+    * DSL constructor (`afterBetween` rejects it), not to reading back what an engine already holds.
+    */
+  test("wait: decode does not validate an inverted range — the DSL does"):
+    assertEquals(
+      WaitBehavior.fromJson(parse("""{"min":5,"max":2}""")),
+      Right(WaitBehavior.Range(5L, 2L))
+    )
+
+  /** Gate: a malformed wait must name the field it failed on. `Behaviors.fromJson` supplies the
+    * `wait` path via `.under("wait")` — asserting only `isLeft` would let that wrap silently
+    * vanish.
+    */
+  test("wait: a malformed wait names the offending field"):
+    List("""{"wait":{"bogus":true}}""", """{"wait":{"min":1}}""", """{"wait":1.5}""").foreach:
+      raw =>
+        Behaviors.fromJson(parse(raw)) match
+          case Left(e) =>
+            assert(e.toString.contains("wait"), s"$raw: error did not name 'wait': $e")
+          case Right(b) => fail(s"$raw should not decode, got $b")
+
+  test("wait: every form survives a Behaviors round-trip"):
+    List(
+      "100",
+      """{"min":100,"max":500}""",
+      """{"inject":"function () { return 1; }"}""",
+      """"function () { return 1; }""""
+    ).foreach: raw =>
+      val json = parse(s"""{"wait":$raw}""")
+      val b = Behaviors.fromJson(json).fold(e => fail(s"$raw: $e"), identity)
+      assert(b.toJson.semanticEquals(json), s"$raw did not round-trip: ${b.toJson.render}")
