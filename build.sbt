@@ -84,6 +84,10 @@ lazy val zioJson = riftModule("zioJson", "zio-json")
   .dependsOn(model)
   .settings(libraryDependencies ++= Dependencies.zioJsonDeps ++ Dependencies.munitDeps)
 
+lazy val circe = riftModule("circe", "circe")
+  .dependsOn(model)
+  .settings(libraryDependencies ++= Dependencies.circeDeps ++ Dependencies.munitDeps)
+
 lazy val bridge = riftModule("bridge", "bridge")
   .dependsOn(model)
 
@@ -110,7 +114,7 @@ lazy val pure = riftModule("pure", "pure")
 
 lazy val root = project
   .in(file("."))
-  .aggregate(model, zioJson, bridge, zio, zioTestkit, cats, catsTestkit, fs2, kyo, pure)
+  .aggregate(model, zioJson, circe, bridge, zio, zioTestkit, cats, catsTestkit, fs2, kyo, pure)
   .settings(
     name := "rift-scala",
     scalaVersion := scala3,
