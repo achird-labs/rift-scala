@@ -77,6 +77,13 @@ lazy val model = riftModule("model", "model")
     Test / test := (Test / test).dependsOn(zeroDepCheck).value
   )
 
+// Codec side-cars (D7): depend on `model` only — never on a backend. They exist so that
+// `rift-scala-zio`/`rift-scala-cats` never force a JSON library on users; a user opts in by
+// adding the side-car that matches the codecs they already have.
+lazy val zioJson = riftModule("zioJson", "zio-json")
+  .dependsOn(model)
+  .settings(libraryDependencies ++= Dependencies.zioJsonDeps ++ Dependencies.munitDeps)
+
 lazy val bridge = riftModule("bridge", "bridge")
   .dependsOn(model)
 
@@ -103,7 +110,7 @@ lazy val pure = riftModule("pure", "pure")
 
 lazy val root = project
   .in(file("."))
-  .aggregate(model, bridge, zio, zioTestkit, cats, catsTestkit, fs2, kyo, pure)
+  .aggregate(model, zioJson, bridge, zio, zioTestkit, cats, catsTestkit, fs2, kyo, pure)
   .settings(
     name := "rift-scala",
     scalaVersion := scala3,
