@@ -158,6 +158,13 @@ object ApplyResult:
         case None => Right(Vector.empty)
     yield ApplyResult(created, replaced, stubPatched, deleted, failed)
 
+/** One scenario's current state.
+  *
+  * The `{name, state}` shape is **unverified against a live engine**: no reference for it exists in
+  * the engine source or rift-java, so it cannot be checked from this module alone. It is asserted
+  * by the conformance corpus instead (#6 — list scenarios on a served imposter and decode with
+  * this), which is the cheapest sound check. A mismatch would be a one-field fix here.
+  */
 final case class ScenarioStatus(name: String, state: String):
   def toJson: Json = Json.obj("name" -> Json.Str(name), "state" -> Json.Str(state))
 

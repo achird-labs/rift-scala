@@ -115,12 +115,87 @@ object MetricsConfig:
       port <- optInt(fields, "port").map(_.getOrElse(9090))
     yield MetricsConfig(enabled, port)
 
-/** The imposter-level `_rift` extension block: flow-state backend, scripting, metrics. */
+/** `_rift.proxy.upstream` — where an imposter-level proxy sends traffic. Defaults mirror rift-java
+  * (`RiftUpstreamConfig.java:10`): `protocol` is optional and defaults to `http`; host and port are
+  * required.
+  */
+final case class UpstreamConfig(host: String, port: Int, protocol: String = "http"):
+  def toJson: Json = Json.obj(
+    "host" -> Json.Str(host),
+    "port" -> Json.Num(BigDecimal(port)),
+    "protocol" -> Json.Str(protocol)
+  )
+
+object UpstreamConfig:
+  val defaultProtocol: String = "http"
+
+  def fromJson(json: Json): Either[JsonError.Decode, UpstreamConfig] =
+    for
+      fields <- asObj(json, "upstream")
+      host <- reqString(fields, "host")
+      port <- optInt(fields, "port").flatMap(
+        _.toRight(JsonError.Decode("missing required field", Vector.empty).under("port"))
+      )
+      protocol <- optString(fields, "protocol").map(_.getOrElse(defaultProtocol))
+    yield UpstreamConfig(host, port, protocol)
+
+/** `_rift.proxy.connectionPool`. Defaults mirror rift-java's
+  * (`RiftConnectionPoolConfig.java:9-10`).
+  */
+final case class ConnectionPoolConfig(
+    maxIdlePerHost: Int = ConnectionPoolConfig.defaultMaxIdlePerHost,
+    idleTimeoutSecs: Long = ConnectionPoolConfig.defaultIdleTimeoutSecs
+):
+  def toJson: Json = Json.obj(
+    "maxIdlePerHost" -> Json.Num(BigDecimal(maxIdlePerHost)),
+    "idleTimeoutSecs" -> Json.Num(BigDecimal(idleTimeoutSecs))
+  )
+
+object ConnectionPoolConfig:
+  val defaultMaxIdlePerHost: Int = 100
+  val defaultIdleTimeoutSecs: Long = 90
+
+  def fromJson(json: Json): Either[JsonError.Decode, ConnectionPoolConfig] =
+    for
+      fields <- asObj(json, "connectionPool")
+      maxIdle <- optInt(fields, "maxIdlePerHost").map(_.getOrElse(defaultMaxIdlePerHost))
+      idleTimeout <- optLong(fields, "idleTimeoutSecs").map(_.getOrElse(defaultIdleTimeoutSecs))
+    yield ConnectionPoolConfig(maxIdle, idleTimeout)
+
+/** `_rift.proxy` — imposter-level proxy settings. Both members are optional, matching
+  * `RiftProxyConfig.java:8`.
+  */
+final case class ProxyConfig(
+    upstream: Option[UpstreamConfig] = None,
+    connectionPool: Option[ConnectionPoolConfig] = None
+):
+  def toJson: Json = Json.Obj(
+    Vector(
+      upstream.map(u => "upstream" -> u.toJson),
+      connectionPool.map(p => "connectionPool" -> p.toJson)
+    ).flatten
+  )
+
+object ProxyConfig:
+  def fromJson(json: Json): Either[JsonError.Decode, ProxyConfig] =
+    for
+      fields <- asObj(json, "proxy")
+      upstream <- fields.field("upstream") match
+        case Some(u) => UpstreamConfig.fromJson(u).map(Some(_)).left.map(_.under("upstream"))
+        case None => Right(None)
+      pool <- fields.field("connectionPool") match
+        case Some(p) =>
+          ConnectionPoolConfig.fromJson(p).map(Some(_)).left.map(_.under("connectionPool"))
+        case None => Right(None)
+    yield ProxyConfig(upstream, pool)
+
+/** The imposter-level `_rift` extension block: flow-state backend, scripting, metrics, proxy. */
 final case class RiftConfig(
     flowState: Option[FlowStateConfig] = None,
     scriptEngine: Option[ScriptEngineConfig] = None,
     scripts: Vector[(String, ScriptSource)] = Vector.empty,
-    metrics: Option[MetricsConfig] = None
+    metrics: Option[MetricsConfig] = None,
+    proxy: Option[ProxyConfig] = None
 ):
   def toJson: Json = Json.Obj(
     Vector(
@@ -128,7 +203,8 @@ final case class RiftConfig(
       scriptEngine.map(s => "scriptEngine" -> s.toJson),
       if scripts.nonEmpty then Some("scripts" -> Json.Obj(scripts.map((k, v) => k -> v.toJson)))
       else None,
-      metrics.map(m => "metrics" -> m.toJson)
+      metrics.map(m => "metrics" -> m.toJson),
+      proxy.map(p => "proxy" -> p.toJson)
     ).flatten
   )
 
@@ -159,4 +235,7 @@ object RiftConfig:
       metrics <- fields.field("metrics") match
         case Some(m) => MetricsConfig.fromJson(m).map(Some(_)).left.map(_.under("metrics"))
         case None => Right(None)
-    yield RiftConfig(flowState, scriptEngine, scripts, metrics)
+      proxy <- fields.field("proxy") match
+        case Some(p) => ProxyConfig.fromJson(p).map(Some(_)).left.map(_.under("proxy"))
+        case None => Right(None)
+    yield RiftConfig(flowState, scriptEngine, scripts, metrics, proxy)

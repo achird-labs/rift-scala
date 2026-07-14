@@ -266,3 +266,52 @@ class DslSpec extends munit.FunSuite:
   test("adding a response does not change the predicate part"):
     val lookup = on(GET, "/x").where(query("a").is("1"))
     assertEquals(lookup.reply(ok).build.predicates, (lookup: RequestMatch).predicates)
+
+  // ── #20: proxy write-side combinators + imposter-level _rift.proxy ─────────
+  test("proxyTo combinators build the write-side proxy fields"):
+    val r = proxyTo("http://origin").proxyOnce.addWaitBehavior
+      .injectHeader("X-Trace", "1")
+      .injectHeader("X-Env", "test")
+      .decorateWith("function () {}")
+      .rewritePath("^/api", "/v2")
+      .build
+      .asInstanceOf[Response.Proxy]
+    assertEquals(r.proxy.addWaitBehavior, true)
+    assertEquals(r.proxy.injectHeaders, Vector("X-Trace" -> "1", "X-Env" -> "test"))
+    assertEquals(r.proxy.addDecorateBehavior, Some("function () {}"))
+    assertEquals(r.proxy.pathRewrite, Some(PathRewrite("^/api", "/v2")))
+
+  test("proxyTo composes the write-side fields with mode and generators"):
+    val r = proxyTo("http://origin").proxyTransparent
+      .generateBy(RequestField.Method, RequestField.Path)
+      .addWaitBehavior
+      .build
+      .asInstanceOf[Response.Proxy]
+    assertEquals(r.proxy.mode, ProxyMode.ProxyTransparent)
+    assertEquals(r.proxy.predicateGenerators.size, 2)
+    assertEquals(r.proxy.addWaitBehavior, true)
+
+  test("proxyTo emits nothing extra when no write-side field is set"):
+    val json = proxyTo("http://origin").build.asInstanceOf[Response.Proxy].proxy.toJson
+    assertEquals(json.get("addWaitBehavior"), None)
+    assertEquals(json.get("injectHeaders"), None)
+    assertEquals(json.get("pathRewrite"), None)
+
+  test("imposter.proxyConfig builds the _rift.proxy block"):
+    val d = imposter("api")
+      .proxyConfig(upstream("origin.internal", 8443, "https"), connectionPool(50, 30))
+      .build
+    assertEquals(
+      d.rift.flatMap(_.proxy),
+      Some(
+        ProxyConfig(
+          Some(UpstreamConfig("origin.internal", 8443, "https")),
+          Some(ConnectionPoolConfig(50, 30L))
+        )
+      )
+    )
+
+  test("imposter.proxyConfig composes with the other _rift blocks"):
+    val d = imposter("api").flowState(inMemoryFlowState).proxyConfig(upstream("h", 80)).build
+    assert(d.rift.flatMap(_.flowState).isDefined)
+    assert(d.rift.flatMap(_.proxy).flatMap(_.upstream).isDefined)

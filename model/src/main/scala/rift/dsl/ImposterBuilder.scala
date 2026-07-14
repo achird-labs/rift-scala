@@ -22,6 +22,21 @@ final class FlowStateConfigBuilder private[dsl] (
   private[dsl] def build: FlowStateConfig =
     FlowStateConfig(backend, ttlSecondsValue, flowIdSourceValue)
 
+/** Where an imposter-level proxy sends traffic — the `_rift.proxy.upstream` block. */
+def upstream(
+    host: String,
+    port: Int,
+    protocol: String = UpstreamConfig.defaultProtocol
+): UpstreamConfig = UpstreamConfig(host, port, protocol)
+
+/** Connection pooling for an imposter-level proxy — the `_rift.proxy.connectionPool` block. Omitted
+  * values keep the engine's own defaults.
+  */
+def connectionPool(
+    maxIdlePerHost: Int = ConnectionPoolConfig.defaultMaxIdlePerHost,
+    idleTimeoutSecs: Long = ConnectionPoolConfig.defaultIdleTimeoutSecs
+): ConnectionPoolConfig = ConnectionPoolConfig(maxIdlePerHost, idleTimeoutSecs)
+
 def inMemoryFlowState: FlowStateConfigBuilder = new FlowStateConfigBuilder(
   FlowStateBackend.InMemory
 )
@@ -109,6 +124,21 @@ final class ImposterBuilder private[dsl] (
 
   def script(name: String, source: ScriptSource): ImposterBuilder =
     withState(riftValue = Some(rift.copy(scripts = rift.scripts :+ (name -> source))))
+
+  /** The imposter-level `_rift.proxy` block — where this imposter proxies to, and how it pools
+    * those connections. Distinct from a per-stub `proxyTo(...)` response.
+    *
+    * Overloaded rather than defaulted so an omitted `connectionPool` stays absent on the wire: the
+    * engine supplies its own defaults, and emitting `{"maxIdlePerHost":100,...}` the author never
+    * wrote would be a gratuitous divergence.
+    */
+  def proxyConfig(upstream: UpstreamConfig): ImposterBuilder =
+    withState(riftValue = Some(rift.copy(proxy = Some(ProxyConfig(Some(upstream), None)))))
+
+  def proxyConfig(upstream: UpstreamConfig, connectionPool: ConnectionPoolConfig): ImposterBuilder =
+    withState(riftValue =
+      Some(rift.copy(proxy = Some(ProxyConfig(Some(upstream), Some(connectionPool)))))
+    )
 
   def stub(s: StubBuilder[StubPhase.Complete]): ImposterBuilder =
     withState(stubsValue = stubsValue :+ s.build)

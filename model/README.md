@@ -65,7 +65,31 @@ Two conventions come from that comparison rather than from taste, and should not
   (`types.rs:812-817`). The Scala `tls: Option[TlsMaterial]` field is an ergonomic grouping that is
   flattened on encode.
 
-Known unmodeled corners are tracked in [#20](https://github.com/EtaCassiopeia/rift-scala/issues/20).
+### `_behaviors` — two wire forms in, one out
+
+`POST /imposters` takes `_behaviors` as an **object**; `GET /imposters` hands it back as an **array
+of single-key objects** (`[{"wait":100},{"decorate":"..."}]`, engine `behaviors_to_array`). Both
+decode. Encoding always uses the object form — rift-java's policy verbatim, so a GET → PUT
+normalizes spelling identically in both SDKs.
+
+The array is the only form that can repeat a key. `copy`/`lookup`/`shellTransform` are the only keys
+the object form spells as an array, so they are the only ones that may repeat — they accumulate into
+that single array. Any other repeated key, **scalar or unknown**, has no object-form representation,
+so it is a decode error rather than a silent last-wins that would lose data on the next encode.
+
+That allow-list is deliberate: an unknown key the engine grows later is not vector-valued just
+because this module doesn't model it, so its value passes through untouched. Wrapping it would turn
+`{"futureThing":{...}}` into `{"futureThing":[{...}]}` on the next PUT — a document the author never
+wrote, and precisely what `unknown` exists to prevent.
+
+The one thing this cannot round-trip is an array that repeats a non-vector key — the same limitation
+rift-java documents, and unreachable from any engine output.
+
+### Still unverified
+
+`Admin.ScenarioStatus`'s `{name, state}` shape has no reference in the engine or rift-java, so it is
+asserted by the conformance corpus (#6) rather than from this module. Everything else previously
+tracked in [#20](https://github.com/EtaCassiopeia/rift-scala/issues/20) is now modeled.
 
 ### `_behaviors.wait` — four canonical spellings
 
