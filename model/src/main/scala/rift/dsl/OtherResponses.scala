@@ -8,20 +8,63 @@ import rift.model.*
 final class ProxyResponseBuilder private[dsl] (
     private val to: String,
     private val modeValue: ProxyMode = ProxyMode.ProxyAlways,
-    private val generatorsValue: Vector[RequestField] = Vector.empty
+    private val generatorsValue: Vector[RequestField] = Vector.empty,
+    private val addWaitValue: Boolean = false,
+    private val injectHeadersValue: Vector[(String, String)] = Vector.empty,
+    private val decorateValue: Option[String] = None,
+    private val rewriteValue: Option[PathRewrite] = None
 ) extends ResponseBuilder:
-  def proxyOnce: ProxyResponseBuilder =
-    new ProxyResponseBuilder(to, ProxyMode.ProxyOnce, generatorsValue)
-  def proxyAlways: ProxyResponseBuilder =
-    new ProxyResponseBuilder(to, ProxyMode.ProxyAlways, generatorsValue)
-  def proxyTransparent: ProxyResponseBuilder =
-    new ProxyResponseBuilder(to, ProxyMode.ProxyTransparent, generatorsValue)
+  private def withState(
+      modeValue: ProxyMode = this.modeValue,
+      generatorsValue: Vector[RequestField] = this.generatorsValue,
+      addWaitValue: Boolean = this.addWaitValue,
+      injectHeadersValue: Vector[(String, String)] = this.injectHeadersValue,
+      decorateValue: Option[String] = this.decorateValue,
+      rewriteValue: Option[PathRewrite] = this.rewriteValue
+  ): ProxyResponseBuilder =
+    new ProxyResponseBuilder(
+      to,
+      modeValue,
+      generatorsValue,
+      addWaitValue,
+      injectHeadersValue,
+      decorateValue,
+      rewriteValue
+    )
+
+  def proxyOnce: ProxyResponseBuilder = withState(modeValue = ProxyMode.ProxyOnce)
+  def proxyAlways: ProxyResponseBuilder = withState(modeValue = ProxyMode.ProxyAlways)
+  def proxyTransparent: ProxyResponseBuilder = withState(modeValue = ProxyMode.ProxyTransparent)
 
   def generateBy(fields: RequestField*): ProxyResponseBuilder =
-    new ProxyResponseBuilder(to, modeValue, fields.toVector)
+    withState(generatorsValue = fields.toVector)
+
+  /** Records the observed upstream latency as a `wait` behavior on each recorded stub. */
+  def addWaitBehavior: ProxyResponseBuilder = withState(addWaitValue = true)
+
+  /** Adds a header to the request sent upstream (not to the recorded stub's response). */
+  def injectHeader(name: String, value: String): ProxyResponseBuilder =
+    withState(injectHeadersValue = injectHeadersValue :+ (name -> value))
+
+  /** Attaches a `decorate` behavior to each recorded stub. */
+  def decorateWith(js: String): ProxyResponseBuilder = withState(decorateValue = Some(js))
+
+  /** Rewrites the recorded stub's path, e.g. `rewritePath("^/api", "/v2")`. */
+  def rewritePath(from: String, to: String): ProxyResponseBuilder =
+    withState(rewriteValue = Some(PathRewrite(from, to)))
 
   def build: Response =
-    Response.Proxy(ProxyResponse(to, modeValue, generatorsValue.map(_.toGeneratorJson)))
+    Response.Proxy(
+      ProxyResponse(
+        to,
+        modeValue,
+        generatorsValue.map(_.toGeneratorJson),
+        addWaitValue,
+        injectHeadersValue,
+        decorateValue,
+        rewriteValue
+      )
+    )
 
 def proxyTo(url: String): ProxyResponseBuilder = new ProxyResponseBuilder(url)
 

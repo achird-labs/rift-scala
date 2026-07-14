@@ -239,3 +239,213 @@ class RiftWireShapeSpec extends munit.FunSuite:
       val json = parse(s"""{"wait":$raw}""")
       val b = Behaviors.fromJson(json).fold(e => fail(s"$raw: $e"), identity)
       assert(b.toJson.semanticEquals(json), s"$raw did not round-trip: ${b.toJson.render}")
+
+  // ── 11. Behaviors array form — what the engine EMITS on GET /imposters ───────────────────────
+  // Proof: engine `behaviors_to_array` (imposter/types.rs:451-472) renders `_behaviors` as an array
+  // of single-key objects on read-back; rift-java `Behaviors.readArray` accepts it and always
+  // serializes the object form back. This is the read path #3's `definition()` will take.
+  test("behaviors: the engine's array-of-single-key-objects form decodes"):
+    val json = parse("""[{"wait":100},{"decorate":"function () {}"},{"repeat":3}]""")
+    val b = Behaviors.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(b.waitFor, Some(WaitBehavior.Fixed(100L)))
+    assertEquals(b.decorate, Some("function () {}"))
+    assertEquals(b.repeat, Some(3))
+
+  test("behaviors: the object form still decodes identically"):
+    val arr = parse("""[{"wait":100},{"repeat":3}]""")
+    val obj = parse("""{"wait":100,"repeat":3}""")
+    assertEquals(Behaviors.fromJson(arr), Behaviors.fromJson(obj))
+
+  /** Encoding always uses the object form — rift-java's stated policy verbatim, so a GET -> PUT
+    * normalizes spelling identically in both SDKs.
+    */
+  test("behaviors: an array decodes and re-encodes as the object form"):
+    val b = Behaviors
+      .fromJson(parse("""[{"wait":100},{"repeat":3}]"""))
+      .fold(e => fail(e.toString), identity)
+    assert(b.toJson.semanticEquals(parse("""{"wait":100,"repeat":3}""")))
+
+  test("behaviors: repeated vector-valued keys in an array accumulate"):
+    val json = parse(
+      """[{"copy":{"from":"path","into":"$1","using":{"method":"regex","selector":"."}}},
+                        |{"copy":{"from":"body","into":"$2","using":{"method":"regex","selector":"."}}}]""".stripMargin
+        .replace("\n", "")
+    )
+    val b = Behaviors.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(b.copyEntries.size, 2)
+    // and they survive the round-trip into the object form's single `copy` array
+    assertEquals(b.toJson.get("copy").flatMap(_.asArray).map(_.size), Some(2))
+
+  test("behaviors: an array entry with zero or several keys is a decode error"):
+    assert(Behaviors.fromJson(parse("""[{}]""")).isLeft)
+    assert(Behaviors.fromJson(parse("""[{"wait":100,"repeat":3}]""")).isLeft)
+
+  test("behaviors: a non-object array entry is a decode error"):
+    assert(Behaviors.fromJson(parse("""["wait"]""")).isLeft)
+
+  /** A repeated scalar key has no object-form representation, so silently keeping the last would
+    * lose data on the very next encode. Fail loudly instead.
+    */
+  test("behaviors: a repeated scalar key in an array is a decode error, not last-wins"):
+    assert(Behaviors.fromJson(parse("""[{"wait":100},{"wait":200}]""")).isLeft)
+    assert(Behaviors.fromJson(parse("""[{"repeat":1},{"repeat":2}]""")).isLeft)
+
+  test("behaviors: an empty array is an empty Behaviors"):
+    assertEquals(Behaviors.fromJson(parse("[]")), Right(Behaviors.empty))
+
+  /** Forward compatibility, the array-form half. Asserting only that the *key* survived would miss
+    * the failure that matters: an unknown key is not vector-valued just because the model does not
+    * know it, so array-wrapping its value would hand the engine back `{"futureThing":[{...}]}` on
+    * the next PUT — a document the author never wrote.
+    */
+  test("behaviors: an unknown key's value round-trips unchanged through the array form"):
+    val b = Behaviors
+      .fromJson(parse("""[{"wait":100},{"futureThing":{"x":1}}]"""))
+      .fold(e => fail(e.toString), identity)
+    assertEquals(b.unknown, Vector("futureThing" -> parse("""{"x":1}""")))
+    assert(
+      b.toJson.semanticEquals(parse("""{"wait":100,"futureThing":{"x":1}}""")),
+      s"unknown key was reshaped: ${b.toJson.render}"
+    )
+
+  test("behaviors: the two forms agree on an unknown key"):
+    assertEquals(
+      Behaviors.fromJson(parse("""[{"futureThing":{"x":1}}]""")),
+      Behaviors.fromJson(parse("""{"futureThing":{"x":1}}"""))
+    )
+
+  test("behaviors: an unknown scalar value is not promoted to an array"):
+    val b =
+      Behaviors.fromJson(parse("""[{"futureThing":5}]""")).fold(e => fail(e.toString), identity)
+    assert(b.toJson.semanticEquals(parse("""{"futureThing":5}""")), b.toJson.render)
+
+  test("behaviors: a repeated unknown key is a decode error, not a silent merge"):
+    assert(Behaviors.fromJson(parse("""[{"futureThing":1},{"futureThing":2}]""")).isLeft)
+
+  test("behaviors: an array entry whose value is already an array is not double-wrapped"):
+    val one = """{"from":"path","into":"$1","using":{"method":"regex","selector":"."}}"""
+    val two = """{"from":"body","into":"$2","using":{"method":"regex","selector":"."}}"""
+    val b = Behaviors
+      .fromJson(parse(s"""[{"copy":[$one,$two]}]"""))
+      .fold(e => fail(e.toString), identity)
+    assertEquals(b.copyEntries, Vector(parse(one), parse(two)))
+
+  test("behaviors: a vector key mixes single and array entries across the array form"):
+    val one = """{"from":"path","into":"$1","using":{"method":"regex","selector":"."}}"""
+    val two = """{"from":"body","into":"$2","using":{"method":"regex","selector":"."}}"""
+    val b = Behaviors
+      .fromJson(parse(s"""[{"copy":$one},{"copy":[$two]}]"""))
+      .fold(e => fail(e.toString), identity)
+    assertEquals(b.copyEntries, Vector(parse(one), parse(two)))
+
+  test("behaviors: shellTransform's bare-string spelling works through the array form"):
+    val b =
+      Behaviors
+        .fromJson(parse("""[{"shellTransform":"cmd"}]"""))
+        .fold(e => fail(e.toString), identity)
+    assertEquals(b.shellTransform, Vector("cmd"))
+
+  test("behaviors: a non-array copy is a decode error rather than a silent drop"):
+    assert(
+      Behaviors.fromJson(parse("""{"copy":{"a":1}}""")).isLeft,
+      "object form must not swallow it"
+    )
+    // an array entry spells a single copy exactly this way, so it stays legal there
+    assert(Behaviors.fromJson(parse("""[{"copy":{"a":1}}]""")).isRight)
+
+  test("behaviors: an array decode error names the offending entry index"):
+    List("""[{"wait":100},{}]""", """[{"wait":1},{"wait":2}]""", """[{"a":1,"b":2}]""").foreach:
+      raw =>
+        Behaviors.fromJson(parse(raw)) match
+          case Left(e) => assert(e.toString.contains("["), s"$raw: error did not name an entry: $e")
+          case Right(b) => fail(s"$raw should not decode, got $b")
+
+  // ── 12. ProxyResponse write-side fields ─────────────────────────────────────────────────────
+  // Proof: engine types.rs:780-788; rift-java ProxyResponse.java:27-35 (modeled keys at :38-39),
+  // which emits addWaitBehavior only when true and injectHeaders only when non-empty.
+  test("proxy: the four write-side fields round-trip"):
+    val json = parse(
+      """{"to":"http://origin","mode":"proxyOnce","addWaitBehavior":true,
+                        |"injectHeaders":{"X-A":"1","X-B":"2"},"addDecorateBehavior":"function () {}",
+                        |"pathRewrite":{"from":"^/api","to":"/v2"}}""".stripMargin.replace("\n", "")
+    )
+    val p = ProxyResponse.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(p.addWaitBehavior, true)
+    assertEquals(p.injectHeaders, Vector("X-A" -> "1", "X-B" -> "2"))
+    assertEquals(p.addDecorateBehavior, Some("function () {}"))
+    assertEquals(p.pathRewrite, Some(PathRewrite("^/api", "/v2")))
+    assert(p.toJson.semanticEquals(json), s"did not round-trip: ${p.toJson.render}")
+
+  /** They used to survive only as opaque `extra` entries; decoding must now lift them into typed
+    * fields, or the DSL could never build them.
+    */
+  test("proxy: the write-side fields are lifted out of `extra`"):
+    val json = parse("""{"to":"http://o","mode":"proxyAlways","addWaitBehavior":true}""")
+    val p = ProxyResponse.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(p.extra, Vector.empty)
+    assertEquals(p.addWaitBehavior, true)
+
+  test("proxy: addWaitBehavior is emitted only when true (rift-java parity)"):
+    val off = ProxyResponse("http://o").toJson
+    assertEquals(off.get("addWaitBehavior"), None)
+    val on = ProxyResponse("http://o", addWaitBehavior = true).toJson
+    assertEquals(on.get("addWaitBehavior"), Some(Json.Bool(true)))
+
+  test("proxy: injectHeaders is emitted only when non-empty, preserving order"):
+    assertEquals(ProxyResponse("http://o").toJson.get("injectHeaders"), None)
+    val p = ProxyResponse("http://o", injectHeaders = Vector("B" -> "2", "A" -> "1"))
+    assertEquals(
+      p.toJson.get("injectHeaders"),
+      Some(Json.Obj(Vector("B" -> Json.Str("2"), "A" -> Json.Str("1"))))
+    )
+
+  test("proxy: a non-object injectHeaders is a decode error"):
+    assert(ProxyResponse.fromJson(parse("""{"to":"http://o","injectHeaders":["X"]}""")).isLeft)
+
+  test("proxy: a pathRewrite missing 'to' is a decode error"):
+    assert(
+      ProxyResponse.fromJson(parse("""{"to":"http://o","pathRewrite":{"from":"^/x"}}""")).isLeft
+    )
+
+  test("proxy: unknown keys still survive on `extra`"):
+    val p = ProxyResponse
+      .fromJson(parse("""{"to":"http://o","futureKey":1}"""))
+      .fold(e => fail(e.toString), identity)
+    assertEquals(p.extra.map(_._1), Vector("futureKey"))
+
+  // ── 13. _rift.proxy — imposter-level proxy config ────────────────────────────────────────────
+  // Proof: engine types.rs:963-973; rift-java RiftProxyConfig/RiftUpstreamConfig/
+  // RiftConnectionPoolConfig (defaults: protocol "http", maxIdlePerHost 100, idleTimeoutSecs 90).
+  test("_rift.proxy: upstream and connectionPool round-trip"):
+    val json = parse(
+      """{"proxy":{"upstream":{"host":"origin.internal","port":8443,"protocol":"https"},
+                        |"connectionPool":{"maxIdlePerHost":50,"idleTimeoutSecs":30}}}""".stripMargin
+        .replace("\n", "")
+    )
+    val c = RiftConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(
+      c.proxy,
+      Some(
+        ProxyConfig(
+          Some(UpstreamConfig("origin.internal", 8443, "https")),
+          Some(ConnectionPoolConfig(50, 30L))
+        )
+      )
+    )
+    assert(c.toJson.semanticEquals(json))
+
+  test("_rift.proxy: protocol defaults to http and the pool defaults match rift-java"):
+    val c = RiftConfig
+      .fromJson(parse("""{"proxy":{"upstream":{"host":"h","port":80},"connectionPool":{}}}"""))
+      .fold(e => fail(e.toString), identity)
+    assertEquals(c.proxy.flatMap(_.upstream).map(_.protocol), Some("http"))
+    assertEquals(c.proxy.flatMap(_.connectionPool), Some(ConnectionPoolConfig(100, 90L)))
+
+  test("_rift.proxy: upstream without a host or port is a decode error"):
+    assert(RiftConfig.fromJson(parse("""{"proxy":{"upstream":{"port":80}}}""")).isLeft)
+    assert(RiftConfig.fromJson(parse("""{"proxy":{"upstream":{"host":"h"}}}""")).isLeft)
+
+  test("_rift.proxy: both members are optional"):
+    val c = RiftConfig.fromJson(parse("""{"proxy":{}}""")).fold(e => fail(e.toString), identity)
+    assertEquals(c.proxy, Some(ProxyConfig(None, None)))
+    assert(c.toJson.semanticEquals(parse("""{"proxy":{}}""")))
