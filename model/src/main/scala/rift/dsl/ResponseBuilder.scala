@@ -76,10 +76,25 @@ final class IsResponseBuilder private[dsl] (
       behaviorsValue.copy(waitFor = Some(WaitBehavior.Fixed(duration.toMillis)))
     )
 
+  /** A random wait in `[min, max]`, using the engine's native `{min,max}` wait rather than a
+    * generated JS function — nothing to execute, and no injection support needed at serve time.
+    */
   def afterBetween(min: FiniteDuration, max: FiniteDuration): IsResponseBuilder =
-    val spread = (max.toMillis - min.toMillis).max(0L) + 1L
-    val script =
-      s"function () { return ${min.toMillis} + Math.floor(Math.random() * $spread); }"
+    // The engine's range is `u64` and it samples `min..=max`, so an inverted or negative range is
+    // rejected (or panics) engine-side at serve time — catch it here, at the call site that wrote it.
+    require(min.toMillis >= 0, s"afterBetween: min (${min.toMillis}ms) must not be negative")
+    require(
+      max >= min,
+      s"afterBetween: max (${max.toMillis}ms) must not be less than min (${min.toMillis}ms)"
+    )
+    withState(behaviorsValue =
+      behaviorsValue.copy(waitFor = Some(WaitBehavior.Range(min.toMillis, max.toMillis)))
+    )
+
+  /** A wait whose duration is computed by a JS function the engine runs — needs the engine's
+    * injection support. Prefer [[after]]/[[afterBetween]] unless the delay is genuinely dynamic.
+    */
+  def afterInject(script: String): IsResponseBuilder =
     withState(behaviorsValue = behaviorsValue.copy(waitFor = Some(WaitBehavior.Inject(script))))
 
   def decorate(js: String): IsResponseBuilder =

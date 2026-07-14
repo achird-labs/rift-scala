@@ -65,9 +65,25 @@ Two conventions come from that comparison rather than from taste, and should not
   (`types.rs:812-817`). The Scala `tls: Option[TlsMaterial]` field is an ergonomic grouping that is
   flattened on encode.
 
-Known unmodeled corners are tracked in [#20](https://github.com/EtaCassiopeia/rift-scala/issues/20), and
-`_behaviors.wait`'s inject form is pending an upstream ruling
-([rift#608](https://github.com/EtaCassiopeia/rift/issues/608) / [#19](https://github.com/EtaCassiopeia/rift-scala/issues/19)).
+Known unmodeled corners are tracked in [#20](https://github.com/EtaCassiopeia/rift-scala/issues/20).
+
+### `_behaviors.wait` — four canonical spellings
+
+Per the [rift#608 ruling](https://github.com/EtaCassiopeia/rift/issues/608), every form below is
+canonical, and each **re-encodes to the spelling it was decoded from** so that
+`GET /imposters?replayable=true` hands an author back their own config. The variant set mirrors
+rift-java's `WaitSpec`, so both SDKs accept and emit the same wire forms.
+
+| Wire | Case | DSL | Portable to Mountebank? |
+|---|---|---|---|
+| `100` | `Fixed(100)` | `ok.after(100.millis)` | yes |
+| `"function () {...}"` | `Script(...)` | *(decode/round-trip only)* | yes |
+| `{"min":100,"max":500}` | `Range(100, 500)` | `ok.afterBetween(100.millis, 500.millis)` | no — Rift extension |
+| `{"inject":"function () {...}"}` | `Inject(...)` | `ok.afterInject(js)` | no — Rift/SDK spelling |
+
+`afterBetween` emits the native `{min,max}` wait rather than a generated JS function, so a random
+delay needs nothing enabled at serve time. `Script` has no DSL sugar on purpose: it exists so a
+Mountebank-portable config round-trips faithfully, while new configs get the Rift spelling.
 
 ### Forward compatibility
 

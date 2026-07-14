@@ -4,22 +4,55 @@ import rift.json.{Json, JsonError}
 import rift.json.JsonError.under
 import JsonSupport.*
 
+/** `_behaviors.wait`. Four spellings, all canonical per the
+  * [[https://github.com/EtaCassiopeia/rift/issues/608 rift#608 ruling]] — the variant set mirrors
+  * rift-java's `WaitSpec` so both SDKs accept and emit the same wire forms.
+  *
+  * Each case re-encodes to the spelling it was decoded from, which is what lets `GET
+  * /imposters?replayable=true` hand an author back their own config.
+  *
+  *   - [[Fixed]] `100` and [[Script]] `"function () {...}"` are the Mountebank-compatible
+  *     spellings.
+  *   - [[Range]] `{min,max}` and [[Inject]] `{inject}` are Rift extensions — accepted by the engine
+  *     but not portable *to* Mountebank.
+  */
 enum WaitBehavior:
   case Fixed(millis: Long)
+  case Range(minMillis: Long, maxMillis: Long)
   case Inject(script: String)
+  case Script(source: String)
 
   def toJson: Json = this match
     case WaitBehavior.Fixed(millis) => Json.Num(BigDecimal(millis))
+    case WaitBehavior.Range(min, max) =>
+      Json.obj("min" -> Json.Num(BigDecimal(min)), "max" -> Json.Num(BigDecimal(max)))
     case WaitBehavior.Inject(script) => Json.obj("inject" -> Json.Str(script))
+    case WaitBehavior.Script(source) => Json.Str(source)
 
 object WaitBehavior:
+  private val expected =
+    "expected whole-millisecond number, a script string, {inject: <script>}, or {min, max}"
+
+  /** The two object shapes are disjoint (`inject` vs `min`+`max`), so the untagged decode is
+    * unambiguous — the same property the engine's own untagged enum relies on. `inject` is checked
+    * first, matching rift-java's `WaitSpec.read` precedence.
+    *
+    * Millisecond counts are `isValidLong`-guarded rather than `toLong`-truncated: the engine types
+    * these as `u64` and rift-java throws on a non-integral wait, so `1.5` or `1e30` must be a loud
+    * decode error here too — truncating would silently re-encode a *different* config than the one
+    * that was read.
+    */
   def fromJson(json: Json): Either[JsonError.Decode, WaitBehavior] = json match
-    case Json.Num(n) => Right(Fixed(n.toLong))
+    case Json.Num(n) if n.isValidLong => Right(Fixed(n.toLong))
+    case Json.Str(s) => Right(Script(s))
     case Json.Obj(fields) =>
-      fields.field("inject") match
-        case Some(Json.Str(s)) => Right(Inject(s))
-        case _ => Left(JsonError.Decode("expected {inject: <script>}", Vector.empty))
-    case _ => Left(JsonError.Decode("expected a number or {inject: <script>}", Vector.empty))
+      (fields.field("inject"), fields.field("min"), fields.field("max")) match
+        case (Some(Json.Str(s)), _, _) => Right(Inject(s))
+        case (None, Some(Json.Num(min)), Some(Json.Num(max)))
+            if min.isValidLong && max.isValidLong =>
+          Right(Range(min.toLong, max.toLong))
+        case _ => Left(JsonError.Decode(expected, Vector.empty))
+    case _ => Left(JsonError.Decode(expected, Vector.empty))
 
 /** `_behaviors`. Unknown keys survive on `unknown` — the engine adds new behaviors over time and a
   * decode -> encode round-trip must not drop them.

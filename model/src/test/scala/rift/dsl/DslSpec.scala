@@ -139,9 +139,36 @@ class DslSpec extends munit.FunSuite:
   test("behaviors build the Mountebank _behaviors block"):
     val r = ok.after(150.millis).build.asInstanceOf[Response.Is]
     assert(r.toJson.get("_behaviors", "wait").contains(Json.Num(BigDecimal(150))))
-    val ranged = ok.afterBetween(100.millis, 500.millis).build.asInstanceOf[Response.Is]
-    assert(ranged.toJson.get("_behaviors", "wait").isDefined)
     assert(ok.repeat(2).build.toJson.get("_behaviors", "repeat").contains(Json.Num(BigDecimal(2))))
+
+  /** `afterBetween` used to compile to a JS `inject` (`function () { return min + random*spread
+    * }`), which needs the engine's injection support at serve time. The engine has a native
+    * `{min,max}` wait, so the DSL emits that instead — no script, nothing to enable.
+    */
+  test("afterBetween emits the native range form, not a JS inject"):
+    val ranged = ok.afterBetween(100.millis, 500.millis).build.asInstanceOf[Response.Is]
+    assertEquals(
+      ranged.toJson.get("_behaviors", "wait"),
+      Some(parse("""{"min":100,"max":500}"""))
+    )
+
+  // The engine samples `min..=max` inclusively; that it *is* inclusive is an engine property this
+  // test cannot observe (it is a conformance assertion, #6) — what it pins is that min == max is a
+  // legal degenerate range rather than something the builder rejects.
+  test("afterBetween tolerates min == max"):
+    val same = ok.afterBetween(200.millis, 200.millis).build.asInstanceOf[Response.Is]
+    assertEquals(same.toJson.get("_behaviors", "wait"), Some(parse("""{"min":200,"max":200}""")))
+
+  test("afterBetween rejects a range the engine's u64 could not serve"):
+    intercept[IllegalArgumentException](ok.afterBetween(500.millis, 100.millis))
+    intercept[IllegalArgumentException](ok.afterBetween(-100.millis, 50.millis))
+
+  test("afterInject emits the {inject: <script>} object form"):
+    val injected = ok.afterInject("function () { return 42; }").build.asInstanceOf[Response.Is]
+    assertEquals(
+      injected.toJson.get("_behaviors", "wait"),
+      Some(parse("""{"inject":"function () { return 42; }"}"""))
+    )
 
   test("_rift probabilistic faults compose with an is-response"):
     val r = ok.withLatencyFault(probability = 0.5, 1.second).build.asInstanceOf[Response.Is]
