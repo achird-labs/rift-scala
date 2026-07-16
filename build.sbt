@@ -113,6 +113,16 @@ lazy val zio = riftModule("zio", "zio")
 
 lazy val zioTestkit = riftModule("zioTestkit", "zio-testkit")
   .dependsOn(zio)
+  .settings(
+    // zio-test is a COMPILE dep here (not Test-scoped, unlike in `zio`): the testkit exposes
+    // zio-test aspects/assertions as part of its own public API, so downstream test suites need it
+    // on their compile classpath transitively.
+    libraryDependencies ++= Seq(
+      "dev.zio" %% "zio-test" % Dependencies.zio,
+      "dev.zio" %% "zio-test-sbt" % Dependencies.zio % Test
+    ),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
+  )
 
 lazy val cats = riftModule("cats", "cats")
   .dependsOn(bridge)
