@@ -1,6 +1,7 @@
 package rift.bridge
 
 import java.net.URI
+import java.nio.file.Path
 
 import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
@@ -15,15 +16,10 @@ import io.github.etacassiopeia.rift.StubRef as JStubRef
 import io.github.etacassiopeia.rift.Scenarios as JScenarios
 import io.github.etacassiopeia.rift.Space as JSpace
 import io.github.etacassiopeia.rift.FlowState as JFlowState
+import io.github.etacassiopeia.rift.Recording as JRecording
 
 /** Blocking, throwing (`RiftError`) handle on one imposter — mirrors `rift.zio.ImposterHandle`
   * (DESIGN.md §5.2/§5.3) 1:1 but blocking.
-  *
-  * `startRecording(origin, spec)` is not yet implemented: the `RecordSpec`-driven overload needs
-  * `dsl.RequestField`/`RecordMode` modeled in `rift-scala-model`, which doesn't exist yet, and even
-  * the simple overload's `Recording` handle (stop/snapshot/persist) was left for that same
-  * follow-up rather than shipped as a half-mirrored surface. See the bridge implementation report
-  * (issue #3).
   */
 final class ImposterConnector private[bridge] (underlying: JImposter):
 
@@ -116,9 +112,35 @@ final class ImposterConnector private[bridge] (underlying: JImposter):
   def flowState(flowId: FlowId): FlowStateHandle =
     FacadeBoundary.run(FlowStateHandle(underlying.flowState(FlowId.value(flowId))))
 
+  /** Start a proxy-capture recording session: this imposter proxies to `origin` and turns matched
+    * traffic into stubs per `spec` (DESIGN.md §5.2). The returned `RecordingConnector` owns the
+    * live session — `close()`/`Using` stops and discards it (the facade default), so a caller that
+    * wants to keep the captured stubs must call `stop()`/`snapshot()`/`persist(...)` before it
+    * closes.
+    */
+  def startRecording(origin: URI, spec: RecordSpec = RecordSpec()): RecordingConnector =
+    FacadeBoundary.run(RecordingConnector(underlying.startRecording(origin.toString, spec.toJava)))
+
   def enable(): Unit = FacadeBoundary.run(underlying.enable())
   def disable(): Unit = FacadeBoundary.run(underlying.disable())
   def delete(): Unit = FacadeBoundary.run(underlying.delete())
+
+/** A live proxy-capture recording session (`ImposterConnector.startRecording`, DESIGN.md §5.2).
+  * Blocking/throwing; `AutoCloseable` so it is `Using`-friendly — `close()` stops and **discards**
+  * the recording (mirrors the facade `Recording.close()` default), so persist or read the stubs via
+  * `stop()`/`snapshot()`/`persist(...)` before closing.
+  */
+final class RecordingConnector private[bridge] (underlying: JRecording) extends AutoCloseable:
+  /** Stop recording and return the captured stubs. */
+  def stop(): Vector[Stub] = FacadeBoundary.run(FacadeDecode.stubs(underlying.stop()))
+
+  /** The stubs captured so far, without stopping the session. */
+  def snapshot(): Vector[Stub] = FacadeBoundary.run(FacadeDecode.stubs(underlying.snapshot()))
+
+  /** Write the captured stubs to `path` as a loadable imposter file. */
+  def persist(path: Path): Unit = FacadeBoundary.run(underlying.persist(path))
+
+  def close(): Unit = FacadeBoundary.run(underlying.close())
 
 /** A stub previously added to an imposter — lets a caller re-fetch its assigned index/id, replace
   * it, or delete it without re-adding.

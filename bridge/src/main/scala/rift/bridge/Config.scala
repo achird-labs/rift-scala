@@ -9,6 +9,8 @@ import scala.jdk.DurationConverters.*
 
 import io.github.etacassiopeia.rift.{ConnectOptions, EmbeddedOptions, SpawnOptions}
 import io.github.etacassiopeia.rift.VersionCheck as JVersionCheck
+import io.github.etacassiopeia.rift.{RecordMode as JRecordMode, RecordSpec as JRecordSpec}
+import io.github.etacassiopeia.rift.dsl.RequestField as JRequestField
 
 /** Mirrors rift-java's `VersionCheck` enum — how a mismatched engine/rift-java version is handled
   * on connect.
@@ -101,3 +103,45 @@ final case class ContainerConfig(
     gateway: Boolean = false,
     interceptPort: Option[Int] = None
 )
+
+/** Mirrors rift-java's `RecordMode` — how a proxy-capture session records matched requests. */
+enum RecordMode:
+  case Once, Always, Transparent
+
+  private[bridge] def toJava: JRecordMode = this match
+    case RecordMode.Once => JRecordMode.ONCE
+    case RecordMode.Always => JRecordMode.ALWAYS
+    case RecordMode.Transparent => JRecordMode.TRANSPARENT
+
+/** Mirrors rift-java's `dsl.RequestField` — a request attribute a recording turns into a stub
+  * predicate (`RecordSpec.generateBy`).
+  */
+enum RequestField:
+  case Method, Path, Query, Headers, Body
+
+  private[bridge] def toJava: JRequestField = this match
+    case RequestField.Method => JRequestField.METHOD
+    case RequestField.Path => JRequestField.PATH
+    case RequestField.Query => JRequestField.QUERY
+    case RequestField.Headers => JRequestField.HEADERS
+    case RequestField.Body => JRequestField.BODY
+
+/** Scala-idiomatic mirror of `RecordSpec` — configures a `startRecording` proxy-capture session.
+  * The defaults mirror the facade builder's own defaults exactly (`RecordSpec.builder()`: `mode =
+  * ONCE`, `generateBy = [METHOD, PATH]`, `addWaitBehavior = true`, `ignoreHeaders = []`), so
+  * `RecordSpec()` behaves identically to the facade's no-spec `startRecording(origin)`.
+  */
+final case class RecordSpec(
+    mode: RecordMode = RecordMode.Once,
+    generateBy: Vector[RequestField] = Vector(RequestField.Method, RequestField.Path),
+    addWaitBehavior: Boolean = true,
+    ignoreHeaders: Vector[String] = Vector.empty
+):
+  private[bridge] def toJava: JRecordSpec =
+    JRecordSpec
+      .builder()
+      .mode(mode.toJava)
+      .generateBy(generateBy.map(_.toJava)*)
+      .addWaitBehavior(addWaitBehavior)
+      .ignoreHeaders(ignoreHeaders*)
+      .build()
