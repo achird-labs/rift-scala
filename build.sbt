@@ -90,6 +90,19 @@ lazy val circe = riftModule("circe", "circe")
 
 lazy val bridge = riftModule("bridge", "bridge")
   .dependsOn(model)
+  .settings(
+    libraryDependencies ++=
+      Dependencies.riftJavaCoreDeps ++
+        Dependencies.riftJavaTestcontainersDeps ++
+        Dependencies.munitDeps,
+    // RiftVersions.riftScala (DESIGN.md §5.2) reads this instead of hand-maintaining a version
+    // string that would drift from the actual build.
+    Compile / resourceGenerators += Def.task {
+      val file = (Compile / resourceManaged).value / "rift-scala-version.properties"
+      IO.write(file, s"version=${version.value}\n")
+      Seq(file)
+    }.taskValue
+  )
 
 lazy val zio = riftModule("zio", "zio")
   .dependsOn(bridge)

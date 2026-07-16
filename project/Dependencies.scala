@@ -10,6 +10,26 @@ object Dependencies {
   /** Pins the engine (0.14.0) and the conformance corpus transitively. */
   val riftJava = "0.1.2"
 
+  /** `bridge` compile scope (D2): the JDK-17+ facade
+    * (`Rift`/`Imposter`/`RiftException`/`JsonValue`/ `RiftVersion`) is all the bridge links against
+    * — no FFM, no HTTP, no native resolution in Scala. Embedded (`rift-java-embedded`) and the
+    * natives classifier jars are loaded at *runtime* via ServiceLoader, so they are never compile
+    * deps of the bridge; a consumer adds them per DESIGN §5.2.
+    */
+  val riftJavaCoreDeps: Seq[ModuleID] = Seq(
+    "io.github.etacassiopeia" % "rift-java-core" % riftJava
+  )
+
+  /** `container(...)` transport wraps `RiftContainer`, which lives in the testcontainers artifact.
+    * `% Optional` keeps it off every downstream classpath (it drags in org.testcontainers +
+    * Docker): the bridge links it, but consumers who never call `container` don't inherit it, and a
+    * call without it on the classpath surfaces as `RiftError.EngineUnavailable` naming the missing
+    * artifact.
+    */
+  val riftJavaTestcontainersDeps: Seq[ModuleID] = Seq(
+    "io.github.etacassiopeia" % "rift-java-testcontainers" % riftJava % Optional
+  )
+
   /** Codec side-car (D7): `rift-scala-zio-json` is the *only* place zio-json is allowed, so that
     * `rift-scala-zio` stays zio + zio-streams and no backend forces a JSON library on users.
     */
