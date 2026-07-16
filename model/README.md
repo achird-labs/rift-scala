@@ -52,7 +52,7 @@ a `_rift` block — so those shapes were verified by reading the references dire
 `RiftWireShapeSpec`, which cites the proving `file:line` for each:
 
 - the **Rift engine** (`crates/rift-mock-core/src/imposter/types.rs` and friends) — authoritative;
-- **rift-java 0.1.1** — the SDK this one mirrors (D2);
+- **rift-java 0.1.2** — the SDK this one mirrors (D2);
 - **zio-bdd** — an independent Scala cross-check.
 
 Two conventions come from that comparison rather than from taste, and should not be "tidied up":
@@ -113,7 +113,7 @@ Mountebank-portable config round-trips faithfully, while new configs get the Rif
 
 Unknown wire keys are preserved on an `extra: Vector[(String, Json)]` component of
 `ImposterDefinition` / `Stub` / `Response` and friends, so an engine that grows a field does not
-break round-tripping. Following rift-java 0.1.1's policy, putting a **modeled** key into `extra` is a
+break round-tripping. Following rift-java 0.1.2's policy, putting a **modeled** key into `extra` is a
 construction error rather than a silent override.
 
 ### Testing

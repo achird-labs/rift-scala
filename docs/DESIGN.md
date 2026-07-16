@@ -1,8 +1,11 @@
 # rift-scala — Library Design
 
 **Status:** accepted design, implementation phase (M3/M4/M5).
-**Informed by:** rift engine **v0.13.5** wire surface, **rift-java v0.1.1** (released 2026-07), the
+**Informed by:** rift engine **v0.14.0** wire surface, **rift-java v0.1.2** (released 2026-07), the
 `sdk-conformance` contract (RFC-003 §9.2), and **zio-bdd v1.4.2**'s `MockControl` SPI.
+(Originally authored against v0.13.5 / rift-java 0.1.1; re-verified against v0.14.0 — the
+imposter-definition wire surface is unchanged, and the engine now carries the `Inject` wait
+variant natively, closing the rift#608 gap this design already modeled.)
 
 This document is the single source of truth for the public API of every rift-scala module. Each
 feature issue (#2–#13 and the M5 issues) links to its section here; scope changes land here first.
@@ -59,7 +62,7 @@ Key facade facts:
 - Errors: `sealed RiftException permits InvalidDefinition, EngineUnavailable,
   CommunicationError, ImposterNotFound, EngineError` (all unchecked), plus
   `VerificationException extends AssertionError`.
-- Engine pin: rift-java 0.1.1 → engine **0.13.5**; compatibility floor 0.13.1; version
+- Engine pin: rift-java 0.1.2 → engine **0.14.0**; compatibility floor 0.13.1; version
   preflight on `connect` (configurable `FAIL | WARN | OFF`).
 - Embedded needs `--enable-native-access=ALL-UNNAMED` and a natives classifier jar (or
   `-Drift.ffi.lib`); on JDK 21 additionally `--enable-preview` with the `-jdk21` artifact.
@@ -603,8 +606,8 @@ diffs for free.
 ```scala
 object RiftVersions:
   val riftScala: String   // this build
-  val riftJava: String    // pinned, e.g. "0.1.1"
-  val engine: String      // transitively pinned, e.g. "0.13.5" (via rift-version.properties)
+  val riftJava: String    // pinned, e.g. "0.1.2"
+  val engine: String      // transitively pinned, e.g. "0.14.0" (via rift-version.properties)
 ```
 
 **Embedded runtime requirements** (documented, and validated with a clear

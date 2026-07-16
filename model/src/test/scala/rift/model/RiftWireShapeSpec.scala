@@ -11,7 +11,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
   private def parse(s: String): Json = Json.parse(s).fold(e => fail(e.toString), identity)
 
   // ── 1. FaultConfig.tcp — bare string (always-fires) or {probability, type} ─────────────────
-  // Proof: rift RiftTcpFault (crates/rift-mock-core/src/imposter/types.rs:1070-1129);
+  // Proof: rift RiftTcpFault (crates/rift-mock-core/src/imposter/types.rs:1095-1154 @ v0.14.0);
   // RiftTcpFault.java; zio-bdd RiftProtocol.scala:140.
   test("tcp fault: bare string form (always fires) round-trips"):
     val json = parse(""""CONNECTION_RESET_BY_PEER"""")
@@ -29,7 +29,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assert(TcpFault.fromJson(parse("""{"type":"EMPTY_RESPONSE"}""")).isLeft)
 
   // ── 2. ProxyResponse.predicateGenerators — raw predicate objects, not field-name strings ──────
-  // Proof: types.rs:772-789 (Vec<serde_json::Value>); ProxyResponse.java:30;
+  // Proof: types.rs:797-813 @ v0.14.0 (Vec<serde_json::Value>); ProxyResponse.java:30;
   // docs/mountebank/proxy.md:91-92; zio-bdd RiftProtocol.scala:216.
   test("proxy predicateGenerators are raw passthrough JSON objects"):
     val json = parse(
@@ -63,7 +63,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
     )
 
   // ── 3. ScriptSource.File — key is "file", not "path" ────────────────────────────────────────
-  // Proof: types.rs:1213-1217; RiftScriptConfig.java:13,34,42.
+  // Proof: types.rs:1226-1246 @ v0.14.0 (`file` at :1240); RiftScriptConfig.java:13,34,42.
   test("script file source uses the 'file' wire key"):
     val json = parse("""{"engine":"rhai","file":"scripts/respond.rhai"}""")
     val src = ScriptSource.fromJson(json).fold(e => fail(e.toString), identity)
@@ -71,7 +71,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assert(src.toJson.semanticEquals(json))
 
   // ── 4. RiftConfig.flowState — "backend" key + nested "redis" object ─────────────────────────
-  // Proof: types.rs:888-923; RiftFlowStateConfig.java; zio-bdd RiftProtocol.scala:36.
+  // Proof: types.rs:911-927 @ v0.14.0; RiftFlowStateConfig.java; zio-bdd RiftProtocol.scala:36.
   test("flowState backend key is 'backend', not 'kind'"):
     val json = parse("""{"backend":"inmemory","ttlSeconds":300}""")
     val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
@@ -92,7 +92,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assert(cfg.toJson.semanticEquals(json))
 
   // ── 5. TlsMaterial — cert/key are flat top-level imposter fields, no "tls" wrapper ──────────
-  // Proof: types.rs:812-817; ImposterDefinition.java:37-38,141-142.
+  // Proof: types.rs:835-840 @ v0.14.0; ImposterDefinition.java:37-38,141-142.
   test("cert/key are flat on the imposter, not nested under 'tls'"):
     val json = parse("""{"protocol":"https","cert":"CERT-PEM","key":"KEY-PEM"}""")
     val d = ImposterDefinition.fromJson(json).fold(e => fail(e.toString), identity)
@@ -101,7 +101,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assert(d.toJson.semanticEquals(json))
 
   // ── 6. RiftConfig.scriptEngine — "defaultEngine" key, not "default" ─────────────────────────
-  // Proof: types.rs:1008-1017; RiftScriptEngineConfig.java:8.
+  // Proof: types.rs:1031-1041 @ v0.14.0; RiftScriptEngineConfig.java:8.
   test("scriptEngine default key is 'defaultEngine', not 'default'"):
     val json = parse("""{"defaultEngine":"rhai","timeoutMs":5000}""")
     val cfg = ScriptEngineConfig.fromJson(json).fold(e => fail(e.toString), identity)
@@ -109,7 +109,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assert(cfg.toJson.semanticEquals(json))
 
   // ── 7. RiftConfig.metrics — {enabled, port} object, not a bare boolean ───────────────────────
-  // Proof: types.rs:948-961; RiftMetricsConfig.java.
+  // Proof: types.rs:971-980 @ v0.14.0; RiftMetricsConfig.java.
   test("metrics is an object with enabled/port, not a bare boolean"):
     val json = parse("""{"enabled":true,"port":9091}""")
     val cfg = MetricsConfig.fromJson(json).fold(e => fail(e.toString), identity)
@@ -117,7 +117,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assert(cfg.toJson.semanticEquals(json))
 
   // ── 8. FaultConfig.error.body — a raw wire string, not typed JSON ────────────────────────────
-  // Proof: types.rs:1184-1185; RiftErrorFault.java:11.
+  // Proof: types.rs:1208 @ v0.14.0 (`body: Option<String>`); RiftErrorFault.java:11.
   test("error fault body is a JSON string, not a nested JSON value"):
     val json = parse("""{"probability":1.0,"status":503,"body":"{\"error\":\"flaky\"}"}""")
     val fault = ErrorFault.fromJson(json).fold(e => fail(e.toString), identity)
@@ -139,7 +139,8 @@ class RiftWireShapeSpec extends munit.FunSuite:
   // `Inject { inject: String }` variant; the bare string remains the Mountebank-compatible
   // spelling", and serialization must round-trip so `GET /imposters?replayable=true` preserves the
   // author's spelling. Variant set mirrors rift-java WaitSpec.java:7-10 (Fixed|Range|Inject|Script);
-  // engine behaviors/wait.rs:33-46 carries Fixed|Range|Function today.
+  // as of engine 0.14.0 all four are first-class: behaviors/wait.rs:35-52 carries
+  // Fixed|Range|Function|Inject, and its tests pin that each spelling round-trips to itself.
   test("wait: fixed millis is a bare number"):
     val json = parse("100")
     val w = WaitBehavior.fromJson(json).fold(e => fail(e.toString), identity)
@@ -241,7 +242,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
       assert(b.toJson.semanticEquals(json), s"$raw did not round-trip: ${b.toJson.render}")
 
   // ── 11. Behaviors array form — what the engine EMITS on GET /imposters ───────────────────────
-  // Proof: engine `behaviors_to_array` (imposter/types.rs:451-472) renders `_behaviors` as an array
+  // Proof: engine `behaviors_to_array` (imposter/types.rs:702-723 @ v0.14.0) renders `_behaviors` as an array
   // of single-key objects on read-back; rift-java `Behaviors.readArray` accepts it and always
   // serializes the object form back. This is the read path #3's `definition()` will take.
   test("behaviors: the engine's array-of-single-key-objects form decodes"):
@@ -361,7 +362,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
           case Right(b) => fail(s"$raw should not decode, got $b")
 
   // ── 12. ProxyResponse write-side fields ─────────────────────────────────────────────────────
-  // Proof: engine types.rs:780-788; rift-java ProxyResponse.java:27-35 (modeled keys at :38-39),
+  // Proof: engine types.rs:803-812 @ v0.14.0; rift-java ProxyResponse.java:27-35 (modeled keys at :38-39),
   // which emits addWaitBehavior only when true and injectHeaders only when non-empty.
   test("proxy: the four write-side fields round-trip"):
     val json = parse(
@@ -414,7 +415,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assertEquals(p.extra.map(_._1), Vector("futureKey"))
 
   // ── 13. _rift.proxy — imposter-level proxy config ────────────────────────────────────────────
-  // Proof: engine types.rs:963-973; rift-java RiftProxyConfig/RiftUpstreamConfig/
+  // Proof: engine types.rs:987-1029 @ v0.14.0; rift-java RiftProxyConfig/RiftUpstreamConfig/
   // RiftConnectionPoolConfig (defaults: protocol "http", maxIdlePerHost 100, idleTimeoutSecs 90).
   test("_rift.proxy: upstream and connectionPool round-trip"):
     val json = parse(
@@ -449,3 +450,27 @@ class RiftWireShapeSpec extends munit.FunSuite:
     val c = RiftConfig.fromJson(parse("""{"proxy":{}}""")).fold(e => fail(e.toString), identity)
     assertEquals(c.proxy, Some(ProxyConfig(None, None)))
     assert(c.toJson.semanticEquals(parse("""{"proxy":{}}""")))
+
+  // ── 14. RecordedRequest `_mode` — engine 0.14.0's binary-recording marker passes through ─────
+  // Proof: engine RecordedRequest (types.rs:59-75 @ v0.14.0, `_mode` at :72, issue #636) adds `_mode: "binary"`
+  // when `body` is base64 (omitted for text). rift-java 0.1.2 reads recorded requests leniently
+  // and does not type the key; this model mirrors that via the `raw` escape hatch, whose `toJson`
+  // re-emits the engine's document verbatim.
+  test("recorded request: a 0.14.0 binary recording (_mode) decodes and re-emits verbatim"):
+    val json = parse(
+      """{"requestFrom":"127.0.0.1:1234","method":"POST","path":"/x","query":{},
+        |"headers":{},"body":"//4A","_mode":"binary","timestamp":"2026-01-01T00:00:00Z"}""".stripMargin
+        .replace("\n", "")
+    )
+    val r = RecordedRequest.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(r.body, Some(Json.Str("//4A")))
+    assert(r.toJson.semanticEquals(json), s"_mode must survive: ${r.toJson.render}")
+
+  test("recorded request: a pre-0.14.0 recording without _mode still decodes"):
+    val json = parse(
+      """{"requestFrom":"127.0.0.1:1234","method":"GET","path":"/x","query":{},
+        |"headers":{},"body":"hello","timestamp":"2026-01-01T00:00:00Z"}""".stripMargin
+        .replace("\n", "")
+    )
+    val r = RecordedRequest.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(r.toJson.get("_mode"), None)
