@@ -106,6 +106,10 @@ lazy val bridge = riftModule("bridge", "bridge")
 
 lazy val zio = riftModule("zio", "zio")
   .dependsOn(bridge)
+  .settings(
+    libraryDependencies ++= Dependencies.zioDeps ++ Dependencies.zioTestDeps,
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
+  )
 
 lazy val zioTestkit = riftModule("zioTestkit", "zio-testkit")
   .dependsOn(zio)

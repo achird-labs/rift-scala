@@ -1,6 +1,7 @@
 package rift.bridge
 
 import scala.jdk.CollectionConverters.*
+import scala.jdk.OptionConverters.*
 
 import rift.RiftError
 import rift.dsl.RequestMatch
@@ -10,6 +11,7 @@ import rift.model.{RecordedRequest, Stub, Times}
 import io.github.etacassiopeia.rift.verify as jverify
 import io.github.etacassiopeia.rift.json.JsonValue as JJsonValue
 import io.github.etacassiopeia.rift.RecordedRequest as JRecordedRequest
+import io.github.etacassiopeia.rift.RecordedPage as JRecordedPage
 import io.github.etacassiopeia.rift.model.{ImposterDefinition as JImposterDefinition, Stub as JStub}
 
 /** Every rift-java facade call in this module goes through `run`: translate a recognised
@@ -45,6 +47,17 @@ private[bridge] object FacadeDecode:
 
   def recordedRequests(jrs: java.util.List[JRecordedRequest]): Vector[RecordedRequest] =
     jrs.asScala.toVector.map(recordedRequest)
+
+  /** Cursor page decode (DESIGN.md §5.3, D6) — `nextIndex` stays an `Option[Long]` all the way
+    * through rather than defaulting to a sentinel, so `RequestTail` can tell "no stable index"
+    * apart from "index zero" and hold its cursor instead of resetting it.
+    */
+  def recordedPage(jp: JRecordedPage): RecordedPage =
+    RecordedPage(
+      requests = recordedRequests(jp.requests()),
+      nextIndex = jp.nextIndex().toScala,
+      truncated = jp.truncated()
+    )
 
   def json(jv: JJsonValue): Json = Json.parse(jv.toJson()) match
     case Right(j) => j

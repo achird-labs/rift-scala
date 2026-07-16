@@ -30,6 +30,21 @@ object Dependencies {
     "io.github.etacassiopeia" % "rift-java-testcontainers" % riftJava % Optional
   )
 
+  /** `rift-scala-zio` (#4): the ZIO surface is zio + zio-streams only (the cursor request tail is a
+    * `ZStream`). No JSON library — codecs opt in via the `zio-json` side-car (D7).
+    */
+  val zio = "2.1.14"
+
+  val zioDeps: Seq[ModuleID] = Seq(
+    "dev.zio" %% "zio" % zio,
+    "dev.zio" %% "zio-streams" % zio
+  )
+
+  val zioTestDeps: Seq[ModuleID] = Seq(
+    "dev.zio" %% "zio-test" % zio % Test,
+    "dev.zio" %% "zio-test-sbt" % zio % Test
+  )
+
   /** Codec side-car (D7): `rift-scala-zio-json` is the *only* place zio-json is allowed, so that
     * `rift-scala-zio` stays zio + zio-streams and no backend forces a JSON library on users.
     */
