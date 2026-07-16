@@ -4,7 +4,7 @@ import java.net.URI
 
 import _root_.cats.effect.IO
 
-import rift.bridge.{ImposterDefinition, RecordedPage}
+import rift.bridge.{ImposterDefinition, RecordedPage, TailFilter}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
 import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
 import rift.cats.{FlowStateHandle, ImposterHandle, Scenarios, SpaceHandle, StubRef}
@@ -35,8 +35,9 @@ private[testkit] final class FakeImposterHandle(
   def recorded: IO[Vector[RecordedRequest]] = IO.raiseError(new NotImplementedError)
   def recorded(matching: RequestMatch): IO[Vector[RecordedRequest]] =
     IO.raiseError(new NotImplementedError)
-  def recordedPage: IO[RecordedPage] = IO.raiseError(new NotImplementedError)
-  def recordedSince(cursor: Long): IO[RecordedPage] = IO.raiseError(new NotImplementedError)
+  def recordedPage(filters: TailFilter*): IO[RecordedPage] = IO.raiseError(new NotImplementedError)
+  def recordedSince(cursor: Long, filters: TailFilter*): IO[RecordedPage] =
+    IO.raiseError(new NotImplementedError)
   def clearRecorded: IO[Unit] = IO.raiseError(new NotImplementedError)
   def verify(matching: RequestMatch, times: Times): IO[Unit] = verifyResult
   def verify(matching: RequestMatch, times: Int): IO[Unit] = verifyResult

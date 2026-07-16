@@ -6,9 +6,10 @@ import scala.jdk.OptionConverters.*
 import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.json.{Json, JsonError}
-import rift.model.{Headers, IsResponse, RecordedRequest, Response, Stub, Times}
+import rift.model.{FlowId, Headers, IsResponse, RecordedRequest, Response, Stub, Times}
 
 import io.github.etacassiopeia.rift.verify as jverify
+import io.github.etacassiopeia.rift.MatchClause as JMatchClause
 import io.github.etacassiopeia.rift.json.JsonValue as JJsonValue
 import io.github.etacassiopeia.rift.dsl.{IsSpec as JIsSpec, RiftDsl as JRiftDsl}
 import io.github.etacassiopeia.rift.RecordedRequest as JRecordedRequest
@@ -84,6 +85,16 @@ private[bridge] object FacadeEncode:
 
   def requestMatch(matching: RequestMatch): jverify.RequestMatch =
     jverify.RequestMatch.ofJson(json(Json.Arr(matching.predicates.map(_.toJson))))
+
+  /** Total mapping of a `TailFilter` onto the facade's narrow `MatchClause` — the two are defined
+    * to mirror each other exactly (`header`/`flowId`), so this can never be lossy.
+    */
+  def matchClause(filter: TailFilter): JMatchClause = filter match
+    case TailFilter.Header(name, value) => JMatchClause.header(name, value)
+    case TailFilter.Flow(flowId) => JMatchClause.flowId(FlowId.value(flowId))
+
+  def matchClauses(filters: Seq[TailFilter]): Array[JMatchClause] =
+    filters.iterator.map(matchClause).toArray
 
   def times(t: Times): jverify.VerificationTimes = t match
     case Times.Exactly(n) => jverify.VerificationTimes.exactly(n)

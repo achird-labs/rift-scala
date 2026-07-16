@@ -6,6 +6,7 @@ import _root_.cats.effect.IO
 import _root_.fs2.Stream
 import munit.CatsEffectSuite
 
+import rift.bridge.TailEvent
 import rift.dsl.*
 import rift.json.Json
 import rift.model.{Headers, Method, RecordedRequest}
@@ -46,5 +47,18 @@ class PipesSpec extends CatsEffectSuite:
 
     requests.through(pipes.matching(m)).compile.toList.map { kept =>
       assertEquals(kept, List.empty)
+    }
+  }
+
+  test("received keeps only the Received requests, dropping the control signals") {
+    val events = Stream[IO, TailEvent](
+      TailEvent.Truncated,
+      TailEvent.Received(rr("/a")),
+      TailEvent.Degraded,
+      TailEvent.Received(rr("/b")),
+      TailEvent.Restored
+    )
+    events.through(pipes.received).compile.toList.map { kept =>
+      assertEquals(kept.map(_.path), List("/a", "/b"))
     }
   }

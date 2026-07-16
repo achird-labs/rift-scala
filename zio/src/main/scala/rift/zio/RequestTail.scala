@@ -4,7 +4,7 @@ import zio.*
 import zio.stream.ZStream
 
 import rift.RiftError
-import rift.bridge.RecordedPage
+import rift.bridge.{RecordedPage, TailEvent, TailStep}
 import rift.model.RecordedRequest
 
 /** The cursor request tail (DESIGN.md §5.3, D6). Factored out of `ImposterHandle.requests` so it is
@@ -20,19 +20,34 @@ import rift.model.RecordedRequest
   * returns `nextIndex == None`), the tail holds its cursor and keeps polling rather than falling
   * back to an offset; on the baseline (no cursor yet) that means re-reading the current journal, so
   * delivery degrades to **at-least-once**, never silent skip. Losing-loud over losing-silent is the
-  * deliberate degradation (cf. #29); a typed `truncated`/degraded signal is a tracked follow-up.
+  * deliberate degradation (cf. #29). [[events]] surfaces these two conditions as typed `TailEvent`s
+  * (`Truncated`/`Degraded`/`Restored`); [[stream]] is `events` with only the `Received` elements
+  * kept, so the plain-`RecordedRequest` and signal-carrying views share one implementation and
+  * can't drift.
   */
 object RequestTail:
 
-  /** Never ends except by interruption. `nextIndex.orElse(cursor)` holds the previously-seen cursor
-    * when the page reports none — an older/degraded engine read must never fall back to an array
-    * offset, since that is exactly the silent-loss scheme this cursor design replaces.
+  /** The signal-carrying tail — never ends except by interruption. The cursor/dedup semantics live
+    * in the shared, pure `rift.bridge.TailStep` (identical to the fs2 tail); this only threads the
+    * effect and the poll interval. `TailStep` holds the previous cursor when a page reports no
+    * `nextIndex`, so an older/degraded read never falls back to the array-offset scheme this design
+    * replaces.
     */
+  def events(
+      fetch: Option[Long] => IO[RiftError, RecordedPage],
+      pollEvery: Duration
+  ): ZStream[Any, RiftError, TailEvent] =
+    ZStream.unfoldChunkZIO(TailStep.initial): state =>
+      fetch(state.cursor)
+        .map { page =>
+          val (evs, next) = TailStep.step(state, page)
+          Some((Chunk.fromIterable(evs), next))
+        }
+        .tap(_ => ZIO.sleep(pollEvery))
+
+  /** The plain request tail — `events` with the control signals dropped. */
   def stream(
       fetch: Option[Long] => IO[RiftError, RecordedPage],
       pollEvery: Duration
   ): ZStream[Any, RiftError, RecordedRequest] =
-    ZStream.unfoldChunkZIO(Option.empty[Long]): cursor =>
-      fetch(cursor)
-        .map(p => Some((Chunk.fromIterable(p.requests), p.nextIndex.orElse(cursor))))
-        .tap(_ => ZIO.sleep(pollEvery))
+    events(fetch, pollEvery).collect { case TailEvent.Received(r) => r }
