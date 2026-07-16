@@ -174,7 +174,7 @@ fine — circe roots at `io.circe`).
 | D3 | One error ADT for the whole SDK: `enum RiftError extends Exception with NoStackTrace`, defined in `bridge`; mapping from `RiftException` happens once, at the bridge boundary | Per-module error types (N translations); non-Throwable ADT (Cats Effect and Kyo's `Abort` interop, and `ZIO#refineToOrDie`, all get simpler when the typed error *is* a Throwable) |
 | D4 | No shared tagless-final core. `bridge` exposes one blocking, throwing, Scala-typed connector; each effect module wraps it in its own idiom (~300 LoC each) | Tagless-final `Rift[F[_]]` shared across ZIO/Kyo/pure (forces a lowest-common-denominator API, leaks a typeclass hierarchy into the ZIO surface, and pure/`Either` doesn't fit `F[_]` without ceremony) |
 | D5 | Verification runs **engine-side** (facade `verify`); the testkits *additionally* run the model's pure client-side matcher over `recorded()` to render readable diffs on failure | Client-side-only verification (drifts from engine predicate semantics); engine-side-only (diff quality limited to `VerificationException.getMessage`) |
-| D6 | Request tailing is **polling** (`recorded()` + offset, default every 100 ms, configurable), exposed as `ZStream` / fs2 `Stream`. SSE upgrade is a drop-in later — the stream types don't change | Blocking long-poll (engine has no such endpoint yet) |
+| D6 | Request tailing is **cursor-polling** over the engine's stable per-port journal index (rift#603): `recordedPage()` baselines, `recordedSince(cursor)` fetches strictly-newer, default every 100 ms, exposed as `ZStream` / fs2 `Stream[RecordedRequest]`. Adopting the cursor is a **drop-in** (signatures unchanged); the richer SSE `/events` stream (rift#461 — lifecycle + `lagged` events) is an **additive new type**, not a transparent swap | Client-side array-offset poll (`all.drop(offset)` silently skips/replays: journal positions shift under the 10k `pop_front` eviction, `DELETE savedRequests`, and clears — no stable positions); blocking long-poll (no such endpoint) |
 | D7 | Body codecs are a tiny model-level typeclass `JsonBody[A]`; zio-json and circe instances ship as **separate side-car artifacts** so no backend forces a JSON library on users | zio-json hard dep in the zio module / circe in cats (violates "cats-core never leaks", and ZIO users on jsoniter shouldn't pull zio-json) |
 | D8 | JDK: build & publish on 21 (LTS floor, matches rift-java-core's 17+ easily); embedded tests run on the 22 CI job with `rift-java-embedded`, the 21 job covers remote transports (and optionally embedded via `-jdk21` + `--enable-preview`) | Requiring JDK 22 for the whole build (excludes LTS-pinned users for no reason — only the *embedded test runtime* needs it) |
 | D9 | Version pinning: rift-scala `x.y.z` pins rift-java (and transitively the engine + corpus version). `rift.bridge.RiftVersions` exposes all three at runtime | Independent engine pin in rift-scala (two pins that can disagree) |
@@ -709,15 +709,27 @@ object Rift:
       ).map(RiftLive(_))
 ```
 
-The request tail (D6) — offset-tracking poll, chunk-friendly, ends only by interruption:
+The request tail (D6) — **cursor-tracking** poll over the engine's stable journal index
+(`recordedPage()` baselines, `recordedSince(cursor)` fetches strictly-newer), chunk-friendly,
+ends only by interruption:
 
 ```scala
 def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest] =
-  ZStream.unfoldChunkZIO(0): offset =>
-    recorded
-      .map(all => Some((Chunk.fromIterable(all.drop(offset)), all.size)))
+  ZStream.unfoldChunkZIO(Option.empty[Long]): cursor =>       // held cursor, not an array offset
+    page(cursor)                                              // recordedPage() | recordedSince(cursor)
+      .map: p =>                                              // RecordedPage(requests, nextIndex, truncated)
+        // nextIndex absent → engine exposes no stable index (older engine / degraded read):
+        // hold the cursor and keep polling — never fall back to array offsets (silent loss).
+        // truncated → retention evicted unseen entries: the one real loss case, signalled not hidden.
+        Some((Chunk.fromIterable(p.requests), p.nextIndex.orElse(cursor)))
       .tap(_ => ZIO.sleep(pollEvery))
 ```
+
+A client-side `all.drop(offset)` cannot be exactly-once: journal positions shift under the 10k
+`pop_front` eviction, `DELETE savedRequests`, and scoped clears, so an offset tail silently skips
+or replays entries with no way to notice. The server-assigned cursor survives clears, makes the
+one genuine loss case (`truncated`) explicit, and advances past `match=`-rejected entries so a
+filtered tail never re-scans.
 
 Sub-APIs are records of effects, mirroring the engine's `_rift` admin routes:
 
@@ -914,7 +926,8 @@ import _root_.fs2.{Pipe, Stream}
 
 object syntax:
   extension [F[_]: Temporal](handle: ImposterHandle[F])
-    /** Poll `recorded` with offset tracking; emits each request exactly once. */
+    /** Cursor-tracking poll (`recordedSince` over the stable journal index); emits each request
+      * exactly once. `nextIndex` absent → hold the cursor; `truncated` → re-baseline is signalled. */
     def requestStream(pollEvery: FiniteDuration = 100.millis): Stream[F, RecordedRequest]
 
 object pipes:
@@ -930,7 +943,10 @@ def awaitRequests[F[_]: Temporal](handle: ImposterHandle[F], matching: RequestMa
     .take(count).compile.toVector.timeout(timeout)
 ```
 
-When the engine grows an SSE tail, `requestStream` swaps its internals; signatures stay.
+Adopting the cursor is an internal swap — `requestStream` signatures stay. The engine's SSE
+`/events` stream (rift#461) is a *separate*, richer surface (imposter lifecycle + `lagged`
+events) tracked as an additive event stream, not a transparent replacement for this
+`Stream[F, RecordedRequest]`.
 
 ---
 
@@ -1201,9 +1217,17 @@ rift-java 0.1.1 is released — nothing in M3 is blocked anymore.
    returns structured `closest.failedPredicates` we can't reach through the facade. Filed
    upstream as [rift-java#127](https://github.com/EtaCassiopeia/rift-java/issues/127). Until
    then D5's client-side matcher fills the gap.
-2. **SSE request tail** — filed upstream as
-   [rift#603](https://github.com/EtaCassiopeia/rift/issues/603); polling is the design until
-   then (D6), with stream signatures shaped so the upgrade is an internal swap.
+2. **Request-tail cursor & SSE** — two *separate* engine features, both now shipped:
+   the stable savedRequests cursor ([rift#603](https://github.com/EtaCassiopeia/rift/issues/603) —
+   `?since=<index>` + `x-rift-next-index` / `x-rift-truncated`) and the admin SSE `/events`
+   stream ([rift#461](https://github.com/EtaCassiopeia/rift/issues/461) — lifecycle + `lagged`
+   events). The bridge reaches both only through rift-java's facade (D2): the **cursor is live in
+   rift-java 0.1.2** (`Imposter.recordedPage()` / `recordedSince(long)` → `RecordedPage{requests,
+   nextIndex, truncated}`, [rift-java#130](https://github.com/EtaCassiopeia/rift-java/issues/130)),
+   so D6's cursor tail is buildable today; the **SSE client**
+   ([rift-java#131](https://github.com/EtaCassiopeia/rift-java/issues/131)) is not yet on the
+   facade (only the `RiftEvent` ADT exists), so the lifecycle/`lagged` event stream stays an
+   additive surface. (`Dependencies.scala` pins `riftJava = "0.1.2"` → engine 0.14.0.)
 3. **`rift-scala-bom` / sbt natives helper** — if classifier selection proves to be a support
    burden, ship `RiftNatives.currentClassifier` as a tiny sbt plugin or documented snippet
    first (bridge README), promote to an artifact on demand.
