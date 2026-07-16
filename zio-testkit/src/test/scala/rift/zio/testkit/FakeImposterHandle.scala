@@ -6,10 +6,10 @@ import zio.*
 import zio.stream.ZStream
 
 import rift.RiftError
-import rift.bridge.{ImposterDefinition, TailEvent, TailFilter}
+import rift.bridge.{ImposterDefinition, RecordSpec, TailEvent, TailFilter}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
 import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
-import rift.zio.{FlowStateHandle, ImposterHandle, Scenarios, SpaceHandle, StubRef}
+import rift.zio.{FlowStateHandle, ImposterHandle, RecordingHandle, Scenarios, SpaceHandle, StubRef}
 
 /** A hand-rolled `ImposterHandle` for the assertion gate tests (`AssertionsSpec`) — no live engine.
   * Only `verify`/`verifyNoInteractions` are exercised by those tests; every other member is
@@ -57,6 +57,8 @@ private[testkit] final class FakeImposterHandle(
   def scenarios: Scenarios = unreachable
   def space(flowId: FlowId): SpaceHandle = unreachable
   def flowState(flowId: FlowId): FlowStateHandle = unreachable
+  def startRecording(origin: URI, spec: RecordSpec): ZIO[Scope, RiftError, RecordingHandle] =
+    ZIO.die(new NotImplementedError)
   def enable: IO[RiftError, Unit] = ZIO.die(new NotImplementedError)
   def disable: IO[RiftError, Unit] = ZIO.die(new NotImplementedError)
   def delete: IO[RiftError, Unit] = ZIO.die(new NotImplementedError)

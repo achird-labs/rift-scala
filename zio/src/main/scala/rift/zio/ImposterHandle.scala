@@ -1,6 +1,7 @@
 package rift.zio
 
 import java.net.URI
+import java.nio.file.Path
 
 import zio.*
 import zio.stream.ZStream
@@ -9,13 +10,16 @@ import rift.RiftError
 import rift.json.Json
 import rift.model.{FlowId, Port, RecordedRequest, ScenarioStatus, Stub, StubId, Times}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
-import rift.bridge.{ImposterDefinition, RecordedPage, TailEvent, TailFilter}
+import rift.bridge.{
+  ImposterDefinition,
+  RecordSpec,
+  RecordedPage,
+  RecordingConnector,
+  TailEvent,
+  TailFilter
+}
 
-/** Mirrors `rift.bridge.ImposterConnector` (DESIGN.md §5.3).
-  *
-  * `startRecording` is omitted: the bridge doesn't expose it yet — `ImposterConnector`'s own
-  * scaladoc tracks the gap as issue #35. Not faked here.
-  */
+/** Mirrors `rift.bridge.ImposterConnector` (DESIGN.md §5.3). */
 trait ImposterHandle:
   def port: Port
   def uri: URI
@@ -55,6 +59,17 @@ trait ImposterHandle:
   def scenarios: Scenarios
   def space(flowId: FlowId): SpaceHandle
   def flowState(flowId: FlowId): FlowStateHandle
+
+  /** Scoped proxy-capture recording: the session is acquired on the blocking pool and, on scope
+    * release, `close()`d — which stops and **discards** it (the facade default). Read/persist the
+    * captured stubs via the `RecordingHandle` (`stop`/`snapshot`/`persist`) inside the scope,
+    * before release. Mirrors `Rift.intercept`'s scoped lifecycle.
+    */
+  def startRecording(
+      origin: URI,
+      spec: RecordSpec = RecordSpec()
+  ): ZIO[Scope, RiftError, RecordingHandle]
+
   def enable: IO[RiftError, Unit]
   def disable: IO[RiftError, Unit]
   def delete: IO[RiftError, Unit]
@@ -121,6 +136,16 @@ private[zio] final case class ImposterHandleLive(connector: rift.bridge.Imposter
   def scenarios: Scenarios = ScenariosLive(connector.scenarios)
   def space(flowId: FlowId): SpaceHandle = SpaceHandleLive(connector.space(flowId))
   def flowState(flowId: FlowId): FlowStateHandle = FlowStateHandleLive(connector.flowState(flowId))
+
+  def startRecording(
+      origin: URI,
+      spec: RecordSpec
+  ): ZIO[Scope, RiftError, RecordingHandle] =
+    ZIO
+      .acquireRelease(blockingIO(connector.startRecording(origin, spec)))(rec =>
+        ZIO.attemptBlocking(rec.close()).orDie
+      )
+      .map(RecordingHandleLive(_))
 
   def enable: IO[RiftError, Unit] = blockingIO(connector.enable())
   def disable: IO[RiftError, Unit] = blockingIO(connector.disable())
@@ -202,3 +227,18 @@ private[zio] final case class FlowStateHandleLive(underlying: rift.bridge.FlowSt
   def get(key: String): IO[RiftError, Option[Json]] = blockingIO(underlying.get(key))
   def put(key: String, value: Json): IO[RiftError, Unit] = blockingIO(underlying.put(key, value))
   def delete(key: String): IO[RiftError, Unit] = blockingIO(underlying.delete(key))
+
+/** A live proxy-capture recording session (mirrors `rift.bridge.RecordingConnector`), obtained from
+  * `ImposterHandle.startRecording` as a scoped resource — release stops and discards it. Read or
+  * persist the captured stubs before the scope closes.
+  */
+trait RecordingHandle:
+  def stop: IO[RiftError, Chunk[Stub]]
+  def snapshot: IO[RiftError, Chunk[Stub]]
+  def persist(path: Path): IO[RiftError, Unit]
+
+private[zio] final case class RecordingHandleLive(underlying: RecordingConnector)
+    extends RecordingHandle:
+  def stop: IO[RiftError, Chunk[Stub]] = blockingIO(Chunk.fromIterable(underlying.stop()))
+  def snapshot: IO[RiftError, Chunk[Stub]] = blockingIO(Chunk.fromIterable(underlying.snapshot()))
+  def persist(path: Path): IO[RiftError, Unit] = blockingIO(underlying.persist(path))

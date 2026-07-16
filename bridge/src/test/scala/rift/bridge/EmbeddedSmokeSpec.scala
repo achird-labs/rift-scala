@@ -1,5 +1,8 @@
 package rift.bridge
 
+import java.net.URI
+import java.nio.file.Files
+
 import munit.FunSuite
 
 import rift.dsl.*
@@ -55,4 +58,35 @@ class EmbeddedSmokeSpec extends FunSuite:
         ic.clearRules()
         assertEquals(ic.rules, Vector.empty)
       finally ic.close()
+    finally conn.close()
+
+  test("embedded: startRecording — snapshot with no traffic, persist a file, close discards"):
+    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+
+    val conn = RiftConnector.embedded()
+    try
+      val imp = conn.create(imposter("rec").port(0).build)
+      val rec = imp.startRecording(URI.create("https://origin.example.test"))
+      try
+        assertEquals(rec.snapshot(), Vector.empty) // no proxied traffic yet
+
+        val file = Files.createTempFile("rift-recording", ".json")
+        Files.delete(file)
+        try
+          rec.persist(file)
+          assert(Files.exists(file)) // persist wrote a loadable imposter file
+        finally Files.deleteIfExists(file)
+      finally rec.close() // stop-and-discard
+      imp.delete()
+    finally conn.close()
+
+  test("embedded: startRecording — stop returns the captured stubs and ends the session"):
+    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+
+    val conn = RiftConnector.embedded()
+    try
+      val imp = conn.create(imposter("rec-stop").port(0).build)
+      val rec = imp.startRecording(URI.create("https://origin.example.test"))
+      assertEquals(rec.stop(), Vector.empty) // terminal read — no proxied traffic → no stubs
+      imp.delete()
     finally conn.close()

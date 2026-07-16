@@ -10,8 +10,9 @@ import rift.bridge.ImposterDefinition
 
 /** Mirrors `rift.bridge.ImposterConnector` (DESIGN.md §5.11) 1:1, `Either[RiftError, _]`-shaped.
   *
-  * `startRecording` is omitted: the bridge doesn't expose it yet — `ImposterConnector`'s own
-  * scaladoc tracks the gap as issue #35. Not faked here.
+  * `startRecording` is omitted here: the bridge and ZIO surfaces ship it (#35), but the pure
+  * `Using`-friendly recording surface is a stacked follow-up (like the intercept surface's
+  * cats/pure follow-up #45). Not faked here.
   *
   * No cursor request tail (`requests`/`requests(pollEvery)` on the ZIO/Cats handles, or a
   * `recordedPage`/`recordedSince` paging API): pure has no stream or effect system to drive polling
