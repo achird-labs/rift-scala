@@ -52,6 +52,22 @@ object Dependencies {
 
   val zioJsonDeps: Seq[ModuleID] = Seq("dev.zio" %% "zio-json" % zioJson)
 
+  /** `rift-scala-cats` (#8): tagless over `Async[F]` (the CE ecosystem convention) — cats-effect
+    * only, no cats-core data types in the public surface. This is the only module (besides
+    * `cats-testkit`/`fs2`, which depend on it) allowed to pull in cats-effect.
+    */
+  val catsEffect = "3.5.7"
+
+  val catsEffectDeps: Seq[ModuleID] = Seq("org.typelevel" %% "cats-effect" % catsEffect)
+
+  /** Test-only. Runs `IO`-returning munit tests directly (`Rift.embedded[IO].use { ... }`) instead
+    * of hand-rolled `.unsafeRunSync()` calls in every test body.
+    */
+  val munitCatsEffect = "2.0.0"
+
+  val munitCatsEffectDeps: Seq[ModuleID] =
+    Seq("org.typelevel" %% "munit-cats-effect" % munitCatsEffect % Test)
+
   /** Codec side-car (D7): the only place circe is allowed, keeping `rift-scala-cats`
     * cats-effect-only and honouring "cats-core never leaks into other modules" in both directions.
     */
