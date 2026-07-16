@@ -68,6 +68,25 @@ final class ImposterConnector private[bridge] (underlying: JImposter):
       FacadeDecode.recordedRequests(underlying.recorded(FacadeEncode.requestMatch(matching)))
     )
 
+  /** Baseline read for the cursor request tail (DESIGN.md §5.3, D6) — pair with `recordedSince` to
+    * page forward without an `all.drop(offset)` scheme (see `RecordedPage`'s scaladoc for why that
+    * silently loses entries).
+    *
+    * The `matching`-filtered overload (`underlying.recordedPage(MatchClause...)`) is deferred: the
+    * facade's `MatchClause` only expresses `header`/`flowId` filters, not the full `RequestMatch`
+    * predicate vocabulary this module's `verify`/`recorded(matching)` use, so translating one into
+    * the other would be a shaky, lossy mapping rather than a faithful one. Not needed by #4's gate.
+    */
+  def recordedPage(): RecordedPage =
+    FacadeBoundary.run(FacadeDecode.recordedPage(underlying.recordedPage()))
+
+  /** Strictly-newer page since `cursor` (the value a prior `recordedPage()`/`recordedSince()` call
+    * returned as `nextIndex`). See `recordedPage()`'s scaladoc for why the `matching`-filtered
+    * overload is deferred.
+    */
+  def recordedSince(cursor: Long): RecordedPage =
+    FacadeBoundary.run(FacadeDecode.recordedPage(underlying.recordedSince(cursor)))
+
   def clearRecorded(): Unit = FacadeBoundary.run(underlying.clearRecorded())
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): Unit =
@@ -120,6 +139,10 @@ final class ScenariosHandle private[bridge] (underlying: JScenarios):
 
 /** An isolated `_rift` flow-state space (correlated by `FlowId`) — its own stub set, recordings,
   * and verification, scoped away from the imposter's default space.
+  *
+  * No `recordedPage`/`recordedSince` here: the facade's `Space` interface exposes only
+  * `recorded()`/`recorded(matching)`, not the cursor journal — a space-scoped tail is out of scope
+  * for #4's gate (which only needs the imposter-level cursor).
   */
 final class SpaceHandle private[bridge] (val flowId: FlowId, underlying: JSpace):
   def addStub(stub: Stub): StubHandle =
