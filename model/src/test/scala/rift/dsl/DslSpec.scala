@@ -233,6 +233,20 @@ class DslSpec extends munit.FunSuite:
   test("an imposter without an explicit port omits it"):
     assertEquals(imposter("x").build.port, None)
 
+  test("port(0) requests an engine-assigned ephemeral port — wire-equivalent to omitting it"):
+    assertEquals(imposter("x").port(0).build.port, None)
+    assertEquals(imposter("x").port(0).build.toJson, imposter("x").build.toJson)
+
+  test("port(0) resets a previously-set port back to ephemeral"):
+    assertEquals(imposter("x").port(4545).port(0).build.port, None)
+
+  test("a valid explicit port is still bound"):
+    assertEquals(imposter("x").port(4545).build.port.map(Port.value), Some(4545))
+
+  test("out-of-range ports are still rejected loudly"):
+    intercept[IllegalArgumentException](imposter("x").port(70000).build)
+    intercept[IllegalArgumentException](imposter("x").port(-1).build)
+
   test("imposter .stubs(...) accepts a scenario's stubs"):
     val d = imposter("s")
       .stubs(scenario("c").startingAt("Started").when("Started", get("/a")).respond(ok).stubs)
