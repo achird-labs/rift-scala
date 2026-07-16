@@ -142,6 +142,7 @@ lazy val kyo = riftModule("kyo", "kyo")
 
 lazy val pure = riftModule("pure", "pure")
   .dependsOn(bridge)
+  .settings(libraryDependencies ++= Dependencies.munitDeps)
 
 lazy val root = project
   .in(file("."))

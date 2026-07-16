@@ -1,0 +1,34 @@
+package rift.pure
+
+import scala.util.Using
+
+import munit.FunSuite
+
+import rift.dsl.*
+import rift.model.Port
+
+import io.github.etacassiopeia.rift.Rift as JRift
+
+/** A real end-to-end smoke over the embedded engine, proving the `Either`-shaped wiring against a
+  * live engine (mirrors the bridge's own `EmbeddedSmokeSpec`, DESIGN.md §5.11). Guarded on
+  * `isEmbeddedAvailable`: skipped (not failed) wherever the native runtime is absent — including
+  * CI, which does not put `rift-java-natives` / `--enable-native-access` on the test JVM. The
+  * exhaustive engine round-trip lives in the conformance corpus (#6/#13), not here.
+  */
+class EmbeddedSmokeSpec extends FunSuite:
+
+  test("embedded: create imposter, add a stub, verify no interactions"):
+    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+
+    Using.resource(Rift.embeddedUnsafe()) { rift =>
+      val created = rift.create(imposter("smoke").port(0).record.build)
+      assert(created.isRight, s"expected Right, got $created")
+      val imp = created.fold(throw _, identity)
+      assert(Port.value(imp.port) > 0)
+
+      val stubbed = imp.addStub(get("/ping").reply(ok))
+      assert(stubbed.isRight, s"expected Right, got $stubbed")
+
+      assertEquals(imp.recorded(), Right(Vector.empty))
+      assertEquals(imp.verifyNoInteractions(), Right(()))
+    }
