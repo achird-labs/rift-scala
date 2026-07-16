@@ -75,22 +75,29 @@ final class ImposterConnector private[bridge] (underlying: JImposter):
 
   /** Baseline read for the cursor request tail (DESIGN.md §5.3, D6) — pair with `recordedSince` to
     * page forward without an `all.drop(offset)` scheme (see `RecordedPage`'s scaladoc for why that
-    * silently loses entries).
+    * silently loses entries). Called with no `filters` it is the unfiltered baseline.
     *
-    * The `matching`-filtered overload (`underlying.recordedPage(MatchClause...)`) is deferred: the
-    * facade's `MatchClause` only expresses `header`/`flowId` filters, not the full `RequestMatch`
-    * predicate vocabulary this module's `verify`/`recorded(matching)` use, so translating one into
-    * the other would be a shaky, lossy mapping rather than a faithful one. Not needed by #4's gate.
+    * `filters` are applied server-side (`MatchClause`), so the engine advances the cursor past
+    * rejected entries and the tail never re-scans. `TailFilter` mirrors the facade's narrow
+    * `MatchClause` (`header`/`flowId`) exactly and totally; richer `RequestMatch` predicate
+    * filtering is a tracked upstream ask (a lossy translation is refused), so consumers needing it
+    * filter client-side over the unfiltered tail.
     */
-  def recordedPage(): RecordedPage =
-    FacadeBoundary.run(FacadeDecode.recordedPage(underlying.recordedPage()))
+  def recordedPage(filters: TailFilter*): RecordedPage =
+    FacadeBoundary.run(
+      FacadeDecode.recordedPage(underlying.recordedPage(FacadeEncode.matchClauses(filters)*))
+    )
 
   /** Strictly-newer page since `cursor` (the value a prior `recordedPage()`/`recordedSince()` call
-    * returned as `nextIndex`). See `recordedPage()`'s scaladoc for why the `matching`-filtered
-    * overload is deferred.
+    * returned as `nextIndex`), optionally `filters`-narrowed. See `recordedPage`'s scaladoc for the
+    * server-side filter semantics.
     */
-  def recordedSince(cursor: Long): RecordedPage =
-    FacadeBoundary.run(FacadeDecode.recordedPage(underlying.recordedSince(cursor)))
+  def recordedSince(cursor: Long, filters: TailFilter*): RecordedPage =
+    FacadeBoundary.run(
+      FacadeDecode.recordedPage(
+        underlying.recordedSince(cursor, FacadeEncode.matchClauses(filters)*)
+      )
+    )
 
   def clearRecorded(): Unit = FacadeBoundary.run(underlying.clearRecorded())
 

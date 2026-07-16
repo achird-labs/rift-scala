@@ -6,7 +6,7 @@ import zio.*
 import zio.stream.ZStream
 
 import rift.RiftError
-import rift.bridge.ImposterDefinition
+import rift.bridge.{ImposterDefinition, TailEvent, TailFilter}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
 import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
 import rift.zio.{FlowStateHandle, ImposterHandle, Scenarios, SpaceHandle, StubRef}
@@ -43,6 +43,16 @@ private[testkit] final class FakeImposterHandle(
   def verifyNoInteractions: IO[RiftError, Unit] = verifyNoInteractionsResult
   def requests: ZStream[Any, RiftError, RecordedRequest] = ZStream.die(new NotImplementedError)
   def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest] =
+    ZStream.die(new NotImplementedError)
+  def requests(
+      pollEvery: Duration,
+      filters: Chunk[TailFilter]
+  ): ZStream[Any, RiftError, RecordedRequest] =
+    ZStream.die(new NotImplementedError)
+  def requestEvents(
+      pollEvery: Duration,
+      filters: Chunk[TailFilter]
+  ): ZStream[Any, RiftError, TailEvent] =
     ZStream.die(new NotImplementedError)
   def scenarios: Scenarios = unreachable
   def space(flowId: FlowId): SpaceHandle = unreachable

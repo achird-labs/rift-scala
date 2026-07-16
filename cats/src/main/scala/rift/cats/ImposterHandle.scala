@@ -31,15 +31,16 @@ trait ImposterHandle[F[_]]:
   def recorded(matching: RequestMatch): F[Vector[RecordedRequest]]
 
   /** Baseline read for the cursor request tail (DESIGN.md §5.3, D6) — the `rift-scala-fs2` module's
-    * `requestStream` is built on this pair, not on `recorded`, so it can page forward via
-    * `recordedSince` instead of an `all.drop(offset)` scheme.
+    * `requestStream`/`requestEvents` are built on this pair, not on `recorded`, so they can page
+    * forward via `recordedSince` instead of an `all.drop(offset)` scheme. `filters` are applied
+    * server-side (`TailFilter` → facade `MatchClause`); no `filters` is the unfiltered baseline.
     */
-  def recordedPage: F[rift.bridge.RecordedPage]
+  def recordedPage(filters: rift.bridge.TailFilter*): F[rift.bridge.RecordedPage]
 
   /** Strictly-newer page since `cursor` (a prior `recordedPage`/`recordedSince` call's
-    * `nextIndex`).
+    * `nextIndex`), optionally `filters`-narrowed.
     */
-  def recordedSince(cursor: Long): F[rift.bridge.RecordedPage]
+  def recordedSince(cursor: Long, filters: rift.bridge.TailFilter*): F[rift.bridge.RecordedPage]
 
   def clearRecorded: F[Unit]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit]
@@ -78,10 +79,11 @@ private[cats] final class ImposterHandleLive[F[_]: Async](
   def recorded(matching: RequestMatch): F[Vector[RecordedRequest]] =
     blockingF(connector.recorded(matching))
 
-  def recordedPage: F[rift.bridge.RecordedPage] = blockingF(connector.recordedPage())
+  def recordedPage(filters: rift.bridge.TailFilter*): F[rift.bridge.RecordedPage] =
+    blockingF(connector.recordedPage(filters*))
 
-  def recordedSince(cursor: Long): F[rift.bridge.RecordedPage] =
-    blockingF(connector.recordedSince(cursor))
+  def recordedSince(cursor: Long, filters: rift.bridge.TailFilter*): F[rift.bridge.RecordedPage] =
+    blockingF(connector.recordedSince(cursor, filters*))
 
   def clearRecorded: F[Unit] = blockingF(connector.clearRecorded())
 

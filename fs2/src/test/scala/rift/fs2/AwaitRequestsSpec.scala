@@ -58,13 +58,13 @@ class AwaitRequestsSpec extends CatsEffectSuite:
         def recorded: IO[Vector[RecordedRequest]] = unimplemented
         def recorded(matching: RequestMatch): IO[Vector[RecordedRequest]] = unimplemented
 
-        def recordedPage: IO[RecordedPage] =
+        def recordedPage(filters: rift.bridge.TailFilter*): IO[RecordedPage] =
           remaining.modify {
             case head :: tail => (tail, head)
             case Nil => (Nil, RecordedPage(Vector.empty, None, truncated = false))
           }
 
-        def recordedSince(cursor: Long): IO[RecordedPage] =
+        def recordedSince(cursor: Long, filters: rift.bridge.TailFilter*): IO[RecordedPage] =
           remaining.modify {
             case head :: tail => (tail, head)
             case Nil => (Nil, RecordedPage(Vector.empty, Some(cursor), truncated = false))

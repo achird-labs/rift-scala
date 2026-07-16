@@ -9,7 +9,7 @@ import rift.RiftError
 import rift.json.Json
 import rift.model.{FlowId, Port, RecordedRequest, ScenarioStatus, Stub, StubId, Times}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
-import rift.bridge.{ImposterDefinition, RecordedPage}
+import rift.bridge.{ImposterDefinition, RecordedPage, TailEvent, TailFilter}
 
 /** Mirrors `rift.bridge.ImposterConnector` (DESIGN.md §5.3).
   *
@@ -33,6 +33,25 @@ trait ImposterHandle:
   def verifyNoInteractions: IO[RiftError, Unit]
   def requests: ZStream[Any, RiftError, RecordedRequest] // 100ms poll
   def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest]
+
+  /** Server-side `filters`-narrowed request tail (`TailFilter.Header`/`Flow` → facade
+    * `MatchClause`); the engine advances the cursor past rejected entries, so this never re-scans
+    * the journal.
+    */
+  def requests(
+      pollEvery: Duration,
+      filters: Chunk[TailFilter]
+  ): ZStream[Any, RiftError, RecordedRequest]
+
+  /** The signal-carrying tail: the same cursor poll as `requests`, but each element is a
+    * `TailEvent` so a caller can observe `Truncated`/`Degraded`/`Restored` explicitly. `requests`
+    * is `requestEvents.collect { case Received(r) => r }` — one implementation, two views.
+    */
+  def requestEvents(
+      pollEvery: Duration = 100.millis,
+      filters: Chunk[TailFilter] = Chunk.empty
+  ): ZStream[Any, RiftError, TailEvent]
+
   def scenarios: Scenarios
   def space(flowId: FlowId): SpaceHandle
   def flowState(flowId: FlowId): FlowStateHandle
@@ -80,11 +99,24 @@ private[zio] final case class ImposterHandleLive(connector: rift.bridge.Imposter
   def requests: ZStream[Any, RiftError, RecordedRequest] = requests(100.millis)
 
   def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest] =
-    val fetchPage: Option[Long] => IO[RiftError, RecordedPage] = {
-      case None => blockingIO(connector.recordedPage())
-      case Some(cursor) => blockingIO(connector.recordedSince(cursor))
-    }
-    RequestTail.stream(fetchPage, pollEvery)
+    requests(pollEvery, Chunk.empty)
+
+  def requests(
+      pollEvery: Duration,
+      filters: Chunk[TailFilter]
+  ): ZStream[Any, RiftError, RecordedRequest] =
+    RequestTail.stream(fetchPage(filters), pollEvery)
+
+  def requestEvents(
+      pollEvery: Duration = 100.millis,
+      filters: Chunk[TailFilter] = Chunk.empty
+  ): ZStream[Any, RiftError, TailEvent] =
+    RequestTail.events(fetchPage(filters), pollEvery)
+
+  private def fetchPage(filters: Chunk[TailFilter]): Option[Long] => IO[RiftError, RecordedPage] = {
+    case None => blockingIO(connector.recordedPage(filters*))
+    case Some(cursor) => blockingIO(connector.recordedSince(cursor, filters*))
+  }
 
   def scenarios: Scenarios = ScenariosLive(connector.scenarios)
   def space(flowId: FlowId): SpaceHandle = SpaceHandleLive(connector.space(flowId))

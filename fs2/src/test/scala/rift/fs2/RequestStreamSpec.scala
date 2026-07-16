@@ -8,7 +8,7 @@ import _root_.cats.effect.{IO, Ref}
 import munit.CatsEffectSuite
 
 import rift.RiftError
-import rift.bridge.RecordedPage
+import rift.bridge.{RecordedPage, TailEvent}
 import rift.json.Json
 import rift.model.{Headers, Method, RecordedRequest}
 
@@ -124,4 +124,41 @@ class RequestStreamSpec extends CatsEffectSuite:
     yield
       assertEquals(out.map(_.path), List("/a"))
       assertEquals(seen.take(2), Vector(None, None))
+  }
+
+  test("events surfaces Truncated/Degraded/Restored around Received, in page order") {
+    for
+      sc <- scripted(
+        List(
+          RecordedPage(Vector(rr("/a")), Some(1L), truncated = true), // Truncated, Received(/a)
+          RecordedPage(Vector(rr("/b")), None, truncated = false), // Degraded, Received(/b)
+          RecordedPage(Vector(rr("/c")), Some(5L), truncated = false) // Restored, Received(/c)
+        )
+      )
+      (fetch, _) = sc
+      out <- RequestStream.events(fetch, 1.milli).take(6).compile.toList
+    yield assertEquals(
+      out,
+      List(
+        TailEvent.Truncated,
+        TailEvent.Received(rr("/a")),
+        TailEvent.Degraded,
+        TailEvent.Received(rr("/b")),
+        TailEvent.Restored,
+        TailEvent.Received(rr("/c"))
+      )
+    )
+  }
+
+  test("build is events with the control signals dropped — same requests, no loss of data") {
+    for
+      sc <- scripted(
+        List(
+          RecordedPage(Vector(rr("/a")), None, truncated = true), // would emit Truncated + Degraded
+          RecordedPage(Vector(rr("/b")), Some(5L), truncated = false)
+        )
+      )
+      (fetch, _) = sc
+      out <- RequestStream.build(fetch, 1.milli).take(2).compile.toList
+    yield assertEquals(out.map(_.path), List("/a", "/b"))
   }
