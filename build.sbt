@@ -133,6 +133,11 @@ lazy val cats = riftModule("cats", "cats")
 
 lazy val catsTestkit = riftModule("catsTestkit", "cats-testkit")
   .dependsOn(cats)
+  .settings(
+    libraryDependencies ++=
+      Dependencies.catsTestkitDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps,
+    testFrameworks += new TestFramework("munit.Framework")
+  )
 
 lazy val fs2 = riftModule("fs2", "fs2")
   .dependsOn(cats)

@@ -68,6 +68,26 @@ object Dependencies {
   val munitCatsEffectDeps: Seq[ModuleID] =
     Seq("org.typelevel" %% "munit-cats-effect" % munitCatsEffect % Test)
 
+  /** `rift-scala-cats-testkit` (#10): glue for **munit-cats-effect** and **weaver-cats**, both `%
+    * Optional` (a user pulls the one they use; the module itself compiles against both).
+    * `munit-cats-effect` is already pinned above (`munitCatsEffect`, 2.0.0) — it is also listed
+    * here at `Optional` because the testkit's own public API (`RiftSuite`) exposes it, on top of
+    * using it at `Test` scope for the module's own gate tests; sbt tolerates the same artifact at
+    * both scopes on one module.
+    *
+    * `weaver-cats` 0.8.4 is the latest 0.8.x on Maven Central as of this pin (Jan 2024) and
+    * resolves cleanly against `cats-effect` 3.5.7: it declares `cats-effect` 3.5.3 transitively,
+    * which sbt's default eviction bumps to the build's 3.5.7 (a binary-compatible patch bump within
+    * CE3's own compatibility guarantee), verified via `coursier fetch` and a local
+    * `catsTestkit/test` run against the bumped version.
+    */
+  val weaver = "0.8.4"
+
+  val catsTestkitDeps: Seq[ModuleID] = Seq(
+    "org.typelevel" %% "munit-cats-effect" % munitCatsEffect % Optional,
+    "com.disneystreaming" %% "weaver-cats" % weaver % Optional
+  )
+
   /** `rift-scala-fs2` (#9): the cursor request tail as an `fs2.Stream`, built on the cats module's
     * `ImposterHandle[F]` (cats-effect comes transitively via `.dependsOn(cats)`). fs2-core only —
     * no fs2-io, this module never touches a socket or a file.
