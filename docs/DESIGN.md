@@ -173,7 +173,7 @@ fine — circe roots at `io.circe`).
 | D2 | The bridge talks to rift-java's **public facade** and feeds it **serialized JSON** through the documented escape hatches; responses are parsed back into the Scala model | Translating Scala model → Java model object-by-object (double maintenance, drifts); driving the `RiftTransport` SPI directly (reimplements spawn/ServiceLoader/preflight/intercept wiring) |
 | D3 | One error ADT for the whole SDK: `enum RiftError extends Exception with NoStackTrace`, defined in `bridge`; mapping from `RiftException` happens once, at the bridge boundary | Per-module error types (N translations); non-Throwable ADT (Cats Effect and Kyo's `Abort` interop, and `ZIO#refineToOrDie`, all get simpler when the typed error *is* a Throwable) |
 | D4 | No shared tagless-final core. `bridge` exposes one blocking, throwing, Scala-typed connector; each effect module wraps it in its own idiom (~300 LoC each) | Tagless-final `Rift[F[_]]` shared across ZIO/Kyo/pure (forces a lowest-common-denominator API, leaks a typeclass hierarchy into the ZIO surface, and pure/`Either` doesn't fit `F[_]` without ceremony) |
-| D5 | Verification runs **engine-side** (facade `verify`); the testkits *additionally* run the model's pure client-side matcher over `recorded()` to render readable diffs on failure | Client-side-only verification (drifts from engine predicate semantics); engine-side-only (diff quality limited to `VerificationException.getMessage`) |
+| D5 | Verification runs **engine-side** (facade `verify`); the testkits *additionally* run the model's pure client-side matcher over `recorded()` to render readable diffs on failure | Client-side-only verification (drifts from engine predicate semantics); engine-side-only (workable now that `VerificationException.result()` is structured, but the testkits' client-side pass still renders diffs in the model's own predicate vocabulary) |
 | D6 | Request tailing is **cursor-polling** over the engine's stable per-port journal index (rift#603): `recordedPage()` baselines, `recordedSince(cursor)` fetches strictly-newer, default every 100 ms, exposed as `ZStream` / fs2 `Stream[RecordedRequest]`. Adopting the cursor is a **drop-in** (signatures unchanged); the richer SSE `/events` stream (rift#461 — lifecycle + `lagged` events) is an **additive new type**, not a transparent swap | Client-side array-offset poll (`all.drop(offset)` silently skips/replays: journal positions shift under the 10k `pop_front` eviction, `DELETE savedRequests`, and clears — no stable positions); blocking long-poll (no such endpoint) |
 | D7 | Body codecs are a tiny model-level typeclass `JsonBody[A]`; zio-json and circe instances ship as **separate side-car artifacts** so no backend forces a JSON library on users | zio-json hard dep in the zio module / circe in cats (violates "cats-core never leaks", and ZIO users on jsoniter shouldn't pull zio-json) |
 | D8 | JDK: build & publish on 21 (LTS floor, matches rift-java-core's 17+ easily); embedded tests run on the 22 CI job with `rift-java-embedded`, the 21 job covers remote transports (and optionally embedded via `-jdk21` + `--enable-preview`) | Requiring JDK 22 for the whole build (excludes LTS-pinned users for no reason — only the *embedded test runtime* needs it) |
@@ -550,7 +550,10 @@ object RiftError:
 ```
 
 Mapping: `InvalidDefinition|EngineUnavailable|CommunicationError|ImposterNotFound|EngineError`
-1:1 from the sealed `RiftException`; `VerificationException` → `VerificationFailed`;
+1:1 from the sealed `RiftException`; `VerificationException` (which `extends AssertionError` and
+carries a **structured** `result(): Optional[VerificationResult]` — `matched`, `total`,
+`satisfied`, `requests`, and `closest` with per-predicate `failedPredicates`, *not* message-only)
+→ `VerificationFailed`;
 `JsonError.Decode` on response parsing → `DecodeFailed`. Because `RiftError` *is* an
 `Exception`: ZIO uses `refineToOrDie[RiftError]`, Cats raises it directly, Kyo's
 `Abort[RiftError]` and `pure`'s `Either[RiftError, A]` both hold the same values.
@@ -564,7 +567,7 @@ package rift.bridge
 final class RiftConnector private (underlying: JRift /* io.github.etacassiopeia.rift.Rift */)
     extends AutoCloseable:
   def create(definition: ImposterDefinition): ImposterConnector   // JSON via Rift.create(String)
-  def imposter(port: Port): ImposterConnector                     // throws ImposterNotFound
+  def imposter(port: Port): ImposterConnector                     // facade Rift.imposter(int): Optional[Imposter]; bridge maps empty → ImposterNotFound
   def imposters(): Vector[ImposterConnector]
   def deleteAll(): Unit
   def replaceAll(definitions: Vector[ImposterDefinition]): Unit
@@ -578,9 +581,9 @@ object RiftConnector:
   def embedded(config: EmbeddedConfig = EmbeddedConfig()): RiftConnector
   def connect(config: ConnectConfig): RiftConnector
   def spawn(config: SpawnConfig = SpawnConfig()): RiftConnector
-  def container(config: ContainerConfig = ContainerConfig()): RiftConnector
-  // container requires rift-java-testcontainers (Optional dep) on the classpath;
-  // absence fails with EngineUnavailable naming the missing artifact.
+  def container(config: ContainerConfig = ContainerConfig()): RiftConnector   // optional transport
+  // container wraps rift-java's RiftContainer from the optional rift-java-testcontainers artifact;
+  // absence from the classpath fails with EngineUnavailable naming the missing artifact.
 ```
 
 `ImposterConnector` mirrors `rift.zio.ImposterHandle` (5.3) 1:1 but blocking/throwing —
@@ -590,18 +593,23 @@ stubs CRUD (`addStub`, `addStubFirst`, `replaceStubs`, `stub(id)`), `recorded([m
 modules and `pure` are thin wrappers over these two types, so behavior can never diverge
 between backends.
 
-Config case classes are Scala-idiomatic mirrors of rift-java's option builders, with the same
-defaults (`ConnectConfig(adminUri, apiKey, requestTimeout = 30.seconds, versionCheck =
-VersionCheck.Fail, hostResolver)`, `EmbeddedConfig(libraryPath, adminHost = "127.0.0.1",
-adminPort = 0, serveAdminEagerly = false, apiKey)`, `SpawnConfig(binaryPath, version, host,
-adminPort, allowInjection, localOnly, logLevel, env, workingDir, mirrorUrl,
-startupTimeout = 15.seconds, shutdownTimeout = 5.seconds, inheritLog)`,
-`ContainerConfig(image, imposterPorts, apiKey, gateway, interceptPort)`).
+Config case classes are Scala-idiomatic mirrors of rift-java's builder-style option types —
+`ConnectConfig` maps onto `ConnectOptions.builder()…`, `EmbeddedConfig` onto `EmbeddedOptions`,
+and `SpawnConfig` onto `SpawnOptions` (`ContainerConfig` configures the optional testcontainers
+`RiftContainer`) — with the same defaults (`ConnectConfig(adminUri, apiKey, requestTimeout =
+30.seconds, versionCheck = VersionCheck.Fail, hostResolver)`, `EmbeddedConfig(libraryPath,
+adminHost = "127.0.0.1", adminPort = 0, serveAdminEagerly = false, apiKey)`,
+`SpawnConfig(binaryPath, version, host, adminPort, allowInjection, localOnly, logLevel, env,
+workingDir, mirrorUrl, startupTimeout = 15.seconds, shutdownTimeout = 5.seconds, inheritLog)`,
+`ContainerConfig(image, imposterPorts, apiKey, gateway, interceptPort)`). The facade's
+`SpawnOptions.version()` defaults to the **live** `RiftVersion.engineVersion()` (not a static
+literal), so a `SpawnConfig` that leaves `version` unset spawns the engine pinned by this build.
 
-Verification detail (D5): `verify` calls the facade; on `VerificationException` the bridge
-fetches `recorded(match)` and runs `RequestMatcher.explain` to build the typed
-`VerificationReport` carried inside `RiftError.VerificationFailed` — every backend gets rich
-diffs for free.
+Verification detail (D5): `verify` calls the facade; on `VerificationException` the bridge reads
+its structured `result()` (`requests` for the matched calls, `closest` with `failedPredicates`
+for the near-misses) to build the typed `VerificationReport` carried inside
+`RiftError.VerificationFailed` — every backend gets rich diffs for free. Per-item decode failures
+degrade to a partial report (never a wrong error case); the engine's `verify` stays authoritative.
 
 ```scala
 object RiftVersions:
@@ -1212,11 +1220,12 @@ rift-java 0.1.1 is released — nothing in M3 is blocked anymore.
 
 ## 9. Open questions / upstream follow-ups
 
-1. **Typed verify over the facade** — rift-java's `Imposter.verify` throws
-   `VerificationException` with a string diff; the engine's `POST /imposters/{port}/verify`
-   returns structured `closest.failedPredicates` we can't reach through the facade. Filed
-   upstream as [rift-java#127](https://github.com/EtaCassiopeia/rift-java/issues/127). Until
-   then D5's client-side matcher fills the gap.
+1. **Typed verify over the facade** — ✅ resolved in rift-java 0.1.2. `Imposter.verify`'s
+   `VerificationException` now carries a structured `result(): Optional[VerificationResult]`
+   (`requests`, plus `closest` with per-predicate `failedPredicates`), so the bridge reads the
+   engine's structured diff directly instead of parsing a string message
+   ([rift-java#127](https://github.com/EtaCassiopeia/rift-java/issues/127)). D5's testkit
+   client-side matcher stays — it renders those diffs in the model's own predicate vocabulary.
 2. **Request-tail cursor & SSE** — two *separate* engine features, both now shipped:
    the stable savedRequests cursor ([rift#603](https://github.com/EtaCassiopeia/rift/issues/603) —
    `?since=<index>` + `x-rift-next-index` / `x-rift-truncated`) and the admin SSE `/events`
