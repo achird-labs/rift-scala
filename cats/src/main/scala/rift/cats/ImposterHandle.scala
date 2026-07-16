@@ -14,8 +14,9 @@ import rift.bridge.ImposterDefinition
   * `startRecording` is omitted: the bridge doesn't expose it yet — `ImposterConnector`'s own
   * scaladoc tracks the gap as issue #35. Not faked here.
   *
-  * No cursor request tail (`requests`/`requests(pollEvery)` on the ZIO handle): that surface is an
-  * `fs2.Stream` and belongs to the `rift-scala-fs2` module (issue #9), not here.
+  * No cursor request *tail* (`requests`/`requests(pollEvery)` on the ZIO handle): the `fs2.Stream`
+  * built by looping `recordedPage`/`recordedSince` belongs to the `rift-scala-fs2` module (issue
+  * #9), not here. This trait exposes only the two `F`-shaped page reads that stream is built on.
   */
 trait ImposterHandle[F[_]]:
   def port: Port
@@ -28,6 +29,18 @@ trait ImposterHandle[F[_]]:
   def stub(id: StubId): F[StubRef[F]]
   def recorded: F[Vector[RecordedRequest]]
   def recorded(matching: RequestMatch): F[Vector[RecordedRequest]]
+
+  /** Baseline read for the cursor request tail (DESIGN.md §5.3, D6) — the `rift-scala-fs2` module's
+    * `requestStream` is built on this pair, not on `recorded`, so it can page forward via
+    * `recordedSince` instead of an `all.drop(offset)` scheme.
+    */
+  def recordedPage: F[rift.bridge.RecordedPage]
+
+  /** Strictly-newer page since `cursor` (a prior `recordedPage`/`recordedSince` call's
+    * `nextIndex`).
+    */
+  def recordedSince(cursor: Long): F[rift.bridge.RecordedPage]
+
   def clearRecorded: F[Unit]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit]
   def verify(matching: RequestMatch, times: Int): F[Unit] // README sugar: exact count
@@ -64,6 +77,11 @@ private[cats] final class ImposterHandleLive[F[_]: Async](
 
   def recorded(matching: RequestMatch): F[Vector[RecordedRequest]] =
     blockingF(connector.recorded(matching))
+
+  def recordedPage: F[rift.bridge.RecordedPage] = blockingF(connector.recordedPage())
+
+  def recordedSince(cursor: Long): F[rift.bridge.RecordedPage] =
+    blockingF(connector.recordedSince(cursor))
 
   def clearRecorded: F[Unit] = blockingF(connector.clearRecorded())
 

@@ -68,6 +68,14 @@ object Dependencies {
   val munitCatsEffectDeps: Seq[ModuleID] =
     Seq("org.typelevel" %% "munit-cats-effect" % munitCatsEffect % Test)
 
+  /** `rift-scala-fs2` (#9): the cursor request tail as an `fs2.Stream`, built on the cats module's
+    * `ImposterHandle[F]` (cats-effect comes transitively via `.dependsOn(cats)`). fs2-core only —
+    * no fs2-io, this module never touches a socket or a file.
+    */
+  val fs2 = "3.11.0"
+
+  val fs2Deps: Seq[ModuleID] = Seq("co.fs2" %% "fs2-core" % fs2)
+
   /** Codec side-car (D7): the only place circe is allowed, keeping `rift-scala-cats`
     * cats-effect-only and honouring "cats-core never leaks into other modules" in both directions.
     */
