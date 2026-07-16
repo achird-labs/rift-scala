@@ -20,8 +20,9 @@ import rift.bridge.{
   * the natural glue for scalatest/JUnit users via `scala.util.Using` (see the `*Unsafe`
   * constructors on the companion).
   *
-  * `intercept` is omitted: the bridge doesn't expose it yet — `RiftConnector`'s own scaladoc tracks
-  * the gap as issue #34. Not faked here.
+  * `intercept` is omitted here: the bridge exposes `RiftConnector.intercept` and the ZIO surface
+  * wraps it (`rift.zio.Rift.intercept`) as of #34, but the `Using`-friendly `Either` intercept
+  * surface is a tracked follow-up rather than faked here.
   */
 final class Rift private (connector: RiftConnector) extends AutoCloseable:
 

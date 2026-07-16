@@ -27,6 +27,11 @@ import io.github.etacassiopeia.rift.FlowState as JFlowState
   */
 final class ImposterConnector private[bridge] (underlying: JImposter):
 
+  /** The wrapped facade `Imposter` — needed by `InterceptRuleBuilder.redirectTo`, which routes
+    * intercepted traffic to this imposter (the facade's `redirectTo` takes the `Imposter` itself).
+    */
+  private[bridge] def jImposter: JImposter = underlying
+
   def port: Port =
     FacadeBoundary.run {
       val p = underlying.port()

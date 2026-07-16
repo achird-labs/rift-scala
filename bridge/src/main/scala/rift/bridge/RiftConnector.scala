@@ -15,11 +15,6 @@ import io.github.etacassiopeia.rift.model.ImposterDefinition as JImposterDefinit
 /** Blocking, throwing (`RiftError`), thread-safe. One instance per engine (DESIGN.md §5.2). All
   * effect-module connectors (`rift.zio`, `rift.cats`, ...) are thin wrappers over this and
   * `ImposterConnector`, so behavior can never diverge between backends.
-  *
-  * `intercept(options)` is not yet implemented: `InterceptConfig`/`InterceptConnector` would need
-  * to mirror rift-java's `dsl.IsSpec`/`InterceptRuleBuilder`/`InterceptTrust`/`CaMaterial` surface,
-  * none of which the pure `rift-scala-model` currently models. Deferred rather than faked — see the
-  * bridge implementation report (issue #3) for follow-up.
   */
 final class RiftConnector private (underlying: JRift, onClose: () => Unit) extends AutoCloseable:
 
@@ -68,6 +63,13 @@ final class RiftConnector private (underlying: JRift, onClose: () => Unit) exten
     }
 
   def adminUri: URI = FacadeBoundary.run(underlying.adminUri())
+
+  /** Start the engine's TLS-MITM intercept proxy — at most one per engine (a second call is an
+    * engine-side error, surfaced as a `RiftError`, not hidden). `config.ca = None` generates an
+    * ephemeral CA; `Some(CaMaterial)` uses a committed PEM pair (the fixed-CA case #7 needs).
+    */
+  def intercept(config: InterceptConfig = InterceptConfig()): InterceptConnector =
+    FacadeBoundary.run(InterceptConnector(underlying.intercept(config.toOptions)))
 
   def close(): Unit =
     try FacadeBoundary.run(underlying.close())

@@ -1,0 +1,82 @@
+package rift.zio
+
+import java.net.{InetSocketAddress, URI}
+import java.nio.file.Path
+import javax.net.ssl.SSLContext
+
+import zio.*
+
+import rift.RiftError
+import rift.dsl.{RequestMatch, ResponseBuilder}
+import rift.bridge.{InterceptConnector, InterceptRule, TruststoreFormat}
+
+/** The ZIO surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.3). Obtained from
+  * `Rift.intercept` as a scoped resource — the proxy is torn down on scope release. `proxyUri` is
+  * pure (mirroring `ImposterHandle.uri`); everything that touches the running proxy is an effect.
+  */
+trait InterceptHandle:
+  def proxyUri: URI
+  def address: IO[RiftError, InetSocketAddress]
+  def rule(host: String): InterceptRuleBuilder
+  def rules: IO[RiftError, Chunk[InterceptRule]]
+  def clearRules: IO[RiftError, Unit]
+  def caPem: IO[RiftError, String]
+  def sslContext: IO[RiftError, SSLContext]
+  def exportTruststore(format: TruststoreFormat, password: String, path: Path): IO[RiftError, Unit]
+
+/** `.when(match)` then a terminal `serve/forward/redirectTo`. The facade builder is stateful, so
+  * the ZIO wrapper stays pure by deferring every facade call to the terminal effect: `when`
+  * accumulates the matches, and the rule is materialized inside `blockingIO` when a terminal runs —
+  * each `when` is replayed onto the facade builder so chaining behaves exactly like the blocking
+  * bridge builder (no earlier `when` is dropped).
+  */
+trait InterceptRuleBuilder:
+  def when(matching: RequestMatch): InterceptRuleBuilder
+  def serve(response: ResponseBuilder): IO[RiftError, InterceptRule]
+  def forward(target: String): IO[RiftError, InterceptRule]
+  def redirectTo(imposter: ImposterHandle): IO[RiftError, InterceptRule]
+
+private[zio] final case class InterceptHandleLive(connector: InterceptConnector)
+    extends InterceptHandle:
+  def proxyUri: URI = connector.proxyUri
+  def address: IO[RiftError, InetSocketAddress] = blockingIO(connector.address)
+  def rule(host: String): InterceptRuleBuilder = InterceptRuleBuilderLive(connector, host)
+  def rules: IO[RiftError, Chunk[InterceptRule]] =
+    blockingIO(Chunk.fromIterable(connector.rules))
+  def clearRules: IO[RiftError, Unit] = blockingIO(connector.clearRules())
+  def caPem: IO[RiftError, String] = blockingIO(connector.caPem)
+  def sslContext: IO[RiftError, SSLContext] = blockingIO(connector.sslContext)
+  def exportTruststore(
+      format: TruststoreFormat,
+      password: String,
+      path: Path
+  ): IO[RiftError, Unit] =
+    blockingIO(connector.exportTruststore(format, password, path))
+
+private[zio] final case class InterceptRuleBuilderLive(
+    connector: InterceptConnector,
+    host: String,
+    matches: Vector[RequestMatch] = Vector.empty
+) extends InterceptRuleBuilder:
+
+  def when(matching: RequestMatch): InterceptRuleBuilder = copy(matches = matches :+ matching)
+
+  private def built: rift.bridge.InterceptRuleBuilder =
+    matches.foldLeft(connector.rule(host))((builder, matching) => builder.when(matching))
+
+  def serve(response: ResponseBuilder): IO[RiftError, InterceptRule] =
+    blockingIO(built.serve(response))
+
+  def forward(target: String): IO[RiftError, InterceptRule] =
+    blockingIO(built.forward(target))
+
+  def redirectTo(imposter: ImposterHandle): IO[RiftError, InterceptRule] =
+    imposter match
+      case live: ImposterHandleLive => blockingIO(built.redirectTo(live.connector))
+      case _ =>
+        ZIO.fail(
+          RiftError.InvalidDefinition(
+            "redirectTo requires a rift.zio ImposterHandle from this engine",
+            None
+          )
+        )
