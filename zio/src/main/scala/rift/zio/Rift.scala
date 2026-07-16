@@ -13,15 +13,12 @@ import rift.bridge.{
   ContainerConfig,
   EmbeddedConfig,
   ImposterDefinition,
+  InterceptConfig,
   RiftConnector,
   SpawnConfig
 }
 
-/** The ZIO surface over `rift.bridge.RiftConnector` (DESIGN.md §5.3, issue #4).
-  *
-  * `intercept` is omitted: the bridge doesn't expose it yet — `RiftConnector`'s own scaladoc tracks
-  * the gap as issue #34. Not faked here.
-  */
+/** The ZIO surface over `rift.bridge.RiftConnector` (DESIGN.md §5.3, issue #4). */
 trait Rift:
   def create(definition: ImposterDefinition): IO[RiftError, ImposterHandle]
   def create(builder: ImposterBuilder): IO[RiftError, ImposterHandle]
@@ -33,6 +30,7 @@ trait Rift:
   def applyConfig(config: Json): IO[RiftError, ApplyResult]
   def info: IO[RiftError, EngineInfo]
   def adminUri: UIO[URI]
+  def intercept(config: InterceptConfig = InterceptConfig()): ZIO[Scope, RiftError, InterceptHandle]
 
 /** Runs a blocking bridge downcall on `ZIO.attemptBlocking`, recovering the `RiftError` the bridge
   * already throws for every modeled failure (DESIGN.md §5.2, D3) and letting anything else die as
@@ -71,6 +69,17 @@ private[zio] final case class RiftLive(connector: RiftConnector) extends Rift:
   def info: IO[RiftError, EngineInfo] = blockingIO(connector.info())
 
   def adminUri: UIO[URI] = ZIO.succeed(connector.adminUri)
+
+  /** Scoped: the intercept proxy is acquired on the blocking pool and torn down on scope release
+    * (both blocking, like the engine layers). `close()` on release is `orDie` — a teardown failure
+    * is a defect, not a value the caller recovers.
+    */
+  def intercept(config: InterceptConfig): ZIO[Scope, RiftError, InterceptHandle] =
+    ZIO
+      .acquireRelease(blockingIO(connector.intercept(config)))(c =>
+        ZIO.attemptBlocking(c.close()).orDie
+      )
+      .map(InterceptHandleLive(_))
 
 object Rift:
 
@@ -121,3 +130,7 @@ object Rift:
     ZIO.serviceWithZIO[Rift](_.applyConfig(config))
   def info: ZIO[Rift, RiftError, EngineInfo] = ZIO.serviceWithZIO[Rift](_.info)
   def adminUri: URIO[Rift, URI] = ZIO.serviceWithZIO[Rift](_.adminUri)
+  def intercept(
+      config: InterceptConfig = InterceptConfig()
+  ): ZIO[Rift & Scope, RiftError, InterceptHandle] =
+    ZIO.serviceWithZIO[Rift](_.intercept(config))

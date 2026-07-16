@@ -31,3 +31,28 @@ class EmbeddedSmokeSpec extends FunSuite:
 
       imp.delete()
     finally conn.close()
+
+  test("embedded: intercept — register rules, read trust material, export a truststore"):
+    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+
+    val conn = RiftConnector.embedded()
+    try
+      val ic = conn.intercept() // generated CA, dynamic port
+      try
+        assert(ic.proxyUri.toString.nonEmpty)
+        ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
+        ic.rule("legacy.example.com").forward("https://real.example.com")
+        assert(ic.rules.sizeIs >= 2)
+        assert(ic.caPem.contains("BEGIN"))
+        assert(ic.sslContext != null)
+
+        val truststore = java.nio.file.Files.createTempFile("rift-truststore", ".p12")
+        try
+          ic.exportTruststore(TruststoreFormat.Pkcs12, "changeit", truststore)
+          assert(java.nio.file.Files.size(truststore) > 0)
+        finally java.nio.file.Files.deleteIfExists(truststore)
+
+        ic.clearRules()
+        assertEquals(ic.rules, Vector.empty)
+      finally ic.close()
+    finally conn.close()

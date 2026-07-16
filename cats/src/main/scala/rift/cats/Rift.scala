@@ -19,8 +19,9 @@ import rift.bridge.{
 
 /** The Cats Effect surface over `rift.bridge.RiftConnector` (DESIGN.md §5.6, issue #8).
   *
-  * `intercept` is omitted: the bridge doesn't expose it yet — `RiftConnector`'s own scaladoc tracks
-  * the gap as issue #34. Not faked here.
+  * `intercept` is omitted here: the bridge exposes `RiftConnector.intercept` and the ZIO surface
+  * wraps it (`rift.zio.Rift.intercept`) as of #34, but the Cats `Resource[F, InterceptHandle[F]]`
+  * wiring is a tracked follow-up rather than faked here.
   */
 trait Rift[F[_]]:
   def create(definition: ImposterDefinition): F[ImposterHandle[F]]

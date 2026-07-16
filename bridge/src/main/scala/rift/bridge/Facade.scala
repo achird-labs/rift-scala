@@ -4,12 +4,13 @@ import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 
 import rift.RiftError
-import rift.dsl.RequestMatch
+import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.json.{Json, JsonError}
-import rift.model.{RecordedRequest, Stub, Times}
+import rift.model.{Headers, IsResponse, RecordedRequest, Response, Stub, Times}
 
 import io.github.etacassiopeia.rift.verify as jverify
 import io.github.etacassiopeia.rift.json.JsonValue as JJsonValue
+import io.github.etacassiopeia.rift.dsl.{IsSpec as JIsSpec, RiftDsl as JRiftDsl}
 import io.github.etacassiopeia.rift.RecordedRequest as JRecordedRequest
 import io.github.etacassiopeia.rift.RecordedPage as JRecordedPage
 import io.github.etacassiopeia.rift.model.{ImposterDefinition as JImposterDefinition, Stub as JStub}
@@ -89,3 +90,61 @@ private[bridge] object FacadeEncode:
     case Times.AtLeast(n) => jverify.VerificationTimes.atLeast(n)
     case Times.AtMost(n) => jverify.VerificationTimes.atMost(n)
     case Times.Between(lo, hi) => jverify.VerificationTimes.between(lo, hi)
+
+  private val binaryMarker: (String, Json) = ("_mode", Json.Str("binary"))
+
+  /** Translates a rift-scala response into the facade's `IsSpec` for an intercept `serve` rule. The
+    * facade only accepts a concrete `IsSpec` (no raw-JSON overload like the stub/verify paths
+    * have), so this is a deliberate value translation — but scoped to the plain `is` core (status,
+    * headers, body incl. binary). A response carrying
+    * `_behaviors`/`_rift`(faults/script/templating)/a non-`is` variant (proxy/inject/fault) or
+    * unknown `is` keys is **rejected**, never silently degraded: the full behavior vocabulary
+    * belongs to `redirectTo(imposter)`, whose stubs go through the D2 raw-JSON seam unchanged.
+    */
+  def isSpec(response: ResponseBuilder): JIsSpec =
+    response.build match
+      case Response.Is(is, behaviors, riftExt, extra)
+          if behaviors.isEmpty && riftExt.isEmpty && extra.isEmpty && isPlainIsExtra(is.extra) =>
+        isSpecFromIs(is)
+      case _ =>
+        throw RiftError.InvalidDefinition(
+          "intercept serve supports a plain `is` response (status, headers, body); a response " +
+            "with _behaviors/_rift/proxy/inject/fault is not translatable to the facade IsSpec — " +
+            "use redirectTo(imposter) for full stub fidelity",
+          None
+        )
+
+  private def isPlainIsExtra(extra: Vector[(String, Json)]): Boolean =
+    extra.isEmpty || extra == Vector(binaryMarker)
+
+  private def isSpecFromIs(is: IsResponse): JIsSpec =
+    val withStatus = JRiftDsl.status(is.statusCode.getOrElse(200))
+    val withHeaders =
+      orderedHeaders(is.headers).foldLeft(withStatus) { case (spec, (name, values)) =>
+        spec.withHeader(name, values*)
+      }
+    val binary = is.extra.contains(binaryMarker)
+    is.body match
+      case Some(Json.Str(s)) if binary =>
+        withHeaders.withBinaryBody(java.util.Base64.getDecoder.decode(s))
+      case Some(_) if binary =>
+        // the binary marker promises a base64 string body; any other body shape would be silently
+        // mis-encoded as a JSON body — reject rather than degrade (mirrors isSpec's top-level guard).
+        throw RiftError.InvalidDefinition(
+          "intercept serve: `_mode=binary` marker present but body is not a base64 string",
+          None
+        )
+      case Some(Json.Str(s)) => withHeaders.withTextBody(s)
+      case Some(json) => withHeaders.withJsonBody(JJsonValue.parse(json.render))
+      case None => withHeaders
+
+  /** Collapses repeated header names into one `withHeader(name, v*)` call, preserving first-seen
+    * order — the facade's `withHeader` is varargs-per-name, so a flat per-entry mapping would risk
+    * dropping a multi-valued header.
+    */
+  private def orderedHeaders(headers: Headers): Vector[(String, Vector[String])] =
+    headers.entries.foldLeft(Vector.empty[(String, Vector[String])]) { case (acc, (name, value)) =>
+      acc.indexWhere(_._1 == name) match
+        case -1 => acc :+ (name -> Vector(value))
+        case i => acc.updated(i, name -> (acc(i)._2 :+ value))
+    }
