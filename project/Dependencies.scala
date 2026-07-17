@@ -30,6 +30,18 @@ object Dependencies {
     "io.github.etacassiopeia" % "rift-java-testcontainers" % riftJava % Optional
   )
 
+  /** Embedded transport (in-process engine via stable FFM) + its native library, both `Test`-only,
+    * for the conformance module's G3 replay (DESIGN §5.2). `rift-java-embedded` is JDK-22 bytecode,
+    * so `build.sbt` adds these ONLY on a JDK that can classload them (the JDK 22 CI job); the JDK
+    * 21 job replays G3 via `spawn` and must not carry them. `RiftNatives.currentClassifier` picks
+    * the host's native jar (the natives artifact is classifier-per-platform, no default jar).
+    */
+  val riftJavaEmbeddedTestDeps: Seq[ModuleID] = Seq(
+    "io.github.etacassiopeia" % "rift-java-embedded" % riftJava % Test,
+    ("io.github.etacassiopeia" % "rift-java-natives" % riftJava % Test)
+      .classifier(RiftNatives.currentClassifier)
+  )
+
   /** `rift-scala-zio` (#4): the ZIO surface is zio + zio-streams only (the cursor request tail is a
     * `ZStream`). No JSON library — codecs opt in via the `zio-json` side-car (D7).
     */
