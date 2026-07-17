@@ -18,9 +18,10 @@ import CorpusReplay.VerifyStep
   * instead of `ZIO`) and engine wiring (`Resource` instead of `ZLayer`) differ.
   *
   * Guarded exactly like `rift.cats.EmbeddedSmokeSpec`: `JRift.isEmbeddedAvailable()` is checked
-  * BEFORE any engine `Resource` is acquired (`assume`, munit's skip-not-fail primitive), so a bare
-  * CI JVM (no `rift-java-natives` / `--enable-native-access`) skips cleanly and this spec's only
-  * job on such a JVM is to COMPILE.
+  * BEFORE any engine `Resource` is acquired, so a bare CI JVM (no `rift-java-natives` /
+  * `--enable-native-access`) skips cleanly and this spec's only job on such a JVM is to COMPILE —
+  * UNLESS `RIFT_G3_REQUIRE=embedded` (issue #63), which turns an unavailable engine on the job that
+  * requires the embedded lane into a `fail` (red build) rather than a silent `assume`-skip.
   */
 class CorpusG3CatsSpec extends CatsEffectSuite:
 
@@ -70,8 +71,13 @@ class CorpusG3CatsSpec extends CatsEffectSuite:
     else replayFixture(rift, fixture)
 
   test("replay every hasVerify fixture the embedded lane supports (cats surface)"):
-    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
-
-    Rift.embedded[IO].use { rift =>
-      runAll(Corpus.fixtures.filter(_.hasVerify).map(replayOrSkip(rift, _)))
-    }
+    G3Require.decideEmbedded(JRift.isEmbeddedAvailable(), G3Require.required) match
+      case G3Require.Decision.Skip =>
+        assume(false, "embedded runtime not on the classpath — skipping")
+        IO.unit
+      // Fail loudly (matrix-drift backstop, #63). Don't weaken to a skip without re-proving red.
+      case G3Require.Decision.Fail(reason) => fail(reason)
+      case G3Require.Decision.Run =>
+        Rift.embedded[IO].use { rift =>
+          runAll(Corpus.fixtures.filter(_.hasVerify).map(replayOrSkip(rift, _)))
+        }

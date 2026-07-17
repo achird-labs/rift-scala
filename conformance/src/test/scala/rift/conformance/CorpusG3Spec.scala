@@ -24,10 +24,18 @@ object CorpusG3Spec extends ZIOSpecDefault:
 
   def spec = suite("G3 — corpus replay over the embedded engine (issue #6, guarded)")(
     test("replay every hasVerify fixture the embedded lane supports") {
-      // Checked BEFORE any layer is forced — see `LedgerPatternSampleSpec`'s "WHY THIS TEST IS
-      // GUARDED" for the full rationale this spec borrows verbatim.
-      if !JRift.isEmbeddedAvailable() then
-        ZIO.logWarning("G3 skipped: no embedded engine on this JVM") *> ZIO.succeed(assertCompletes)
-      else CorpusG3Replay.replayAll("embedded").provide(Rift.embedded)
+      // Availability is probed BEFORE any layer is forced (the repo-standard guard). `RIFT_G3_REQUIRE`
+      // decides what an *unavailable* engine means: skip for local dev, but a RED build on the CI job
+      // that required the embedded lane (issue #63 — a silent green skip would mean it never ran).
+      G3Require.decideEmbedded(JRift.isEmbeddedAvailable(), G3Require.required) match
+        case G3Require.Decision.Run => CorpusG3Replay.replayAll("embedded").provide(Rift.embedded)
+        case G3Require.Decision.Skip =>
+          ZIO.logWarning("G3 skipped: no embedded engine on this JVM") *> ZIO.succeed(
+            assertCompletes
+          )
+        // Do NOT weaken this arm to a skip/succeed without re-running the `RIFT_G3_REQUIRE=embedded`
+        // red-proof — it is the only thing turning a required-but-absent lane into a red build (#63;
+        // "the build goes red" cannot itself be a passing in-suite test — see G3RequireSpec).
+        case G3Require.Decision.Fail(reason) => ZIO.die(new AssertionError(reason))
     }
   )

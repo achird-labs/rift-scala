@@ -31,8 +31,10 @@ jobs:
       - name: Test
         run: sbt test
         env:
-          # G3 replay runs a live engine on both jobs. The JDK 22 job runs the embedded (in-process
-          # FFM) lane — its jars are wired in build.sbt only under JDK 22+. The JDK 21 job owns the
-          # out-of-process spawn lane: RIFT_G3_SPAWN=1 enables CorpusG3SpawnSpec, which launches the
-          # engine binary (version pinned via rift-java). See DESIGN §5.13 / D8.
-          RIFT_G3_SPAWN: ${{ matrix.java == '21' && '1' || '0' }}
+          # G3 replay must actually RUN a live engine on each job — RIFT_G3_REQUIRE names the lane
+          # this job requires, so a silently-unavailable engine is a RED build, not a green skip
+          # (issue #63 backstop). JDK 22 → embedded (in-process FFM; jars wired in build.sbt under
+          # JDK 22+). JDK 21 → spawn (out-of-process child; binary pinned via rift-java). A future
+          # matrix JDK inherits one lane explicitly rather than silently skipping both. See DESIGN
+          # §5.13 / D8 and issue #63.
+          RIFT_G3_REQUIRE: ${{ matrix.java == '21' && 'spawn' || 'embedded' }}
