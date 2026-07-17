@@ -67,7 +67,13 @@ final case class Behaviors(
     lookup: Vector[Json] = Vector.empty,
     shellTransform: Vector[String] = Vector.empty,
     repeat: Option[Int] = None,
-    unknown: Vector[(String, Json)] = Vector.empty
+    unknown: Vector[(String, Json)] = Vector.empty,
+    /** Which of [[copyEntries]]/`lookup` were spelled as a bare single entry (`"copy": {...}`)
+      * rather than an array (`"copy": [{...}]`) on the wire. The engine emits both spellings for a
+      * single operation, and `semanticEquals` is strict about `Obj` vs `Arr`, so the shape has to
+      * survive the round trip rather than always normalizing to one of them.
+      */
+    singletonVectorKeys: Set[String] = Set.empty
 ):
   def isEmpty: Boolean =
     waitFor.isEmpty && decorate.isEmpty && copyEntries.isEmpty && lookup.isEmpty &&
@@ -77,8 +83,8 @@ final case class Behaviors(
     val known = Vector(
       waitFor.map(w => "wait" -> w.toJson),
       decorate.map(d => "decorate" -> Json.Str(d)),
-      if copyEntries.nonEmpty then Some("copy" -> Json.Arr(copyEntries)) else None,
-      if lookup.nonEmpty then Some("lookup" -> Json.Arr(lookup)) else None,
+      Behaviors.vectorField("copy", copyEntries, singletonVectorKeys),
+      Behaviors.vectorField("lookup", lookup, singletonVectorKeys),
       if shellTransform.nonEmpty then
         Some("shellTransform" -> Json.Arr(shellTransform.map(Json.Str(_))))
       else None,
@@ -100,6 +106,19 @@ object Behaviors:
     * exact corruption `unknown` exists to prevent.
     */
   private val vectorKeys = Set("copy", "lookup", "shellTransform")
+
+  /** Re-emits a vector key: a single entry that was originally spelled bare (tracked in
+    * [[Behaviors.singletonVectorKeys]]) stays bare; everything else — several entries, or a single
+    * entry that arrived as a 1-element array — encodes as an array.
+    */
+  private def vectorField(
+      key: String,
+      entries: Vector[Json],
+      singletonKeys: Set[String]
+  ): Option[(String, Json)] = entries match
+    case Vector() => None
+    case Vector(one) if singletonKeys(key) => Some(key -> one)
+    case many => Some(key -> Json.Arr(many))
 
   /** `GET /imposters` renders `_behaviors` as an **array of single-key objects**
     * (`[{"wait":100},{"decorate":"..."}]`, engine `behaviors_to_array`,
@@ -166,13 +185,35 @@ object Behaviors:
             val existing = acc(at)._2.asArray.getOrElse(Vector.empty)
             acc.updated(at, key -> Json.Arr(existing ++ elementsOf(value)))
 
-  private def entryArray(
+  /** The required fields that mark a bare object as a legitimate single `copy`/`lookup` entry (the
+    * engine's untagged single-operation shorthand — `types.rs` `CopyBehavior`/`LookupBehavior`)
+    * rather than some unrelated malformed value. Content, not just shape, has to gate this: `copy`
+    * and `lookup` are otherwise raw, unvalidated `Json` in this model, so an "any object goes" rule
+    * would also swallow garbage like `{"copy":{"a":1}}` as if it were a real operation.
+    */
+  private val singleEntryRequiredFields: Map[String, Set[String]] =
+    Map("copy" -> Set("from", "into"), "lookup" -> Set("key", "fromDataSource"))
+
+  private def isSingleEntry(key: String, value: Json): Boolean =
+    singleEntryRequiredFields.get(key).exists { required =>
+      value.asObject.exists(fields => required.subsetOf(fields.map(_._1).toSet))
+    }
+
+  /** Decodes a vector key's value along with whether it was spelled as a bare single entry rather
+    * than an array — see [[Behaviors.singletonVectorKeys]]. A value that is neither an array nor a
+    * recognized single-entry object used to be swallowed into an empty vector, silently dropping
+    * the behavior; the array form accepts the same input, so equivalence between the two forms is
+    * only true if this is loud.
+    */
+  private def vectorEntries(
       fields: Vector[(String, Json)],
       key: String
-  ): Either[JsonError.Decode, Vector[Json]] = fields.field(key) match
-    case Some(Json.Arr(items)) => Right(items)
-    case Some(_) => Left(JsonError.Decode("expected an array", Vector.empty).under(key))
-    case None => Right(Vector.empty)
+  ): Either[JsonError.Decode, (Vector[Json], Boolean)] = fields.field(key) match
+    case Some(Json.Arr(items)) => Right((items, false))
+    case Some(single) if isSingleEntry(key, single) => Right((Vector(single), true))
+    case Some(_) =>
+      Left(JsonError.Decode(s"expected an array or a single $key entry", Vector.empty).under(key))
+    case None => Right((Vector.empty, false))
 
   def fromJson(json: Json): Either[JsonError.Decode, Behaviors] =
     for
@@ -183,11 +224,10 @@ object Behaviors:
         case Some(w) => WaitBehavior.fromJson(w).map(Some(_)).left.map(_.under("wait"))
         case None => Right(None)
       decorate <- optString(fields, "decorate")
-      // A non-array `copy`/`lookup` used to be swallowed into an empty vector, silently dropping the
-      // behavior; the array form accepts the same input, so equivalence between the two forms is
-      // only true if this is loud.
-      copyEntries <- entryArray(fields, "copy")
-      lookup <- entryArray(fields, "lookup")
+      copyResult <- vectorEntries(fields, "copy")
+      (copyEntries, copySingleton) = copyResult
+      lookupResult <- vectorEntries(fields, "lookup")
+      (lookup, lookupSingleton) = lookupResult
       shellTransform <- fields.field("shellTransform") match
         case Some(Json.Arr(items)) =>
           items.foldLeft[Either[JsonError.Decode, Vector[String]]](Right(Vector.empty)) {
@@ -215,5 +255,9 @@ object Behaviors:
       lookup,
       shellTransform,
       repeat,
-      fields.remainder(knownKeys)
+      fields.remainder(knownKeys),
+      Set(
+        Option.when(copySingleton)("copy"),
+        Option.when(lookupSingleton)("lookup")
+      ).flatten
     )

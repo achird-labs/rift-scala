@@ -61,7 +61,12 @@ object PredicateSelector:
 final case class PredicateParams(
     caseSensitive: Boolean = false,
     except: Option[String] = None,
-    selector: Option[PredicateSelector] = None
+    selector: Option[PredicateSelector] = None,
+    /** Whether `caseSensitive` was present on the wire, independent of its value. An explicit
+      * `"caseSensitive": false` must re-emit as `false`, not vanish — `semanticEquals` is strict
+      * about object size, so dropping a key the source had is a round-trip bug, not a no-op.
+      */
+    caseSensitiveExplicit: Boolean = false
 ):
   def toJsonFields: Vector[(String, Json)] =
     Vector(
@@ -69,7 +74,9 @@ final case class PredicateParams(
         case s: PredicateSelector.JsonPath => "jsonpath" -> s.toJson
         case s: PredicateSelector.XPath => "xpath" -> s.toJson
       },
-      if caseSensitive then Some("caseSensitive" -> Json.Bool(true)) else None,
+      if caseSensitive || caseSensitiveExplicit then
+        Some("caseSensitive" -> Json.Bool(caseSensitive))
+      else None,
       except.map(e => "except" -> Json.Str(e))
     ).flatten
 
@@ -81,7 +88,7 @@ object PredicateParams:
       caseSensitive <- optBool(fields, "caseSensitive", false)
       except <- optString(fields, "except")
       selector <- decodeSelector(fields)
-    yield PredicateParams(caseSensitive, except, selector)
+    yield PredicateParams(caseSensitive, except, selector, fields.field("caseSensitive").isDefined)
 
   private def decodeSelector(
       fields: Vector[(String, Json)]

@@ -12,14 +12,21 @@ final case class Stub(
     routePattern: Option[String] = None,
     space: Option[FlowId] = None,
     scenario: Option[ScenarioRef] = None,
-    extra: Vector[(String, Json)] = Vector.empty
+    extra: Vector[(String, Json)] = Vector.empty,
+    /** Whether `predicates` was spelled `rules` on the wire — a Mountebank-migration-tool spelling
+      * some real imposters still use. Re-encodes under whichever key it was read from, same as
+      * every other alternate-spelling field in this package (e.g. `WaitBehavior`).
+      */
+    predicatesAsRules: Boolean = false
 ):
   def toJson: Json =
     val known = Vector(
       // Always emitted, even when empty, mirroring rift-java (Stub.java:103-104), which decodes both
       // as optional but always writes them. An empty array and an absent key mean the same thing to
       // the engine, and parity with the reference implementation (D2) beats a private convention.
-      Some("predicates" -> Json.Arr(predicates.map(_.toJson))),
+      Some(
+        (if predicatesAsRules then "rules" else "predicates") -> Json.Arr(predicates.map(_.toJson))
+      ),
       Some("responses" -> Json.Arr(responses.map(_.toJson))),
       name.map(n => "name" -> Json.Str(n)),
       id.map(i => "id" -> Json.Str(StubId.value(i))),
@@ -34,6 +41,7 @@ final case class Stub(
 object Stub:
   private val modeledKeys = Set(
     "predicates",
+    "rules",
     "responses",
     "name",
     "id",
@@ -44,12 +52,26 @@ object Stub:
     "newScenarioState"
   )
 
+  /** `rules` is a migration-tool spelling of `predicates` some real imposters still carry; the two
+    * are mutually exclusive on the wire, matching `jsonpath`/`xpath` elsewhere in this package.
+    */
+  private def decodePredicates(
+      fields: Vector[(String, Json)]
+  ): Either[JsonError.Decode, (Vector[Predicate], Boolean)] =
+    (fields.field("predicates"), fields.field("rules")) match
+      case (Some(p), None) =>
+        decodeArray(p, Predicate.fromJson).left.map(_.under("predicates")).map((_, false))
+      case (None, Some(r)) =>
+        decodeArray(r, Predicate.fromJson).left.map(_.under("rules")).map((_, true))
+      case (None, None) => Right((Vector.empty, false))
+      case (Some(_), Some(_)) =>
+        Left(JsonError.Decode("both 'predicates' and 'rules' present", Vector.empty))
+
   def fromJson(json: Json): Either[JsonError.Decode, Stub] =
     for
       fields <- asObj(json, "stub")
-      predicates <- fields.field("predicates") match
-        case Some(p) => decodeArray(p, Predicate.fromJson).left.map(_.under("predicates"))
-        case None => Right(Vector.empty)
+      predicatesResult <- decodePredicates(fields)
+      (predicates, predicatesAsRules) = predicatesResult
       responses <- fields.field("responses") match
         case Some(r) => decodeArray(r, Response.fromJson).left.map(_.under("responses"))
         case None => Right(Vector.empty)
@@ -77,7 +99,8 @@ object Stub:
       routePattern,
       space,
       scenario,
-      fields.remainder(modeledKeys)
+      fields.remainder(modeledKeys),
+      predicatesAsRules
     )
 
   /** The scenario states are meaningless without the name that scopes them, and they are modeled
