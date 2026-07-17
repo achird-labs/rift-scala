@@ -1,0 +1,47 @@
+{
+  "port": 4510,
+  "protocol": "http",
+  "name": "10 · Correlated isolation (one port, partitioned by a header)",
+  "recordRequests": true,
+  "_rift": {
+    "flowState": {
+      "backend": "inmemory",
+      "ttlSeconds": 300,
+      "flowIdSource": "header:X-Mock-Space"
+    }
+  },
+  "stubs": [
+    {
+      "name": "space=alice — only matches requests with X-Mock-Space: alice",
+      "space": "alice",
+      "predicates": [{ "equals": { "path": "/data" } }],
+      "responses": [{ "is": { "statusCode": 200, "body": { "owner": "alice", "items": [1, 2] } } }],
+      "_verify": {
+        "sequence": [
+          { "request": { "path": "/data", "headers": { "X-Mock-Space": "alice" } }, "expect": { "status": 200, "bodyContains": "\"owner\":\"alice\"" } }
+        ]
+      }
+    },
+    {
+      "name": "space=bob — isolated from alice",
+      "space": "bob",
+      "predicates": [{ "equals": { "path": "/data" } }],
+      "responses": [{ "is": { "statusCode": 200, "body": { "owner": "bob", "items": [9] } } }],
+      "_verify": {
+        "sequence": [
+          { "request": { "path": "/data", "headers": { "X-Mock-Space": "bob" } }, "expect": { "status": 200, "bodyContains": "\"owner\":\"bob\"" } }
+        ]
+      }
+    },
+    {
+      "name": "global (no space) — matches any caller",
+      "predicates": [{ "equals": { "path": "/health" } }],
+      "responses": [{ "is": { "statusCode": 200, "body": "OK" } }],
+      "_verify": {
+        "sequence": [
+          { "request": { "path": "/health" }, "expect": { "status": 200, "bodyEquals": "OK" } }
+        ]
+      }
+    }
+  ]
+}
