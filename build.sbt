@@ -153,9 +153,34 @@ lazy val pure = riftModule("pure", "pure")
   .dependsOn(bridge)
   .settings(libraryDependencies ++= Dependencies.munitDeps)
 
+// Test-only conformance corpus replay (#6): proves DSL <-> engine parity against the vendored
+// sdk-conformance corpus (README.md under its resources for the replay contract). No `main` sources
+// — every fixture-decode/DSL-reauthoring/engine-replay assertion lives under `src/test`, so this
+// module contributes nothing to the published artifact set (`publish / skip`).
+lazy val conformance = riftModule("conformance", "conformance")
+  .dependsOn(zio, zioTestkit)
+  .settings(
+    publish / skip := true,
+    libraryDependencies ++= Dependencies.zioTestDeps,
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
+  )
+
 lazy val root = project
   .in(file("."))
-  .aggregate(model, zioJson, circe, bridge, zio, zioTestkit, cats, catsTestkit, fs2, kyo, pure)
+  .aggregate(
+    model,
+    zioJson,
+    circe,
+    bridge,
+    zio,
+    zioTestkit,
+    cats,
+    catsTestkit,
+    fs2,
+    kyo,
+    pure,
+    conformance
+  )
   .settings(
     name := "rift-scala",
     scalaVersion := scala3,
