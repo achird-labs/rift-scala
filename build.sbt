@@ -153,16 +153,20 @@ lazy val pure = riftModule("pure", "pure")
   .dependsOn(bridge)
   .settings(libraryDependencies ++= Dependencies.munitDeps)
 
-// Test-only conformance corpus replay (#6): proves DSL <-> engine parity against the vendored
-// sdk-conformance corpus (README.md under its resources for the replay contract). No `main` sources
-// — every fixture-decode/DSL-reauthoring/engine-replay assertion lives under `src/test`, so this
-// module contributes nothing to the published artifact set (`publish / skip`).
+// Test-only conformance corpus replay (#6, extended to the cats surface + parity table by #13):
+// proves DSL <-> engine parity against the vendored sdk-conformance corpus (README.md under its
+// resources for the replay contract). No `main` sources — every fixture-decode/DSL-reauthoring/
+// engine-replay assertion lives under `src/test`, so this module contributes nothing to the
+// published artifact set (`publish / skip`). Runs BOTH test frameworks: zio-test for the #6 specs
+// (G1/G2/G3), munit for the #13 cats G3 replay and the parity-drift guard.
 lazy val conformance = riftModule("conformance", "conformance")
-  .dependsOn(zio, zioTestkit)
+  .dependsOn(zio, zioTestkit, cats, fs2, pure)
   .settings(
     publish / skip := true,
-    libraryDependencies ++= Dependencies.zioTestDeps,
-    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
+    libraryDependencies ++=
+      Dependencies.zioTestDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps,
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+    testFrameworks += new TestFramework("munit.Framework")
   )
 
 lazy val root = project
