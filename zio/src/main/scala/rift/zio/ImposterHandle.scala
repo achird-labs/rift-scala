@@ -172,6 +172,13 @@ trait Scenarios:
   def list: IO[RiftError, Chunk[ScenarioStatus]]
   def list(flowId: FlowId): IO[RiftError, Chunk[ScenarioStatus]]
   def state(name: String): IO[RiftError, String]
+
+  /** The current state of scenario `name` within a specific flow, for a correlated imposter whose
+    * scenario state is partitioned by `(flowId, scenarioName)`. Derived from `list(flowId)` — the
+    * facade exposes per-flow reads but not per-flow writes, so there is no `setState(name, flowId)`
+    * counterpart yet (tracked upstream in rift-java#151).
+    */
+  def state(name: String, flowId: FlowId): IO[RiftError, String]
   def setState(name: String, state: String): IO[RiftError, Unit]
   def reset: IO[RiftError, Unit]
 
@@ -181,6 +188,14 @@ private[zio] final case class ScenariosLive(underlying: rift.bridge.ScenariosHan
   def list(flowId: FlowId): IO[RiftError, Chunk[ScenarioStatus]] =
     blockingIO(Chunk.fromIterable(underlying.list(FlowId.value(flowId))))
   def state(name: String): IO[RiftError, String] = blockingIO(underlying.state(name))
+  def state(name: String, flowId: FlowId): IO[RiftError, String] =
+    list(flowId).flatMap(_.find(_.name == name) match
+      case Some(status) => ZIO.succeed(status.state)
+      case None =>
+        ZIO.fail(
+          RiftError.InvalidDefinition(s"no scenario '$name' for flow ${FlowId.value(flowId)}", None)
+        )
+    )
   def setState(name: String, state: String): IO[RiftError, Unit] =
     blockingIO(underlying.setState(name, state))
   def reset: IO[RiftError, Unit] = blockingIO(underlying.reset())
@@ -189,6 +204,12 @@ private[zio] final case class ScenariosLive(underlying: rift.bridge.ScenariosHan
 trait SpaceHandle:
   def flowId: FlowId
   def addStub(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef]
+
+  /** Add a fully-built model `Stub` to this space as-is — for stubs the phantom-typed builder can't
+    * carry, notably a scenario stub with its `ScenarioRef` triplet. The stub is registered under
+    * this space's flow, so a correlated imposter advances that scenario per-flow natively.
+    */
+  def addStub(stub: Stub): IO[RiftError, StubRef]
   def stubs: IO[RiftError, Chunk[Stub]]
   def recorded: IO[RiftError, Chunk[RecordedRequest]]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit]
@@ -200,6 +221,9 @@ private[zio] final case class SpaceHandleLive(underlying: rift.bridge.SpaceHandl
 
   def addStub(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef] =
     blockingIO(StubRef(underlying.addStub(stub.build)))
+
+  def addStub(stub: Stub): IO[RiftError, StubRef] =
+    blockingIO(StubRef(underlying.addStub(stub)))
 
   def stubs: IO[RiftError, Chunk[Stub]] = blockingIO(Chunk.fromIterable(underlying.stubs))
 

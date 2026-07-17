@@ -356,10 +356,10 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
               _ <- control.replaceRules(space, List(okRule("/m3", "swapped")))
               swapped <- get(space.baseUri, "/m3", hdr*)
               oldGone <- get(space.baseUri, "/m", hdr*)
-              scenarios <- control.scenarios
-              gap <- scenarios
-                .define(space, spi.ScenarioDef("s", Nil))
-                .exit
+              // Correlated scenario STATE WRITES stay gapped (#65 unlocked define/currentState, not
+              // reset/setState — those need per-flow setState upstream, rift-java#151).
+              inspection <- control.stateInspection
+              gap <- inspection.setState(space, "invoice", spi.ScenarioState("Paid")).exit
             yield assertTrue(
               appended == (200, "appended"),
               shadowed == (200, "overlay"),
@@ -414,6 +414,94 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
               unmatched._1 == 404,
               aliceSeen.nonEmpty,
               aliceStill == (200, "alice")
+            )
+          }
+        }
+      },
+      test(
+        "correlated scenarios advance + inspect per-flow; writes and custom initial are typed gaps"
+      ) {
+        ZIO.scoped {
+          withControl(spi.Isolation.Correlated) { control =>
+            def hdr(space: spi.MockSpace): Seq[(String, String)] =
+              space
+                .inject(spi.HttpRequest(spi.Method.Get, "/s"))
+                .headers
+                .entries
+                .map((k, vs) => k -> vs.head)
+            val scenario = spi.ScenarioDef(
+              "invoice",
+              List(
+                spi.StatefulRule(
+                  spi.ScenarioState("Started"),
+                  spi.RequestMatch(path = spi.PathMatch.Exact("/s")),
+                  spi.ResponseDef(body = spi.Body.Text("a")),
+                  Some(spi.ScenarioState("Paid"))
+                ),
+                spi.StatefulRule(
+                  spi.ScenarioState("Paid"),
+                  spi.RequestMatch(path = spi.PathMatch.Exact("/s")),
+                  spi.ResponseDef(body = spi.Body.Text("b")),
+                  None
+                )
+              )
+            )
+            def isInvalidDef(e: Exit[Any, Any]): Boolean =
+              e.causeOption.flatMap(_.failureOption).exists {
+                case _: spi.MockError.InvalidDefinition => true
+                case _ => false
+              }
+            for
+              alice <- control.provision(spi.MockSource.Dsl(spi.MockSpec(Nil))).map(_.head)
+              bob <- control.provision(spi.MockSource.Dsl(spi.MockSpec(Nil))).map(_.head)
+              scenarios <- control.scenarios
+              inspection <- control.stateInspection
+              _ <- scenarios.define(alice, scenario)
+              _ <- scenarios.define(bob, scenario)
+              // One request on alice's flow advances only alice: Started -> Paid.
+              aliceServed <- get(alice.baseUri, "/s", hdr(alice)*)
+              aliceState <- inspection.currentState(alice, "invoice")
+              bobState <- inspection.currentState(bob, "invoice")
+              unknownState <- inspection.currentState(alice, "nope").exit
+              // State writes and a custom initial state remain gapped (rift-java#151).
+              resetGap <- scenarios.reset(alice, "invoice").exit
+              setGap <- inspection.setState(alice, "invoice", spi.ScenarioState("Paid")).exit
+              customGap <- scenarios
+                .define(
+                  bob,
+                  spi.ScenarioDef(
+                    "custom",
+                    List(
+                      spi.StatefulRule(
+                        spi.ScenarioState("Custom"),
+                        spi.RequestMatch(path = spi.PathMatch.Exact("/x")),
+                        spi.ResponseDef(body = spi.Body.Text("x")),
+                        None
+                      )
+                    ),
+                    spi.ScenarioState("Custom")
+                  )
+                )
+                .exit
+              // A rule mutation rebuilds bob's flow; the scenario stubs must SURVIVE (issue #65
+              // review — they were previously untracked and silently dropped). bob was never
+              // advanced, so after the rebuild resets its state to Started, the first request
+              // re-serves "a" (proving the scenario re-registered) AND advances it to Paid (proving
+              // the re-registered FSM is live).
+              _ <- control.addRule(bob, okRule("/other", "z"), spi.Priority.Overlay)
+              bobScenarioSurvived <- get(bob.baseUri, "/s", hdr(bob)*)
+              bobStillDefined <- inspection.currentState(bob, "invoice")
+            yield assertTrue(
+              aliceServed == (200, "a"),
+              aliceState.value == "Paid",
+              bobState.value == "Started",
+              // undeclared scenario is a TYPED failure, not a defect (matches the write-gap arms)
+              isInvalidDef(unknownState),
+              isInvalidDef(resetGap),
+              isInvalidDef(setGap),
+              isInvalidDef(customGap),
+              bobScenarioSurvived == (200, "a"),
+              bobStillDefined.value == "Paid"
             )
           }
         }
