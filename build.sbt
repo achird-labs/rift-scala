@@ -54,6 +54,17 @@ def riftModule(id: String, dir: String): Project =
       moduleName := s"rift-scala-$dir"
     )
 
+// The embedded transport (in-process engine via FFM) needs JDK 22+, so its runtime jars are added to
+// `conformance` only when the build JDK can classload them (DESIGN §5.2 / D8). Read the running JDK's
+// spec version once here: modern JDKs report a bare major ("21", "22"); the legacy "1.8" form maps to
+// 8. On JDK 21 the embedded jars are absent, `JRift.isEmbeddedAvailable()` is false, embedded G3 skips,
+// and the spawn lane (CorpusG3SpawnSpec) covers replay instead.
+lazy val buildJavaSpec: Int = {
+  val parts = sys.props.getOrElse("java.specification.version", "0").split("\\.")
+  if (parts.headOption.contains("1")) parts.lift(1).map(_.toInt).getOrElse(0)
+  else parts.headOption.map(_.toInt).getOrElse(0)
+}
+
 // Enforces DESIGN.md §5.1's "zero dependencies" promise for `model`: the pure wire model is the
 // shared base for the ZIO, Cats, Kyo and pure surfaces, so a compile-scope dep here would leak into
 // all of them (the same reasoning that rejected zio-json in D1).
@@ -165,6 +176,20 @@ lazy val conformance = riftModule("conformance", "conformance")
     publish / skip := true,
     libraryDependencies ++=
       Dependencies.zioTestDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps,
+    // G3 replay runs against a live engine: embedded (in-process FFM) on JDK 22+, spawn (out-of-process
+    // child) on JDK 21. The embedded jars + `--enable-native-access` are wired only on a JDK that can
+    // load them; the forked test JVM inherits the runner's env, so `RIFT_G3_SPAWN` reaches the spawn
+    // spec. Tests fork regardless so the native-access flag and the spawned child both get a clean JVM.
+    libraryDependencies ++=
+      (if (buildJavaSpec >= 22) Dependencies.riftJavaEmbeddedTestDeps else Seq.empty),
+    Test / fork := true,
+    // ParitySpec resolves `docs/PARITY.md` against `user.dir`, relying on sbt's unforked default of
+    // the repo root (its own comment predicts breakage under fork). Forking — required so the
+    // embedded lane gets `--enable-native-access` and the spawn lane a clean child JVM — moves the
+    // working directory to the module dir, so pin it back to the build root.
+    Test / baseDirectory := (ThisBuild / baseDirectory).value,
+    Test / javaOptions ++=
+      (if (buildJavaSpec >= 22) Seq("--enable-native-access=ALL-UNNAMED") else Seq.empty),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
     testFrameworks += new TestFramework("munit.Framework")
   )
