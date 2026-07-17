@@ -13,16 +13,12 @@ import rift.bridge.{
   ContainerConfig,
   EmbeddedConfig,
   ImposterDefinition,
+  InterceptConfig,
   RiftConnector,
   SpawnConfig
 }
 
-/** The Cats Effect surface over `rift.bridge.RiftConnector` (DESIGN.md §5.6, issue #8).
-  *
-  * `intercept` is omitted here: the bridge exposes `RiftConnector.intercept` and the ZIO surface
-  * wraps it (`rift.zio.Rift.intercept`) as of #34, but the Cats `Resource[F, InterceptHandle[F]]`
-  * wiring is a tracked follow-up rather than faked here.
-  */
+/** The Cats Effect surface over `rift.bridge.RiftConnector` (DESIGN.md §5.6, issue #8). */
 trait Rift[F[_]]:
   def create(definition: ImposterDefinition): F[ImposterHandle[F]]
   def create(builder: ImposterBuilder): F[ImposterHandle[F]]
@@ -34,6 +30,7 @@ trait Rift[F[_]]:
   def applyConfig(config: Json): F[ApplyResult]
   def info: F[EngineInfo]
   def adminUri: F[URI]
+  def intercept(config: InterceptConfig = InterceptConfig()): Resource[F, InterceptHandle[F]]
 
 /** Runs a blocking bridge downcall on `Sync[F].blocking`. Unlike ZIO's typed-error/defect split
   * (`refineToOrDie`), a cats-effect `F` has a single `Throwable` error channel, so the `RiftError`
@@ -71,6 +68,16 @@ private[cats] final class RiftLive[F[_]: Async](connector: RiftConnector) extend
   def info: F[EngineInfo] = blockingF(connector.info())
 
   def adminUri: F[URI] = blockingF(connector.adminUri)
+
+  /** Both acquire and release run on the blocking pool (like `RiftLive`'s `close()`), since
+    * `InterceptConnector.close()` performs real blocking teardown.
+    */
+  def intercept(config: InterceptConfig): Resource[F, InterceptHandle[F]] =
+    Resource
+      .fromAutoCloseable(blockingF(connector.intercept(config)))
+      .map(
+        new InterceptHandleLive[F](_)
+      )
 
 object Rift:
 
