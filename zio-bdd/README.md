@@ -46,9 +46,13 @@ The full SPI set: `Faults`, `StatefulScenarios`, `StateInspection`, `Scripting`,
 
 Known edges (all fail with a **typed** `MockError.InvalidDefinition`, never silently):
 
-- Scenario define/state operations on a **Correlated** space need per-flow scenario admin the
-  `rift.zio` surface does not expose yet — use `PerInstance` isolation for stateful scenarios
-  (zio-bdd's own conformance exercises them PerInstance too).
+- On a **Correlated** space, scenario `define` (with the default `Started` initial state) and
+  `currentState` work per-flow; only the state *writes* (`reset`/`setState`) and a **custom initial
+  state** remain gapped — they need a per-flow `setState` the `rift.zio` surface doesn't expose yet
+  (tracked upstream in rift-java#151). Use `PerInstance` isolation for those. A later rule mutation
+  rebuilds the space and re-registers the scenario stubs, but (like any correlated rebuild) resets
+  the flow's scenario state to its start — so run rule mutations before defining scenarios, or on a
+  separate space.
 - Correlated rule mutation beyond a `Base` append rebuilds the space (the space endpoint has no
   per-stub delete), which clears its recorded requests and flow state — mutate at scenario
   boundaries, as with the upstream adapter.

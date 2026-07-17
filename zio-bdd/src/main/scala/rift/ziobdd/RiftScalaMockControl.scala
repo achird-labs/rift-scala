@@ -6,7 +6,7 @@ import zio.bdd.mock as spi
 
 import rift.RiftError
 import rift.dsl.{status, IsResponseBuilder, StubBuilder, StubPhase}
-import rift.model.{FlowId, Port, StubId}
+import rift.model.{FlowId, Port, Stub, StubId}
 import rift.bridge.TruststoreFormat
 import rift.zio.{ImposterHandle, InterceptHandle, Rift, SpaceHandle}
 
@@ -27,8 +27,12 @@ import RiftModelMapping as M
   *     beyond a Base append rebuilds the space (extras → faults → rules, first-registered wins) —
   *     which also clears its recorded requests and flow state; mutate at scenario boundaries.
   *
-  * Known correlated gaps (typed `InvalidDefinition`, never silent): scenario define/state ops need
-  * per-flow scenario admin the `rift.zio` surface does not expose yet.
+  * Correlated scenarios: `define` (raw scenario-stub install per flow) and `currentState` (per-flow
+  * read) work; only the state *writes* (`reset`/`setState`) and a custom initial state remain
+  * gapped (typed `InvalidDefinition`, never silent) pending a per-flow `setState` upstream
+  * (rift-java#151). Scenario stubs are tracked in `CorrState`, so a later mutation's rebuild
+  * re-registers them rather than dropping the scenario — though, like every correlated rebuild, it
+  * resets the flow's scenario state to its start.
   */
 private[ziobdd] final case class RiftScalaMockControl(
     rift: Rift,
@@ -271,7 +275,36 @@ private[ziobdd] final case class RiftScalaMockControl(
             _ <- rec.ruleIds.update(_ ++ ids)
             _ <- rec.scenarios.update(_ + (scenario.name -> scenario.initial))
           yield ()
-        case _: SpaceRec.Correlated => correlatedScenarioGap
+        case rec: SpaceRec.Correlated =>
+          // The engine seeds every scenario at exactly "Started" and exposes no per-flow write to
+          // move it, so any other initial state — including a differently-cased "started", which the
+          // engine's case-sensitive FSM would never match — can't be pinned on a Correlated space
+          // yet (rift-java#151). Exact comparison, matching the PerInstance path's verbatim setState.
+          if scenario.initial != spi.ScenarioState.Started then
+            ZIO.fail(
+              spi.MockError.InvalidDefinition(
+                s"a Correlated scenario with a non-default initial state ('${scenario.initial.value}') " +
+                  "needs per-flow setState, which the rift.zio surface does not expose yet " +
+                  "(rift-java#151) — use the default 'Started' initial state, or PerInstance isolation"
+              )
+            )
+          else
+            // Register each FSM edge (a raw Stub carrying its ScenarioRef triplet) under this space's
+            // flow so the shared imposter advances the scenario per-flow. Install server-first inside
+            // the state cell, committing the tracked scenario tier only on success — so the stubs
+            // survive a later mutation's rebuild, and a mid-install failure leaves the tracking
+            // unchanged (partial server stubs are reclaimed by `destroy`, as elsewhere).
+            for
+              ids <- ZIO.foreach(Vector.range(0, scenario.rules.size))(_ => freshRuleId)
+              stubs <- ZIO.fromEither(M.scenarioStubs(scenario, ids))
+              tagged = ids.zip(stubs)
+              _ <- rec.state.modifyZIO { st =>
+                ZIO
+                  .foreachDiscard(tagged)((_, s) => rec.space.addStub(s))
+                  .mapError(M.toMockError(Some(space.id)))
+                  .as(((), st.copy(scenarios = st.scenarios ++ tagged)))
+              }
+            yield ()
       }
 
     def reset(space: spi.MockSpace, name: String): IO[spi.MockError, Unit] =
@@ -284,7 +317,7 @@ private[ziobdd] final case class RiftScalaMockControl(
                 .mapError(M.toMockError(Some(space.id)))
             case None => noScenario(space.id, name)
           )
-        case _: SpaceRec.Correlated => correlatedScenarioGap
+        case _: SpaceRec.Correlated => correlatedScenarioWriteGap
       }
 
   private val stateImpl: spi.StateInspection = new spi.StateInspection:
@@ -296,7 +329,12 @@ private[ziobdd] final case class RiftScalaMockControl(
               .state(name)
               .mapBoth(M.toMockError(Some(space.id)), spi.ScenarioState(_))
           )
-        case _: SpaceRec.Correlated => correlatedScenarioGap
+        case rec: SpaceRec.Correlated =>
+          // Read the scenario's state within THIS space's flow off the shared imposter; a scenario
+          // never defined for the flow surfaces as a typed InvalidDefinition (from the per-flow read).
+          rec.imposter.scenarios
+            .state(name, rec.space.flowId)
+            .mapBoth(M.toMockError(Some(space.id)), spi.ScenarioState(_))
       }
 
     def setState(
@@ -311,7 +349,7 @@ private[ziobdd] final case class RiftScalaMockControl(
               .setState(name, to.value)
               .mapError(M.toMockError(Some(space.id)))
           )
-        case _: SpaceRec.Correlated => correlatedScenarioGap
+        case _: SpaceRec.Correlated => correlatedScenarioWriteGap
       }
 
   private def guardDefined[A](rec: SpaceRec.PerInstance, spaceId: spi.SpaceId, name: String)(
@@ -322,11 +360,16 @@ private[ziobdd] final case class RiftScalaMockControl(
   private def noScenario[A](spaceId: spi.SpaceId, name: String): IO[spi.MockError, A] =
     ZIO.fail(spi.MockError.InvalidDefinition(s"no scenario '$name' on space ${spaceId.value}"))
 
-  private def correlatedScenarioGap[A]: IO[spi.MockError, A] =
+  /** `define` and `currentState` work on a Correlated space (raw scenario-stub install + per-flow
+    * state read); only the state *writes* (`reset`/`setState`) remain gapped — they need a per-flow
+    * `setState` the rift.zio surface does not expose yet (tracked upstream in rift-java#151).
+    */
+  private def correlatedScenarioWriteGap[A]: IO[spi.MockError, A] =
     ZIO.fail(
       spi.MockError.InvalidDefinition(
-        "scenario operations on a Correlated space need per-flow scenario admin the rift.zio " +
-          "surface does not expose yet — use PerInstance isolation for stateful scenarios"
+        "per-flow scenario state writes (reset/setState) on a Correlated space need a per-flow " +
+          "setState the rift.zio surface does not expose yet (rift-java#151) — use PerInstance " +
+          "isolation, or read-only currentState"
       )
     )
 
@@ -476,7 +519,9 @@ private[ziobdd] final case class RiftScalaMockControl(
                 ZIO.logWarningCause(s"rollback: delete correlated space $flowRaw failed", c)
               )
             )
-          state <- Ref.Synchronized.make(CorrState(tagged, Vector.empty, Vector.empty))
+          state <- Ref.Synchronized.make(
+            CorrState(tagged, Vector.empty, Vector.empty, Vector.empty)
+          )
           id = spi.SpaceId(flowRaw)
           inject = (req: spi.HttpRequest) => req.copy(headers = req.headers.add(header, flowRaw))
           space = spi.MockSpace(imposter.uri.toString, inject, id)
@@ -521,6 +566,11 @@ private[ziobdd] final case class RiftScalaMockControl(
       _ <- space.delete.mapError(M.toMockError(Some(spaceId)))
       _ <- ZIO
         .foreachDiscard(target.extras ++ target.faults ++ target.rules)((_, b) => space.addStub(b))
+        .mapError(M.toMockError(Some(spaceId)))
+      // Scenario stubs are raw `Stub`s (they carry a `ScenarioRef` the builder can't), so they
+      // re-register through the other `addStub` overload; appended last, after the plain rules.
+      _ <- ZIO
+        .foreachDiscard(target.scenarios)((_, s) => space.addStub(s))
         .mapError(M.toMockError(Some(spaceId)))
     yield ()
 
@@ -571,5 +621,10 @@ private[ziobdd] enum CorrTier:
 private[ziobdd] final case class CorrState(
     rules: Vector[(spi.RuleId, StubBuilder[StubPhase.Complete])],
     faults: Vector[(spi.RuleId, StubBuilder[StubPhase.Complete])],
-    extras: Vector[(spi.RuleId, StubBuilder[StubPhase.Complete])]
+    extras: Vector[(spi.RuleId, StubBuilder[StubPhase.Complete])],
+    // Scenario-FSM stubs (raw `Stub`s carrying a `ScenarioRef`) installed by `define`. Tracked so a
+    // later mutation's `rebuildCorrelated` re-registers them instead of silently dropping the
+    // scenario — the space teardown still resets flow state, the pre-existing "mutate at scenario
+    // boundaries" caveat.
+    scenarios: Vector[(spi.RuleId, Stub)]
 )
