@@ -135,6 +135,21 @@ lazy val zioTestkit = riftModule("zioTestkit", "zio-testkit")
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
   )
 
+// MockControl adapter over the published zio-bdd SPI (#18, DESIGN §5.12). The guarded live spec
+// needs a real engine, so it borrows the conformance module's JDK-gated embedded recipe — on the
+// JDK 22 CI job it runs against the in-process engine; elsewhere it compiles and skips.
+lazy val zioBdd = riftModule("zioBdd", "zio-bdd")
+  .dependsOn(zio)
+  .settings(
+    libraryDependencies ++= Dependencies.zioBddDeps ++ Dependencies.zioTestDeps,
+    libraryDependencies ++=
+      (if (buildJavaSpec >= 22) Dependencies.riftJavaEmbeddedTestDeps else Seq.empty),
+    Test / fork := true,
+    Test / javaOptions ++=
+      (if (buildJavaSpec >= 22) Seq("--enable-native-access=ALL-UNNAMED") else Seq.empty),
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
+  )
+
 lazy val cats = riftModule("cats", "cats")
   .dependsOn(bridge)
   .settings(
@@ -203,6 +218,7 @@ lazy val root = project
     bridge,
     zio,
     zioTestkit,
+    zioBdd,
     cats,
     catsTestkit,
     fs2,

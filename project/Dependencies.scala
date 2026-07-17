@@ -42,6 +42,17 @@ object Dependencies {
       .classifier(RiftNatives.currentClassifier)
   )
 
+  /** `rift-scala-zio-bdd` (#18): the published `MockControl` SPI this module's adapter implements.
+    * Standalone artifact (no zio-bdd core dependency) built with Scala 3.3.4 — matching the repo
+    * pin — and zio 2.1.17, which sbt eviction bumps this module's zio to (a binary-compatible patch
+    * bump within ZIO 2.1.x; the rest of the repo stays on the `zio` pin below).
+    */
+  val zioBdd = "1.4.3"
+
+  val zioBddDeps: Seq[ModuleID] = Seq(
+    "io.github.etacassiopeia" %% "zio-bdd-mock" % zioBdd
+  )
+
   /** `rift-scala-zio` (#4): the ZIO surface is zio + zio-streams only (the cursor request tail is a
     * `ZStream`). No JSON library — codecs opt in via the `zio-json` side-car (D7).
     */
