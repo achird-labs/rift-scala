@@ -12,7 +12,7 @@ final class StubBuilder[S <: StubPhase] private[dsl] (
     private val methodValue: Option[Method],
     private val pathValue: Option[String],
     private val wherePredicates: Vector[Predicate],
-    private val caseSensitiveFlag: Boolean,
+    private val caseSensitiveFlag: Option[Boolean],
     private val exceptField: Option[String],
     private val responsesValue: Vector[ResponseBuilder],
     private val nameValue: Option[String],
@@ -26,7 +26,7 @@ final class StubBuilder[S <: StubPhase] private[dsl] (
       methodValue: Option[Method] = this.methodValue,
       pathValue: Option[String] = this.pathValue,
       wherePredicates: Vector[Predicate] = this.wherePredicates,
-      caseSensitiveFlag: Boolean = this.caseSensitiveFlag,
+      caseSensitiveFlag: Option[Boolean] = this.caseSensitiveFlag,
       exceptField: Option[String] = this.exceptField,
       responsesValue: Vector[ResponseBuilder] = this.responsesValue,
       nameValue: Option[String] = this.nameValue,
@@ -67,12 +67,15 @@ final class StubBuilder[S <: StubPhase] private[dsl] (
         Vector(Predicate(PredicateOp.Equals(Fields(Vector("path" -> Json.Str(p))))))
       case (None, None) => Vector.empty
     val base = fromOn ++ wherePredicates
-    if !caseSensitiveFlag && exceptField.isEmpty then base else base.map(applyStubParams)
+    if caseSensitiveFlag.isEmpty && exceptField.isEmpty then base else base.map(applyStubParams)
 
   private def applyStubParams(p: Predicate): Predicate =
     p.copy(params =
       p.params.copy(
-        caseSensitive = p.params.caseSensitive || caseSensitiveFlag,
+        // A builder-set flag overrides the predicate default and forces the key onto the wire —
+        // including an explicit `false`, which `caseSensitiveExplicit` re-emits rather than dropping.
+        caseSensitive = caseSensitiveFlag.getOrElse(p.params.caseSensitive),
+        caseSensitiveExplicit = caseSensitiveFlag.isDefined || p.params.caseSensitiveExplicit,
         except = exceptField.orElse(p.params.except)
       )
     )
@@ -80,7 +83,13 @@ final class StubBuilder[S <: StubPhase] private[dsl] (
   def where(predicate: PredicateBuilder): StubBuilder[S] =
     withState(wherePredicates = wherePredicates :+ predicate.build)
 
-  def caseSensitive: StubBuilder[S] = withState(caseSensitiveFlag = true)
+  def caseSensitive: StubBuilder[S] = caseSensitive(true)
+
+  /** Force `caseSensitive` onto the wire with an explicit value. `caseSensitive(false)` emits
+    * `"caseSensitive": false` — distinct from the default (key omitted) — so a fixture that pins
+    * the flag off round-trips exactly.
+    */
+  def caseSensitive(value: Boolean): StubBuilder[S] = withState(caseSensitiveFlag = Some(value))
 
   def except(jsonField: String): StubBuilder[S] = withState(exceptField = Some(jsonField))
 
@@ -122,7 +131,7 @@ private def emptyStub(
     method,
     path,
     Vector.empty,
-    false,
+    None,
     None,
     Vector.empty,
     None,
