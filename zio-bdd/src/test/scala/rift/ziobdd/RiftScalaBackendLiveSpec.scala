@@ -356,10 +356,10 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
               _ <- control.replaceRules(space, List(okRule("/m3", "swapped")))
               swapped <- get(space.baseUri, "/m3", hdr*)
               oldGone <- get(space.baseUri, "/m", hdr*)
-              scenarios <- control.scenarios
-              gap <- scenarios
-                .define(space, spi.ScenarioDef("s", Nil))
-                .exit
+              // Correlated scenario STATE WRITES stay gapped (#65 unlocked define/currentState, not
+              // reset/setState — those need per-flow setState upstream, rift-java#151).
+              inspection <- control.stateInspection
+              gap <- inspection.setState(space, "invoice", spi.ScenarioState("Paid")).exit
             yield assertTrue(
               appended == (200, "appended"),
               shadowed == (200, "overlay"),
@@ -485,8 +485,9 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
                 .exit
               // A rule mutation rebuilds bob's flow; the scenario stubs must SURVIVE (issue #65
               // review — they were previously untracked and silently dropped). bob was never
-              // advanced, so it re-serves "a" from the reset-to-Started scenario, and currentState
-              // still finds it.
+              // advanced, so after the rebuild resets its state to Started, the first request
+              // re-serves "a" (proving the scenario re-registered) AND advances it to Paid (proving
+              // the re-registered FSM is live).
               _ <- control.addRule(bob, okRule("/other", "z"), spi.Priority.Overlay)
               bobScenarioSurvived <- get(bob.baseUri, "/s", hdr(bob)*)
               bobStillDefined <- inspection.currentState(bob, "invoice")
@@ -500,7 +501,7 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
               isInvalidDef(setGap),
               isInvalidDef(customGap),
               bobScenarioSurvived == (200, "a"),
-              bobStillDefined.value == "Started"
+              bobStillDefined.value == "Paid"
             )
           }
         }
