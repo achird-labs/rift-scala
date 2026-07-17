@@ -372,7 +372,8 @@ object StubPhase:
 
 final class StubBuilder[S <: StubPhase] private[dsl] (...) extends RequestMatch:
   def where(predicate: PredicateBuilder): StubBuilder[S]
-  def caseSensitive: StubBuilder[S]
+  def caseSensitive: StubBuilder[S]                             // sugar for caseSensitive(true)
+  def caseSensitive(value: Boolean): StubBuilder[S]             // explicit false pins the key on the wire
   def except(jsonField: String): StubBuilder[S]
   def reply(response: ResponseBuilder): StubBuilder[StubPhase.Complete]
   def thenReply(response: ResponseBuilder)                      // response cycling
@@ -431,6 +432,7 @@ ok.repeat(2)                                    // return this response twice be
 ok.withLatencyFault(probability = 1.0, 500.millis to 2.seconds)
 ok.withLatencyFault(probability = 0.5, 1.second)
 ok.withErrorFault(probability = 0.3, status = 503, body = """{"error":"flaky"}""")
+ok.withErrorFault(0.3, 503, "DOWN", headers = Map("Retry-After" -> "30")) // _rift.fault.error.headers
 ok.withTcpFault(TcpFaultKind.ConnectionResetByPeer)               // always
 ok.withTcpFault(probability = 0.1, TcpFaultKind.ConnectionResetByPeer)
 

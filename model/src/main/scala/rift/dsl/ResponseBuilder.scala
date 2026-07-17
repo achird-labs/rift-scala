@@ -131,11 +131,16 @@ final class IsResponseBuilder private[dsl] (
       LatencyFault(probability, minMs = Some(range.min.toMillis), maxMs = Some(range.max.toMillis))
     withState(faultValue = Some(mergeFault(faultValue, FaultConfig(latency = Some(latency)))))
 
-  def withErrorFault(probability: Double, status: Int, body: String): IsResponseBuilder =
+  def withErrorFault(
+      probability: Double,
+      status: Int,
+      body: String,
+      headers: Map[String, String] = Map.empty
+  ): IsResponseBuilder =
     requireProbability(probability)
     // RiftErrorFault.body is a raw wire string (types.rs:1184-1185) — the engine writes it
     // verbatim, so it is never parsed/validated as JSON here, unlike `is`-response bodies.
-    val error = ErrorFault(probability, status, Some(body))
+    val error = ErrorFault(probability, status, Some(body), Headers(headers))
     withState(faultValue = Some(mergeFault(faultValue, FaultConfig(error = Some(error)))))
 
   def withTcpFault(kind: TcpFaultKind): IsResponseBuilder =

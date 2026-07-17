@@ -98,6 +98,20 @@ class DslSpec extends munit.FunSuite:
     assertEquals(stub.predicates.head.params.caseSensitive, true)
     assertEquals(stub.predicates.head.params.except, Some("""\d+"""))
 
+  test("caseSensitive(false) forces an explicit `false` onto the wire (#57)"):
+    val stub = onRequest.where(path.is("/case")).caseSensitive(false).reply(ok).build
+    val params = stub.predicates.head.params
+    assertEquals(params.caseSensitive, false)
+    assertEquals(params.caseSensitiveExplicit, true)
+    assert(
+      stub.toJson.semanticEquals(
+        parse(
+          """{"predicates":[{"equals":{"path":"/case"},"caseSensitive":false}],
+          |"responses":[{"is":{"statusCode":200}}]}""".stripMargin.replace("\n", "")
+        )
+      )
+    )
+
   // ── AC7: responses ────────────────────────────────────────────────────────
   test("status helpers carry the documented codes"):
     assertEquals(statusOf(ok), 200)
@@ -175,6 +189,20 @@ class DslSpec extends munit.FunSuite:
     assert(r.rift.flatMap(_.fault).flatMap(_.latency).isDefined)
     val err = ok.withErrorFault(probability = 0.3, status = 503, body = """{"e":1}""").build
     assert(err.asInstanceOf[Response.Is].rift.flatMap(_.fault).flatMap(_.error).isDefined)
+
+  test("withErrorFault carries _rift.fault.error.headers (#57)"):
+    val err = ok.withErrorFault(1.0, 503, "DOWN", Map("Retry-After" -> "30")).build
+    val error = err.asInstanceOf[Response.Is].rift.flatMap(_.fault).flatMap(_.error).get
+    assertEquals(error.headers.entries, Vector("Retry-After" -> "30"))
+    assert(
+      err.toJson
+        .get("_rift", "fault", "error", "headers")
+        .contains(parse("""{"Retry-After":"30"}"""))
+    )
+    // The default (no headers) must omit the key entirely — never emit an empty `"headers": {}`,
+    // which would be a silent round-trip regression for the pre-#57 three-arg callers.
+    val noHeaders = ok.withErrorFault(0.3, 503, "x").build
+    assertEquals(noHeaders.toJson.get("_rift", "fault", "error", "headers"), None)
 
   test("withLatencyFault rejects an out-of-range probability"):
     intercept[IllegalArgumentException](ok.withLatencyFault(probability = 1.5, 1.second))

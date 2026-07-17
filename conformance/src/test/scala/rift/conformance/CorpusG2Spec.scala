@@ -290,6 +290,115 @@ object CorpusG2Spec extends ZIOSpecDefault:
       )
       .build
 
+  // ── 02 · Predicate Showcase — the full predicate vocabulary, incl. explicit caseSensitive:false. ─
+  private def build02: ImposterDefinition =
+    imposter("02 · Predicate Showcase")
+      .port(4502)
+      .record
+      .defaultResponse(
+        status(400)
+          .header("Content-Type", "application/json")
+          .json(
+            """{"error":"no predicate matched","hint":"see README §02 for matching requests"}"""
+          )
+      )
+      .stub(
+        get("/eq")
+          .named("equals — exact path + method")
+          .reply(ok.json("""{"matched":"equals"}"""))
+      )
+      .stub(
+        onRequest
+          .where(path.is("/case"))
+          // The gap #57 closes: `caseSensitive(false)` forces the explicit `false` the fixture pins,
+          // which the old `caseSensitive` (true-only) builder could not author.
+          .caseSensitive(false)
+          .named("equals caseSensitive=false — /CaSe matches /case")
+          .reply(ok.json("""{"matched":"equals-caseInsensitive"}"""))
+      )
+      .stub(
+        onRequest
+          .where(query("a").deepEquals(Json.Str("1")))
+          .caseSensitive
+          .named("deepEquals — query must be EXACTLY {a:1}")
+          .reply(ok.json("""{"matched":"deepEquals"}"""))
+      )
+      .stub(
+        onRequest
+          .where(body.contains("needle"))
+          .named("contains — body contains 'needle'")
+          .reply(ok.json("""{"matched":"contains"}"""))
+      )
+      .stub(
+        onRequest
+          .where(path.startsWith("/start"))
+          .named("startsWith — path starts with /start")
+          .reply(ok.json("""{"matched":"startsWith"}"""))
+      )
+      .stub(
+        onRequest
+          .where(path.endsWith("/end"))
+          .named("endsWith — path ends with /end")
+          .reply(ok.json("""{"matched":"endsWith"}"""))
+      )
+      .stub(
+        onRequest
+          .where(path.matches("^/id/[0-9]+$"))
+          .named("matches — regex path /id/<digits>")
+          .reply(ok.json("""{"matched":"matches"}"""))
+      )
+      .stub(
+        onRequest
+          .where(header("Authorization").exists)
+          .named("exists — Authorization header present")
+          .reply(ok.json("""{"matched":"exists-header"}"""))
+      )
+      .stub(
+        onRequest
+          .where(anyOf(path.is("/red"), path.is("/blue")))
+          .named("or — path is /red OR /blue")
+          .reply(ok.json("""{"matched":"or"}"""))
+      )
+      .stub(
+        onRequest
+          .where(allOf(path.is("/open"), not(header("Authorization").exists)))
+          .named("not — path is /open and has NO Authorization header")
+          .reply(ok.json("""{"matched":"not"}"""))
+      )
+      .stub(
+        onRequest
+          .where(body.jsonPath("$.type").is("order"))
+          .named("jsonpath — JSON body where $.type == 'order'")
+          .reply(ok.json("""{"matched":"jsonpath"}"""))
+      )
+      .stub(
+        onRequest
+          .where(body.xpath("string(//user/@role)").is("admin"))
+          .named("xpath — XML body where //user/@role == 'admin'")
+          .reply(ok.json("""{"matched":"xpath"}"""))
+      )
+      .build
+
+  // ── 17 · Extended faults — error fault body/headers (the #57 gap), latency range. ───────────────
+  private def build17: ImposterDefinition =
+    imposter("17 · Extended faults — error body/headers, latency range (issue #254 §D5)")
+      .port(4517)
+      .record
+      .stub(
+        onRequest
+          .where(path.is("/err"))
+          .named("error fault — custom status, body and headers")
+          // The gap #57 closes: `withErrorFault` now carries `_rift.fault.error.headers`.
+          .reply(ok.withErrorFault(1.0, 503, "DOWN", Map("Retry-After" -> "30")))
+      )
+      .stub(
+        onRequest
+          .where(path.is("/slow"))
+          .named("latency fault — random range 300-600ms")
+          .reply(ok.text("slow").withLatencyFault(1.0, 300.millis.to(600.millis)))
+      )
+      .build
+
   private val dslExpressible: Map[String, ImposterDefinition] = Map(
     "01-basic-rest" -> build01,
     "15-predicate-modifiers" -> build15,
@@ -298,14 +407,15 @@ object CorpusG2Spec extends ZIOSpecDefault:
 
   private val dslExpressibleModuloVerify: Map[String, ImposterDefinition] = Map(
     "10-correlated-isolation" -> build10,
-    "11-headers-and-templates" -> build11
+    "11-headers-and-templates" -> build11,
+    // Every stub in these two carries a `_verify` block, so they compare exact only once `_verify`
+    // is stripped — the DSL surface gaps that used to bar them (explicit `caseSensitive:false`,
+    // error-fault headers) are closed by #57.
+    "02-predicates" -> build02,
+    "17-faults-and-binary" -> build17
   )
 
   private val notDslExpressible: Map[String, String] = Map(
-    "02-predicates" ->
-      ("stub 2's explicit `\"caseSensitive\": false` has no DSL builder path — StubBuilder.caseSensitive " +
-        "only ever sets true, there is no way to force an explicit false when the default is already " +
-        "false — plus its per-stub `_verify` blocks (see the modulo-verify note above)."),
     "03-behaviors" -> "requires injection — wait/repeat/decorate/copy/lookup scripting beyond the typed DSL surface.",
     "05-scripting-engines" -> "requires injection — rhai/javascript scripting engines are an escape-hatch feature.",
     "06-stateful-retry" -> "requires injection — flow-state-driven scripted retries beyond the typed DSL surface.",
@@ -313,10 +423,6 @@ object CorpusG2Spec extends ZIOSpecDefault:
     "13-js-config-decorate" -> "requires injection — Mountebank `config =>` / Rhai decorate conventions.",
     "14-verify-annotations" -> "purpose-built to exercise the `_verify` annotation surface itself, not DSL authoring.",
     "16-behaviors-advanced" -> "requires injection — advanced behaviors (issue #254 §D3) beyond the typed DSL surface.",
-    "17-faults-and-binary" ->
-      ("stub 1's `_rift.fault.error.headers` has no DSL builder path — IsResponseBuilder.withErrorFault " +
-        "doesn't expose a headers parameter even though ErrorFault.headers is a modeled wire field " +
-        "(a genuine DSL surface gap, distinct from the requires-gated fixtures above)."),
     "20-mimeo-solo-compat" -> "requires injection + proxy — Mountebank migration-tool compat forms beyond the typed DSL."
   )
 
