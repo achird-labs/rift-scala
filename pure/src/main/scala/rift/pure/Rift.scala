@@ -11,6 +11,7 @@ import rift.bridge.{
   ContainerConfig,
   EmbeddedConfig,
   ImposterDefinition,
+  InterceptConfig,
   RiftConnector,
   SpawnConfig
 }
@@ -19,10 +20,6 @@ import rift.bridge.{
   * `Either[RiftError, _]`-shaped. The simplest reference implementation of the wire surface, and
   * the natural glue for scalatest/JUnit users via `scala.util.Using` (see the `*Unsafe`
   * constructors on the companion).
-  *
-  * `intercept` is omitted here: the bridge exposes `RiftConnector.intercept` and the ZIO surface
-  * wraps it (`rift.zio.Rift.intercept`) as of #34, but the `Using`-friendly `Either` intercept
-  * surface is a tracked follow-up rather than faked here.
   */
 final class Rift private (connector: RiftConnector) extends AutoCloseable:
 
@@ -54,6 +51,13 @@ final class Rift private (connector: RiftConnector) extends AutoCloseable:
   def info(): Either[RiftError, EngineInfo] = catchRiftError(connector.info())
 
   def adminUri: URI = connector.adminUri
+
+  def intercept(config: InterceptConfig = InterceptConfig()): Either[RiftError, Intercept] =
+    catchRiftError(new Intercept(connector.intercept(config)))
+
+  /** RiftError is an Exception — throw for `Using.resource`. */
+  def interceptUnsafe(config: InterceptConfig = InterceptConfig()): Intercept =
+    new Intercept(connector.intercept(config))
 
   def close(): Unit = connector.close()
 

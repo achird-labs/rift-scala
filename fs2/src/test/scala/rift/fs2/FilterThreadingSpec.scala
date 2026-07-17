@@ -5,11 +5,11 @@ import java.time.Instant
 
 import scala.concurrent.duration.*
 
-import _root_.cats.effect.{IO, Ref}
+import _root_.cats.effect.{IO, Ref, Resource}
 import munit.CatsEffectSuite
 
-import rift.bridge.{ImposterDefinition, RecordedPage, TailFilter}
-import rift.cats.{FlowStateHandle, ImposterHandle, Scenarios, SpaceHandle, StubRef}
+import rift.bridge.{ImposterDefinition, RecordSpec, RecordedPage, TailFilter}
+import rift.cats.{FlowStateHandle, ImposterHandle, RecordingHandle, Scenarios, SpaceHandle, StubRef}
 import rift.dsl.*
 import rift.json.Json
 import rift.model.Method.GET
@@ -65,6 +65,8 @@ class FilterThreadingSpec extends CatsEffectSuite:
     def verify(matching: RequestMatch, times: Times): IO[Unit] = unused
     def verify(matching: RequestMatch, times: Int): IO[Unit] = unused
     def verifyNoInteractions: IO[Unit] = unused
+    def startRecording(origin: URI, spec: RecordSpec): Resource[IO, RecordingHandle[IO]] =
+      Resource.eval(unused)
     def scenarios: Scenarios[IO] = ???
     def space(flowId: FlowId): SpaceHandle[IO] = ???
     def flowState(flowId: FlowId): FlowStateHandle[IO] = ???

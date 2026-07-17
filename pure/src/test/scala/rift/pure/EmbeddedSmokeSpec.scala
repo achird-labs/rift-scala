@@ -32,3 +32,27 @@ class EmbeddedSmokeSpec extends FunSuite:
       assertEquals(imp.recorded(), Right(Vector.empty))
       assertEquals(imp.verifyNoInteractions(), Right(()))
     }
+
+  test("embedded: intercept rule round-trip and imposter recording session"):
+    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+
+    Using.resource(Rift.embeddedUnsafe()) { rift =>
+      Using.resource(rift.interceptUnsafe()) { ic =>
+        val rule = ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
+        assert(rule.isRight, s"expected Right, got $rule")
+        assertEquals(ic.rules.map(_.nonEmpty), Right(true))
+        assertEquals(ic.caPem.map(_.contains("BEGIN")), Right(true))
+      }
+
+      val created = rift.create(imposter("smoke-recording").port(0).build)
+      assert(created.isRight, s"expected Right, got $created")
+      val imp = created.fold(throw _, identity)
+
+      val recording = imp.startRecording(java.net.URI.create("https://origin.example.test"))
+      assert(recording.isRight, s"expected Right, got $recording")
+      Using.resource(recording.fold(throw _, identity)) { rec =>
+        assertEquals(rec.snapshot(), Right(Vector.empty))
+      }
+
+      assertEquals(imp.delete(), Right(()))
+    }

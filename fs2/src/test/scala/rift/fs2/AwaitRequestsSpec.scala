@@ -6,10 +6,10 @@ import java.util.concurrent.TimeoutException
 
 import scala.concurrent.duration.*
 
-import _root_.cats.effect.{IO, Ref}
+import _root_.cats.effect.{IO, Ref, Resource}
 import munit.CatsEffectSuite
 
-import rift.bridge.{ImposterDefinition, RecordedPage}
+import rift.bridge.{ImposterDefinition, RecordSpec, RecordedPage}
 import rift.cats.{FlowStateHandle, ImposterHandle, Scenarios, SpaceHandle, StubRef}
 import rift.dsl.*
 import rift.json.Json
@@ -57,6 +57,10 @@ class AwaitRequestsSpec extends CatsEffectSuite:
         def stub(id: StubId): IO[StubRef[IO]] = unimplemented
         def recorded: IO[Vector[RecordedRequest]] = unimplemented
         def recorded(matching: RequestMatch): IO[Vector[RecordedRequest]] = unimplemented
+        def startRecording(
+            origin: URI,
+            spec: RecordSpec
+        ): Resource[IO, rift.cats.RecordingHandle[IO]] = Resource.eval(unimplemented)
 
         def recordedPage(filters: rift.bridge.TailFilter*): IO[RecordedPage] =
           remaining.modify {

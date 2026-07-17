@@ -2,12 +2,12 @@ package rift.cats.testkit
 
 import java.net.URI
 
-import _root_.cats.effect.IO
+import _root_.cats.effect.{IO, Resource}
 
-import rift.bridge.{ImposterDefinition, RecordedPage, TailFilter}
+import rift.bridge.{ImposterDefinition, RecordSpec, RecordedPage, TailFilter}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
 import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
-import rift.cats.{FlowStateHandle, ImposterHandle, Scenarios, SpaceHandle, StubRef}
+import rift.cats.{FlowStateHandle, ImposterHandle, RecordingHandle, Scenarios, SpaceHandle, StubRef}
 
 /** A hand-rolled `ImposterHandle[IO]` for the assertion gate tests (`AssertionsSpec`) — no live
   * engine. Only `verify`/`verifyNoInteractions` are exercised by those tests; every other member is
@@ -42,6 +42,8 @@ private[testkit] final class FakeImposterHandle(
   def verify(matching: RequestMatch, times: Times): IO[Unit] = verifyResult
   def verify(matching: RequestMatch, times: Int): IO[Unit] = verifyResult
   def verifyNoInteractions: IO[Unit] = verifyNoInteractionsResult
+  def startRecording(origin: URI, spec: RecordSpec): Resource[IO, RecordingHandle[IO]] =
+    Resource.eval(IO.raiseError(new NotImplementedError))
   def scenarios: Scenarios[IO] = unreachable
   def space(flowId: FlowId): SpaceHandle[IO] = unreachable
   def flowState(flowId: FlowId): FlowStateHandle[IO] = unreachable

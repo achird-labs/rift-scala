@@ -32,3 +32,28 @@ class EmbeddedSmokeSpec extends CatsEffectSuite:
         _ <- imp.delete
       yield ()
     }
+
+  test("embedded: intercept rule round-trip and imposter recording session"):
+    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+
+    Rift.embedded[IO].use { rift =>
+      for
+        _ <- rift.intercept().use { ic =>
+          for
+            _ <- ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
+            rules <- ic.rules
+            _ = assert(rules.nonEmpty)
+            pem <- ic.caPem
+            _ = assert(pem.contains("BEGIN"))
+          yield ()
+        }
+        imp <- rift.create(imposter("smoke-recording").port(0).build)
+        _ <- imp.startRecording(java.net.URI.create("https://origin.example.test")).use { rec =>
+          for
+            snapshot <- rec.snapshot
+            _ = assertEquals(snapshot, Vector.empty)
+          yield ()
+        }
+        _ <- imp.delete
+      yield ()
+    }

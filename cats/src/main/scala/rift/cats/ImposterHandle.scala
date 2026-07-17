@@ -1,19 +1,16 @@
 package rift.cats
 
 import java.net.URI
+import java.nio.file.Path
 
-import _root_.cats.effect.Async
+import _root_.cats.effect.{Async, Resource}
 
 import rift.json.Json
 import rift.model.{FlowId, Port, RecordedRequest, ScenarioStatus, Stub, StubId, Times}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
-import rift.bridge.ImposterDefinition
+import rift.bridge.{ImposterDefinition, RecordSpec, RecordingConnector}
 
 /** Mirrors `rift.bridge.ImposterConnector` (DESIGN.md §5.6) 1:1, `F[_]`-shaped over `Async`.
-  *
-  * `startRecording` is omitted here: the bridge and ZIO surfaces ship it (#35), but the cats
-  * `Resource[F, RecordingHandle[F]]` wiring is a stacked follow-up (like the intercept surface's
-  * cats/pure follow-up #45). Not faked here.
   *
   * No cursor request *tail* (`requests`/`requests(pollEvery)` on the ZIO handle): the `fs2.Stream`
   * built by looping `recordedPage`/`recordedSince` belongs to the `rift-scala-fs2` module (issue
@@ -50,12 +47,20 @@ trait ImposterHandle[F[_]]:
   def scenarios: Scenarios[F]
   def space(flowId: FlowId): SpaceHandle[F]
   def flowState(flowId: FlowId): FlowStateHandle[F]
+
+  /** Scoped proxy-capture recording: the session is acquired on the blocking pool and, on resource
+    * release, `close()`d — which stops and **discards** it (the facade default). Read/persist the
+    * captured stubs via the `RecordingHandle` (`stop`/`snapshot`/`persist`) inside the resource,
+    * before release. Mirrors `Rift.intercept`'s resource lifecycle.
+    */
+  def startRecording(origin: URI, spec: RecordSpec = RecordSpec()): Resource[F, RecordingHandle[F]]
+
   def enable: F[Unit]
   def disable: F[Unit]
   def delete: F[Unit]
 
 private[cats] final class ImposterHandleLive[F[_]: Async](
-    connector: rift.bridge.ImposterConnector
+    private[cats] val connector: rift.bridge.ImposterConnector
 ) extends ImposterHandle[F]:
   def port: Port = connector.port
   def uri: URI = connector.uri
@@ -100,6 +105,16 @@ private[cats] final class ImposterHandleLive[F[_]: Async](
   def space(flowId: FlowId): SpaceHandle[F] = new SpaceHandleLive[F](connector.space(flowId))
   def flowState(flowId: FlowId): FlowStateHandle[F] =
     new FlowStateHandleLive[F](connector.flowState(flowId))
+
+  def startRecording(
+      origin: URI,
+      spec: RecordSpec
+  ): Resource[F, RecordingHandle[F]] =
+    Resource
+      .fromAutoCloseable(blockingF(connector.startRecording(origin, spec)))
+      .map(
+        new RecordingHandleLive[F](_)
+      )
 
   def enable: F[Unit] = blockingF(connector.enable())
   def disable: F[Unit] = blockingF(connector.disable())
@@ -181,3 +196,18 @@ private[cats] final class FlowStateHandleLive[F[_]: Async](
   def get(key: String): F[Option[Json]] = blockingF(underlying.get(key))
   def put(key: String, value: Json): F[Unit] = blockingF(underlying.put(key, value))
   def delete(key: String): F[Unit] = blockingF(underlying.delete(key))
+
+/** A live proxy-capture recording session (mirrors `rift.bridge.RecordingConnector`), obtained from
+  * `ImposterHandle.startRecording` as a `Resource[F, RecordingHandle[F]]` — release stops and
+  * discards it. Read or persist the captured stubs before the resource is released.
+  */
+trait RecordingHandle[F[_]]:
+  def stop: F[Vector[Stub]]
+  def snapshot: F[Vector[Stub]]
+  def persist(path: Path): F[Unit]
+
+private[cats] final class RecordingHandleLive[F[_]: Async](underlying: RecordingConnector)
+    extends RecordingHandle[F]:
+  def stop: F[Vector[Stub]] = blockingF(underlying.stop())
+  def snapshot: F[Vector[Stub]] = blockingF(underlying.snapshot())
+  def persist(path: Path): F[Unit] = blockingF(underlying.persist(path))

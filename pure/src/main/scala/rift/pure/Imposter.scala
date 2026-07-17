@@ -1,24 +1,21 @@
 package rift.pure
 
 import java.net.URI
+import java.nio.file.Path
 
 import rift.RiftError
 import rift.json.Json
 import rift.model.{FlowId, Port, RecordedRequest, ScenarioStatus, Stub, StubId, Times}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
-import rift.bridge.ImposterDefinition
+import rift.bridge.{ImposterDefinition, RecordSpec}
 
 /** Mirrors `rift.bridge.ImposterConnector` (DESIGN.md §5.11) 1:1, `Either[RiftError, _]`-shaped.
-  *
-  * `startRecording` is omitted here: the bridge and ZIO surfaces ship it (#35), but the pure
-  * `Using`-friendly recording surface is a stacked follow-up (like the intercept surface's
-  * cats/pure follow-up #45). Not faked here.
   *
   * No cursor request tail (`requests`/`requests(pollEvery)` on the ZIO/Cats handles, or a
   * `recordedPage`/`recordedSince` paging API): pure has no stream or effect system to drive polling
   * with, so `recorded()` here is a one-shot snapshot, not a subscription.
   */
-final class Imposter private[pure] (connector: rift.bridge.ImposterConnector):
+final class Imposter private[pure] (private[pure] val connector: rift.bridge.ImposterConnector):
 
   def port: Port = connector.port
   def uri: URI = connector.uri
@@ -59,6 +56,14 @@ final class Imposter private[pure] (connector: rift.bridge.ImposterConnector):
   def scenarios: Scenarios = new Scenarios(connector.scenarios)
   def space(flowId: FlowId): SpaceHandle = new SpaceHandle(connector.space(flowId))
   def flowState(flowId: FlowId): FlowStateHandle = new FlowStateHandle(connector.flowState(flowId))
+
+  /** Start a proxy-capture recording session: this imposter proxies to `origin` and turns matched
+    * traffic into stubs per `spec`. `close()` on the returned `Recording` stops and **discards** it
+    * (the facade default) — read/persist the captured stubs via `stop`/`snapshot`/`persist` before
+    * closing.
+    */
+  def startRecording(origin: URI, spec: RecordSpec = RecordSpec()): Either[RiftError, Recording] =
+    catchRiftError(new Recording(connector.startRecording(origin, spec)))
 
   def enable(): Either[RiftError, Unit] = catchRiftError(connector.enable())
   def disable(): Either[RiftError, Unit] = catchRiftError(connector.disable())
@@ -119,3 +124,14 @@ final class FlowStateHandle private[pure] (underlying: rift.bridge.FlowStateHand
   def put(key: String, value: Json): Either[RiftError, Unit] =
     catchRiftError(underlying.put(key, value))
   def delete(key: String): Either[RiftError, Unit] = catchRiftError(underlying.delete(key))
+
+/** A live proxy-capture recording session (mirrors `rift.bridge.RecordingConnector`), obtained from
+  * `Imposter.startRecording` — `close()` stops and **discards** it (the facade default). Read or
+  * persist the captured stubs via `stop`/`snapshot`/`persist` before closing.
+  */
+final class Recording private[pure] (connector: rift.bridge.RecordingConnector)
+    extends AutoCloseable:
+  def stop(): Either[RiftError, Vector[Stub]] = catchRiftError(connector.stop())
+  def snapshot(): Either[RiftError, Vector[Stub]] = catchRiftError(connector.snapshot())
+  def persist(path: Path): Either[RiftError, Unit] = catchRiftError(connector.persist(path))
+  def close(): Unit = connector.close()
