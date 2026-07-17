@@ -1,18 +1,17 @@
 package rift.conformance
 
-import java.net.URI
-import java.net.http.{HttpClient, HttpRequest, HttpResponse}
-import java.nio.charset.StandardCharsets
+import java.net.http.HttpResponse
 
 import zio.*
 import zio.test.*
 
 import rift.RiftError
-import rift.json.Json
 import rift.model.Port
 import rift.zio.Rift
 
 import io.github.etacassiopeia.rift.Rift as JRift
+
+import CorpusReplay.VerifyStep
 
 /** G3 — replay (engine-required, GUARDED).
   *
@@ -23,73 +22,14 @@ import io.github.etacassiopeia.rift.Rift as JRift
   * fixture the embedded lane can serve (skipping only fixtures whose `requires` names a capability
   * outside `supportedCapabilities` — the README's "capability skips only per the manifest" rule)
   * and replays each stub's `_verify.sequence` over real HTTP.
+  *
+  * The `_verify` parsing + HTTP fire mechanics live in `CorpusReplay`, shared with the cats-surface
+  * `CorpusG3CatsSpec` (#13) — only the ZIO-specific effect wrapping and engine wiring stay here.
   */
 object CorpusG3Spec extends ZIOSpecDefault:
 
-  /** Capabilities the embedded transport can serve today. Empty for now: `injection`/`proxy`/
-    * `redis`/`https`/`shell` aren't wired through the embedded connector's config surface yet in
-    * this SDK (tracked separately — out of scope for #6, which only needs this guarded spec to
-    * compile and skip cleanly). Extend this set as embedded gains each capability; every fixture
-    * whose `requires` is a subset of this set gets replayed automatically, no other change needed.
-    */
-  private val supportedCapabilities: Set[String] = Set.empty
-
-  private val client = HttpClient.newHttpClient()
-
-  /** One `_verify.sequence[]` entry — a request to fire and the response to assert against it. Kept
-    * local to G3 rather than added to `rift.model`: `_verify` is corpus/test-harness replay
-    * metadata, not a modeled wire type the DSL ever authors (see `CorpusG2Spec`'s
-    * `dslExpressibleModuloVerify` note).
-    */
-  private final case class VerifyStep(
-      method: String,
-      path: String,
-      headers: Vector[(String, String)],
-      requestBody: Option[String],
-      expectStatus: Int,
-      expectBodyContains: Option[String],
-      expectBodyEquals: Option[String]
-  )
-
-  private def verifySteps(imposterJson: Json): Vector[VerifyStep] =
-    val stubs = imposterJson.get("stubs").flatMap(_.asArray).getOrElse(Vector.empty)
-    stubs.flatMap { stub =>
-      val sequence = stub.get("_verify", "sequence").flatMap(_.asArray).getOrElse(Vector.empty)
-      sequence.map(decodeStep)
-    }
-
-  private def decodeStep(step: Json): VerifyStep =
-    val request = step.get("request").getOrElse(Json.Obj(Vector.empty))
-    val expect = step.get("expect").getOrElse(Json.Obj(Vector.empty))
-    VerifyStep(
-      method = request.get("method").flatMap(_.asString).getOrElse("GET"),
-      path = request.get("path").flatMap(_.asString).getOrElse("/"),
-      headers = request
-        .get("headers")
-        .flatMap(_.asObject)
-        .getOrElse(Vector.empty)
-        .collect { case (k, Json.Str(v)) => k -> v },
-      requestBody = request.get("body").flatMap(_.asString),
-      expectStatus = expect
-        .get("status")
-        .collect { case Json.Num(n) => n.toInt }
-        .getOrElse(200),
-      expectBodyContains = expect.get("bodyContains").flatMap(_.asString),
-      expectBodyEquals = expect.get("bodyEquals").flatMap(_.asString)
-    )
-
-  private def bodyPublisher(body: Option[String]): HttpRequest.BodyPublisher =
-    body match
-      case Some(b) => HttpRequest.BodyPublishers.ofString(b, StandardCharsets.UTF_8)
-      case None => HttpRequest.BodyPublishers.noBody()
-
   private def fire(port: Int, step: VerifyStep): Task[HttpResponse[String]] =
-    ZIO.attemptBlocking {
-      val builder = HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:$port${step.path}"))
-      step.headers.foreach((k, v) => builder.header(k, v))
-      builder.method(step.method.toUpperCase, bodyPublisher(step.requestBody))
-      client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
-    }
+    ZIO.attemptBlocking(CorpusReplay.fireBlocking(port, step))
 
   private def assertStep(step: VerifyStep, response: HttpResponse[String]): TestResult =
     assertTrue(response.statusCode() == step.expectStatus) &&
@@ -101,7 +41,7 @@ object CorpusG3Spec extends ZIOSpecDefault:
     // when the replay unwinds on a defect, not only on the happy path.
     ZIO.acquireReleaseWith(rift.createFromJson(Corpus.imposterRaw(fixture)))(_.delete.orDie) {
       imp =>
-        val steps = verifySteps(Corpus.imposterJson(fixture))
+        val steps = CorpusReplay.verifySteps(Corpus.imposterJson(fixture))
         val port = Port.value(imp.port)
         ZIO
           .foreach(steps)(step => fire(port, step).orDie.map(assertStep(step, _)))
@@ -109,7 +49,7 @@ object CorpusG3Spec extends ZIOSpecDefault:
     }
 
   private def replayOrSkip(rift: Rift, fixture: Fixture): IO[RiftError, TestResult] =
-    val ungated = fixture.requires -- supportedCapabilities
+    val ungated = fixture.requires -- CorpusReplay.supportedCapabilities
     if ungated.nonEmpty then
       ZIO
         .logInfo(
