@@ -93,10 +93,16 @@ final class ImposterBuilder private[dsl] (
       extraValue
     )
 
+  /** `0` requests an engine-assigned ephemeral port (an absent `Port`, the same convention as
+    * `InterceptConfig.port`); `1..65535` binds that port; anything else throws. `Port` itself stays
+    * strict — 0 is not a valid `Port`, it is the "let the engine choose" sentinel at the builder.
+    */
   def port(value: Int): ImposterBuilder =
-    Port.from(value) match
-      case Right(p) => withState(portValue = Some(p))
-      case Left(msg) => throw new IllegalArgumentException(msg)
+    if value == 0 then withState(portValue = None)
+    else
+      Port.from(value) match
+        case Right(p) => withState(portValue = Some(p))
+        case Left(msg) => throw new IllegalArgumentException(msg)
 
   def record: ImposterBuilder = withState(recordRequestsFlag = true)
   def recordMatches: ImposterBuilder = withState(recordMatchesFlag = true)
