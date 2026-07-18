@@ -1,0 +1,139 @@
+# Closes the full-auto dependency loop: when CI passes on a rift-java bump PR (opened by
+# `java-bump.yml`), squash-merge it and cut the next patch release.
+#
+# Triggered by the *conclusion* of the CI workflow (workflow_run), so it observes the real, aggregate
+# CI result — success only if BOTH matrix jobs pass (JDK 21 spawn replay + JDK 22 embedded
+# conformance). A red CI run simply does nothing here: the bump PR stays open for human intervention.
+# That is the intended fail-to-human path.
+#
+# Guarded to act ONLY on a successful, PR-triggered CI run whose head is a `chore/rift-java-*` branch
+# in THIS repo (never a fork) — so an arbitrary green PR can never trip an auto-merge + publish.
+#
+# ARMING SWITCH — RELEASE_TOKEN:
+# The release is cut by pushing a `vX.Y.Z` tag, which fires `release.yml` (`sbt ci-release`). GitHub's
+# default GITHUB_TOKEN deliberately does NOT trigger a downstream workflow from a pushed tag, so this
+# job pushes the tag using a repo secret `RELEASE_TOKEN` (a PAT / fine-grained token with contents:write
+# + workflows). Until that secret exists, this job fails loudly *before* merging — bump PRs still open
+# and run CI, but nothing merges or publishes. Adding RELEASE_TOKEN is what arms the loop.
+
+name: Auto-release on green bump
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # First-ever release seed: rift-scala has no v* tag yet, so the first auto-release starts here.
+  # Every subsequent release increments the patch of the latest tag. Change this if the first
+  # published version should not be 0.1.0.
+  SEED_VERSION: "0.1.0"
+
+jobs:
+  auto-release:
+    name: Merge bump PR and cut a patch release
+    # Only a successful, PR-triggered CI run on a same-repo rift-java bump branch.
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'chore/rift-java-')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out master with the release token
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          # Persisted so the tag push below is authenticated as RELEASE_TOKEN and thus triggers
+          # release.yml. Falls back to GITHUB_TOKEN if the secret is unset — but the next step then
+          # fails the job before anything is merged.
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Require RELEASE_TOKEN before touching anything
+        shell: bash
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_TOKEN}" ]; then
+            echo "::error::RELEASE_TOKEN secret is not set. The auto-release loop is unarmed: a bump PR"
+            echo "::error::cannot be merged/published because a tag pushed by GITHUB_TOKEN would not"
+            echo "::error::trigger release.yml. Add a RELEASE_TOKEN repo secret (PAT with contents:write"
+            echo "::error::+ workflows) to arm the loop. The bump PR is left open for a human."
+            exit 1
+          fi
+          echo "RELEASE_TOKEN present — loop armed."
+
+      - name: Merge the bump PR
+        id: merge
+        shell: bash
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          PR="$(gh pr list --repo "${{ github.repository }}" --head "${BRANCH}" --state open --json number --jq '.[0].number // empty')"
+          if [ -z "${PR}" ]; then
+            echo "No open PR for ${BRANCH} (already merged, or closed). Nothing to do."
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Squash-merging PR #${PR} (${BRANCH})."
+          gh pr merge "${PR}" --repo "${{ github.repository }}" --squash --delete-branch
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+
+      - name: Compute the next patch version
+        id: ver
+        if: steps.merge.outputs.merged == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          LATEST_TAG="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
+          if [ -z "${LATEST_TAG}" ]; then
+            NEXT="${SEED_VERSION}"
+            echo "No existing v* tag; seeding the first release at v${NEXT}."
+          else
+            V="${LATEST_TAG#v}"
+            MAJ="${V%%.*}"; REST="${V#*.}"; MIN="${REST%%.*}"; PAT="${REST##*.}"
+            if ! printf '%s' "${MAJ}${MIN}${PAT}" | grep -qE '^[0-9]+$'; then
+              echo "Latest tag ${LATEST_TAG} is not a plain vMAJOR.MINOR.PATCH; refusing to guess. Cut the release by hand."
+              exit 1
+            fi
+            NEXT="${MAJ}.${MIN}.$((PAT + 1))"
+            echo "Latest tag ${LATEST_TAG} -> next v${NEXT}."
+          fi
+          echo "next=${NEXT}" >> "$GITHUB_OUTPUT"
+
+      - name: Tag the merge commit and publish
+        if: steps.merge.outputs.merged == 'true'
+        shell: bash
+        env:
+          NEXT: ${{ steps.ver.outputs.next }}
+        run: |
+          set -euo pipefail
+
+          # The squash-merge advanced master on the remote; move to its new HEAD before tagging so the
+          # release points at the merge commit, not the stale checkout.
+          git fetch origin "${{ github.event.repository.default_branch }}"
+          git reset --hard FETCH_HEAD
+
+          TAG="v${NEXT}"
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null || git ls-remote --exit-code --tags origin "${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; nothing to publish (idempotent no-op)."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "Release ${TAG} (auto-cut after rift-java bump)"
+
+          # Pushed with RELEASE_TOKEN (persisted at checkout) so release.yml's `on: push: tags: v*`
+          # actually fires and runs `sbt ci-release`.
+          git push origin "${TAG}"
+          echo "Pushed ${TAG}; release.yml will publish it."
