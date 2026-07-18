@@ -47,10 +47,17 @@ object Dependencies {
     * pin — and zio 2.1.17, which sbt eviction bumps this module's zio to (a binary-compatible patch
     * bump within ZIO 2.1.x; the rest of the repo stays on the `zio` pin below).
     */
-  val zioBdd = "1.4.3"
+  val zioBdd = "1.4.4"
 
   val zioBddDeps: Seq[ModuleID] = Seq(
     "io.github.etacassiopeia" %% "zio-bdd-mock" % zioBdd
+  )
+
+  /** The published conformance scenario sets + `ConformanceHarness` (zio-bdd #332), Test-only — the
+    * SPI's own compliance suite, run against `RiftScalaBackend` in `RiftScalaConformanceSpec`.
+    */
+  val zioBddConformanceDeps: Seq[ModuleID] = Seq(
+    "io.github.etacassiopeia" %% "zio-bdd-mock-conformance" % zioBdd % Test
   )
 
   /** `rift-scala-zio` (#4): the ZIO surface is zio + zio-streams only (the cursor request tail is a
