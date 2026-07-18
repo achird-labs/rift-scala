@@ -9,12 +9,14 @@
 # Guarded to act ONLY on a successful, PR-triggered CI run whose head is a `chore/rift-java-*` branch
 # in THIS repo (never a fork) — so an arbitrary green PR can never trip an auto-merge + publish.
 #
-# ARMING SWITCH — RELEASE_TOKEN:
-# The release is cut by pushing a `vX.Y.Z` tag, which fires `release.yml` (`sbt ci-release`). GitHub's
-# default GITHUB_TOKEN deliberately does NOT trigger a downstream workflow from a pushed tag, so this
-# job pushes the tag using a repo secret `RELEASE_TOKEN` (a PAT / fine-grained token with contents:write
-# + workflows). Until that secret exists, this job fails loudly *before* merging — bump PRs still open
-# and run CI, but nothing merges or publishes. Adding RELEASE_TOKEN is what arms the loop.
+# Publishing is inline (`sbt ci-release`, the same command as release.yml), so the loop needs no extra
+# PAT/secret beyond the Sonatype/PGP secrets release.yml already uses. The `vX.Y.Z` tag is pushed with
+# GITHUB_TOKEN — which deliberately does NOT re-trigger release.yml — so the release is published
+# exactly once (here), and the tag is just the durable record + the seed for the next patch increment.
+#
+# FIRST RELEASE IS GATED TO A HUMAN: rift-scala has no `v*` tag yet. Until one exists, this job merges
+# the bump PR but does NOT publish — cut the first release deliberately by pushing a `v0.1.0` tag
+# (release.yml publishes it). Auto-release takes over from the next bump onward.
 
 name: Auto-release on green bump
 
@@ -29,10 +31,6 @@ permissions:
 
 env:
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  # First-ever release seed: rift-scala has no v* tag yet, so the first auto-release starts here.
-  # Every subsequent release increments the patch of the latest tag. Change this if the first
-  # published version should not be 0.1.0.
-  SEED_VERSION: "0.1.0"
 
 jobs:
   auto-release:
@@ -45,30 +43,11 @@ jobs:
       startsWith(github.event.workflow_run.head_branch, 'chore/rift-java-')
     runs-on: ubuntu-latest
     steps:
-      - name: Check out master with the release token
+      - name: Check out master
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
-          # Persisted so the tag push below is authenticated as RELEASE_TOKEN and thus triggers
-          # release.yml. Falls back to GITHUB_TOKEN if the secret is unset — but the next step then
-          # fails the job before anything is merged.
-          token: ${{ secrets.RELEASE_TOKEN }}
-
-      - name: Require RELEASE_TOKEN before touching anything
-        shell: bash
-        env:
-          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${RELEASE_TOKEN}" ]; then
-            echo "::error::RELEASE_TOKEN secret is not set. The auto-release loop is unarmed: a bump PR"
-            echo "::error::cannot be merged/published because a tag pushed by GITHUB_TOKEN would not"
-            echo "::error::trigger release.yml. Add a RELEASE_TOKEN repo secret (PAT with contents:write"
-            echo "::error::+ workflows) to arm the loop. The bump PR is left open for a human."
-            exit 1
-          fi
-          echo "RELEASE_TOKEN present — loop armed."
 
       - name: Merge the bump PR
         id: merge
@@ -87,7 +66,7 @@ jobs:
           gh pr merge "${PR}" --repo "${{ github.repository }}" --squash --delete-branch
           echo "merged=true" >> "$GITHUB_OUTPUT"
 
-      - name: Compute the next patch version
+      - name: Compute the next patch version (first release gated to a human)
         id: ver
         if: steps.merge.outputs.merged == 'true'
         shell: bash
@@ -96,25 +75,44 @@ jobs:
           git fetch --tags --force
           LATEST_TAG="$(git tag --list 'v*' --sort=-v:refname | head -n1)"
           if [ -z "${LATEST_TAG}" ]; then
-            NEXT="${SEED_VERSION}"
-            echo "No existing v* tag; seeding the first release at v${NEXT}."
-          else
-            V="${LATEST_TAG#v}"
-            MAJ="${V%%.*}"; REST="${V#*.}"; MIN="${REST%%.*}"; PAT="${REST##*.}"
-            if ! printf '%s' "${MAJ}${MIN}${PAT}" | grep -qE '^[0-9]+$'; then
-              echo "Latest tag ${LATEST_TAG} is not a plain vMAJOR.MINOR.PATCH; refusing to guess. Cut the release by hand."
-              exit 1
-            fi
-            NEXT="${MAJ}.${MIN}.$((PAT + 1))"
-            echo "Latest tag ${LATEST_TAG} -> next v${NEXT}."
+            echo "::notice::rift-scala has no v* release tag yet. The bump PR is merged, but the FIRST"
+            echo "::notice::release is intentionally left to a human — cut it by pushing a v0.1.0 tag"
+            echo "::notice::(release.yml publishes it). Auto-release takes over from the next bump."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          V="${LATEST_TAG#v}"
+          MAJ="${V%%.*}"; REST="${V#*.}"; MIN="${REST%%.*}"; PAT="${REST##*.}"
+          if ! printf '%s' "${MAJ}${MIN}${PAT}" | grep -qE '^[0-9]+$'; then
+            echo "::error::Latest tag ${LATEST_TAG} is not a plain vMAJOR.MINOR.PATCH; refusing to guess. Cut the release by hand."
+            exit 1
+          fi
+          NEXT="${MAJ}.${MIN}.$((PAT + 1))"
+          echo "Latest tag ${LATEST_TAG} -> next v${NEXT}."
           echo "next=${NEXT}" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 21
+        if: steps.ver.outputs.publish == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: sbt
+
+      - name: Set up sbt
+        if: steps.ver.outputs.publish == 'true'
+        uses: sbt/setup-sbt@v1
 
       - name: Tag the merge commit and publish
-        if: steps.merge.outputs.merged == 'true'
+        if: steps.ver.outputs.publish == 'true'
         shell: bash
         env:
           NEXT: ${{ steps.ver.outputs.next }}
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
         run: |
           set -euo pipefail
 
@@ -133,7 +131,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "${TAG}" -m "Release ${TAG} (auto-cut after rift-java bump)"
 
-          # Pushed with RELEASE_TOKEN (persisted at checkout) so release.yml's `on: push: tags: v*`
-          # actually fires and runs `sbt ci-release`.
+          # GITHUB_TOKEN-pushed tags do NOT trigger release.yml, so publishing stays exactly-once (the
+          # inline ci-release below). The pushed tag is the durable record + the next-increment seed.
           git push origin "${TAG}"
-          echo "Pushed ${TAG}; release.yml will publish it."
+
+          # dynver derives the version from the just-created tag, so ci-release publishes ${NEXT}
+          # (not a -SNAPSHOT). Identical command to release.yml, run inline so no extra PAT is needed.
+          sbt ci-release
