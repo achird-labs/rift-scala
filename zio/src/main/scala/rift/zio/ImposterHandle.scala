@@ -163,10 +163,11 @@ final class StubRef private[zio] (underlying: rift.bridge.StubHandle):
 
 /** An imposter's named-scenario state machine (mirrors `rift.bridge.ScenariosHandle`).
   *
-  * `setState`/`reset` are NOT flow-scoped: the underlying facade (`io.github.achirdlabs.rift.
-  * Scenarios`) only exposes a flow-scoped `list`, not flow-scoped `setState`/`reset` — adding a
-  * `flowId` parameter here would silently no-op it rather than actually scope the call, so it is
-  * left off rather than faked.
+  * The flowless `setState`/`reset` write every flow at once; the per-flow `setState(name, state,
+  * flowId)` writes a single flow's state on a correlated imposter (matching the per-flow
+  * `list(flowId)`/`state(name, flowId)` reads). `reset` has no per-flow form — the facade exposes
+  * only a whole-imposter reset — so a single flow is returned to its initial state via a per-flow
+  * `setState` back to that value.
   */
 trait Scenarios:
   def list: IO[RiftError, Chunk[ScenarioStatus]]
@@ -174,12 +175,15 @@ trait Scenarios:
   def state(name: String): IO[RiftError, String]
 
   /** The current state of scenario `name` within a specific flow, for a correlated imposter whose
-    * scenario state is partitioned by `(flowId, scenarioName)`. Derived from `list(flowId)` — the
-    * facade exposes per-flow reads but not per-flow writes, so there is no `setState(name, flowId)`
-    * counterpart yet (tracked upstream in rift-java#151).
+    * scenario state is partitioned by `(flowId, scenarioName)`. Derived from `list(flowId)`.
     */
   def state(name: String, flowId: FlowId): IO[RiftError, String]
   def setState(name: String, state: String): IO[RiftError, Unit]
+
+  /** Write scenario `name`'s state within a single `flowId` on a correlated imposter, leaving other
+    * flows untouched — the per-flow write counterpart to `state(name, flowId)`.
+    */
+  def setState(name: String, state: String, flowId: FlowId): IO[RiftError, Unit]
   def reset: IO[RiftError, Unit]
 
 private[zio] final case class ScenariosLive(underlying: rift.bridge.ScenariosHandle)
@@ -198,6 +202,8 @@ private[zio] final case class ScenariosLive(underlying: rift.bridge.ScenariosHan
     )
   def setState(name: String, state: String): IO[RiftError, Unit] =
     blockingIO(underlying.setState(name, state))
+  def setState(name: String, state: String, flowId: FlowId): IO[RiftError, Unit] =
+    blockingIO(underlying.setState(name, state, FlowId.value(flowId)))
   def reset: IO[RiftError, Unit] = blockingIO(underlying.reset())
 
 /** An isolated `_rift` flow-state space (mirrors `rift.bridge.SpaceHandle`). */
