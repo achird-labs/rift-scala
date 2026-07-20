@@ -4,7 +4,7 @@ A **codec side-car**: bridges your zio-json `JsonCodec`s to the model's `JsonBod
 request/response bodies can be typed values instead of JSON strings.
 
 ```scala
-libraryDependencies += "io.github.etacassiopeia" %% "rift-scala-zio-json" % riftScalaV
+libraryDependencies += "io.github.achird-labs" %% "rift-scala-zio-json" % riftScalaV
 ```
 
 ## Why it is a separate artifact
@@ -50,7 +50,7 @@ the model's messages for primitives.
 > **Why `ziojson`, not `zio`?** A package segment spelled `zio` would shadow the ZIO root package for
 > anyone writing `import rift.json.*` (which is a natural line — that package holds the `Json` AST),
 > and the resulting error never hints at the cause. `rift.json.ziojson` clashes with nothing, and
-> follows sttp-client's `sttp.client4.ziojson`. See [#24](https://github.com/EtaCassiopeia/rift-scala/issues/24).
+> follows sttp-client's `sttp.client4.ziojson`. See [#24](https://github.com/achird-labs/rift-scala/issues/24).
 
 ## AST converters
 

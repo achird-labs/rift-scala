@@ -9,8 +9,8 @@ import rift.model.{Fields, Port, Predicate, PredicateOp}
 import rift.model.RecordedRequest as RecordedRequestModel
 import rift.model.matching.{MissedRequest, PredicateFailure, VerificationReport}
 
-import io.github.etacassiopeia.rift.{error as jerr, verify as jverify}
-import io.github.etacassiopeia.rift.RecordedRequest as JRecordedRequest
+import io.github.achirdlabs.rift.{error as jerr, verify as jverify}
+import io.github.achirdlabs.rift.RecordedRequest as JRecordedRequest
 
 /** The typed error boundary between rift-java and every rift-scala backend (DESIGN.md §5.2, D3).
   * Because `RiftError` *is* an `Exception`, ZIO can `refineToOrDie[RiftError]`, Cats can raise it

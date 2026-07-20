@@ -14,7 +14,7 @@ feature issue (#2–#13 and the M5 issues) links to its section here; scope chan
 
 ## 1. Goals
 
-rift-scala is the official Scala 3 SDK for [Rift](https://github.com/EtaCassiopeia/rift), a
+rift-scala is the official Scala 3 SDK for [Rift](https://github.com/achird-labs/rift), a
 high-performance Mountebank-compatible HTTP/HTTPS mock server written in Rust.
 
 1. **One DSL, every effect system.** A single pure, dependency-free model + DSL, with thin
@@ -43,7 +43,7 @@ Facts the design is built on (verified against the released artifacts):
 
 ### rift-java 0.1.1
 
-| Artifact (`io.github.etacassiopeia`) | JDK | Role for rift-scala |
+| Artifact (`io.github.achird-labs`) | JDK | Role for rift-scala |
 |---|---|---|
 | `rift-java-core` | 17+ | Facade (`Rift`, `Imposter`, `Intercept`, …), remote + spawn transports, `JsonValue`, sealed `RiftException`. Zero runtime deps. |
 | `rift-java-embedded` | 22+ | In-process engine via stable FFM; ServiceLoader-discovered `EmbeddedEngineProvider`. |
@@ -125,7 +125,7 @@ designs a rift-scala-backed adapter.
        conformance (unpublished, aggregates zio + cats + pure)
 ```
 
-Published artifacts (`io.github.etacassiopeia`, Scala 3):
+Published artifacts (`io.github.achird-labs`, Scala 3):
 
 | Artifact | Package | Hard deps | Issue |
 |---|---|---|---|
@@ -566,7 +566,7 @@ carries a **structured** `result(): Optional[VerificationResult]` — `matched`,
 package rift.bridge
 
 /** Blocking, throwing (RiftError), thread-safe. One instance per engine. */
-final class RiftConnector private (underlying: JRift /* io.github.etacassiopeia.rift.Rift */)
+final class RiftConnector private (underlying: JRift /* io.github.achirdlabs.rift.Rift */)
     extends AutoCloseable:
   def create(definition: ImposterDefinition): ImposterConnector   // JSON via Rift.create(String)
   def imposter(port: Port): ImposterConnector                     // facade Rift.imposter(int): Optional[Imposter]; bridge maps empty → ImposterNotFound
@@ -627,9 +627,9 @@ artifact plus a `rift-java-natives` classifier jar on the runtime classpath, and
 
 ```scala
 libraryDependencies ++= Seq(
-  "io.github.etacassiopeia" %% "rift-scala-zio"     % riftScalaV % Test,
-  "io.github.etacassiopeia"  % "rift-java-embedded" % riftJavaV  % Test,
-  "io.github.etacassiopeia"  % "rift-java-natives"  % riftJavaV  % Test
+  "io.github.achird-labs" %% "rift-scala-zio"     % riftScalaV % Test,
+  "io.github.achird-labs"  % "rift-java-embedded" % riftJavaV  % Test,
+  "io.github.achird-labs"  % "rift-java-natives"  % riftJavaV  % Test
     classifier RiftNatives.currentClassifier  // helper: os.name + os.arch → classifier
 )
 Test / fork := true
@@ -1226,17 +1226,17 @@ rift-java 0.1.1 is released — nothing in M3 is blocked anymore.
    `VerificationException` now carries a structured `result(): Optional[VerificationResult]`
    (`requests`, plus `closest` with per-predicate `failedPredicates`), so the bridge reads the
    engine's structured diff directly instead of parsing a string message
-   ([rift-java#127](https://github.com/EtaCassiopeia/rift-java/issues/127)). D5's testkit
+   ([rift-java#127](https://github.com/achird-labs/rift-java/issues/127)). D5's testkit
    client-side matcher stays — it renders those diffs in the model's own predicate vocabulary.
 2. **Request-tail cursor & SSE** — two *separate* engine features, both now shipped:
-   the stable savedRequests cursor ([rift#603](https://github.com/EtaCassiopeia/rift/issues/603) —
+   the stable savedRequests cursor ([rift#603](https://github.com/achird-labs/rift/issues/603) —
    `?since=<index>` + `x-rift-next-index` / `x-rift-truncated`) and the admin SSE `/events`
-   stream ([rift#461](https://github.com/EtaCassiopeia/rift/issues/461) — lifecycle + `lagged`
+   stream ([rift#461](https://github.com/achird-labs/rift/issues/461) — lifecycle + `lagged`
    events). The bridge reaches both only through rift-java's facade (D2): the **cursor is live in
    rift-java 0.1.2** (`Imposter.recordedPage()` / `recordedSince(long)` → `RecordedPage{requests,
-   nextIndex, truncated}`, [rift-java#130](https://github.com/EtaCassiopeia/rift-java/issues/130)),
+   nextIndex, truncated}`, [rift-java#130](https://github.com/achird-labs/rift-java/issues/130)),
    so D6's cursor tail is buildable today; the **SSE client**
-   ([rift-java#131](https://github.com/EtaCassiopeia/rift-java/issues/131)) is not yet on the
+   ([rift-java#131](https://github.com/achird-labs/rift-java/issues/131)) is not yet on the
    facade (only the `RiftEvent` ADT exists), so the lifecycle/`lagged` event stream stays an
    additive surface. (`Dependencies.scala` pins `riftJava = "0.1.2"` → engine 0.14.0.)
 3. **`rift-scala-bom` / sbt natives helper** — if classifier selection proves to be a support

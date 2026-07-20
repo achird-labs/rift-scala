@@ -8,13 +8,13 @@ import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.json.{Json, JsonError}
 import rift.model.{FlowId, Headers, IsResponse, RecordedRequest, Response, Stub, Times}
 
-import io.github.etacassiopeia.rift.verify as jverify
-import io.github.etacassiopeia.rift.MatchClause as JMatchClause
-import io.github.etacassiopeia.rift.json.JsonValue as JJsonValue
-import io.github.etacassiopeia.rift.dsl.{IsSpec as JIsSpec, RiftDsl as JRiftDsl}
-import io.github.etacassiopeia.rift.RecordedRequest as JRecordedRequest
-import io.github.etacassiopeia.rift.RecordedPage as JRecordedPage
-import io.github.etacassiopeia.rift.model.{ImposterDefinition as JImposterDefinition, Stub as JStub}
+import io.github.achirdlabs.rift.verify as jverify
+import io.github.achirdlabs.rift.MatchClause as JMatchClause
+import io.github.achirdlabs.rift.json.JsonValue as JJsonValue
+import io.github.achirdlabs.rift.dsl.{IsSpec as JIsSpec, RiftDsl as JRiftDsl}
+import io.github.achirdlabs.rift.RecordedRequest as JRecordedRequest
+import io.github.achirdlabs.rift.RecordedPage as JRecordedPage
+import io.github.achirdlabs.rift.model.{ImposterDefinition as JImposterDefinition, Stub as JStub}
 
 /** Every rift-java facade call in this module goes through `run`: translate a recognised
   * `RiftException`/`VerificationException` into `RiftError` and rethrow; anything unrecognised

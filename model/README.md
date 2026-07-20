@@ -89,11 +89,11 @@ rift-java documents, and unreachable from any engine output.
 
 `Admin.ScenarioStatus`'s `{name, state}` shape has no reference in the engine or rift-java, so it is
 asserted by the conformance corpus (#6) rather than from this module. Everything else previously
-tracked in [#20](https://github.com/EtaCassiopeia/rift-scala/issues/20) is now modeled.
+tracked in [#20](https://github.com/achird-labs/rift-scala/issues/20) is now modeled.
 
 ### `_behaviors.wait` — four canonical spellings
 
-Per the [rift#608 ruling](https://github.com/EtaCassiopeia/rift/issues/608), every form below is
+Per the [rift#608 ruling](https://github.com/achird-labs/rift/issues/608), every form below is
 canonical, and each **re-encodes to the spelling it was decoded from** so that
 `GET /imposters?replayable=true` hands an author back their own config. The variant set mirrors
 rift-java's `WaitSpec`, so both SDKs accept and emit the same wire forms.

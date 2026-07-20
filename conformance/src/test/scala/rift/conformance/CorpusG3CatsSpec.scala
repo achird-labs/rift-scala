@@ -8,7 +8,7 @@ import munit.CatsEffectSuite
 import rift.cats.Rift
 import rift.model.Port
 
-import io.github.etacassiopeia.rift.Rift as JRift
+import io.github.achirdlabs.rift.Rift as JRift
 
 import CorpusReplay.VerifyStep
 

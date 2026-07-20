@@ -5,7 +5,7 @@ import rift.json.JsonError.under
 import JsonSupport.*
 
 /** `_behaviors.wait`. Four spellings, all canonical per the
-  * [[https://github.com/EtaCassiopeia/rift/issues/608 rift#608 ruling]] — the variant set mirrors
+  * [[https://github.com/achird-labs/rift/issues/608 rift#608 ruling]] — the variant set mirrors
   * rift-java's `WaitSpec` so both SDKs accept and emit the same wire forms.
   *
   * Each case re-encodes to the spelling it was decoded from, which is what lets `GET

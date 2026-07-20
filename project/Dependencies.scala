@@ -8,7 +8,7 @@ import sbt.*
 object Dependencies {
 
   /** Pins the engine (0.14.0) and the conformance corpus transitively. */
-  val riftJava = "0.1.2"
+  val riftJava = "0.1.3"
 
   /** `bridge` compile scope (D2): the JDK-17+ facade
     * (`Rift`/`Imposter`/`RiftException`/`JsonValue`/ `RiftVersion`) is all the bridge links against
@@ -17,7 +17,7 @@ object Dependencies {
     * deps of the bridge; a consumer adds them per DESIGN §5.2.
     */
   val riftJavaCoreDeps: Seq[ModuleID] = Seq(
-    "io.github.etacassiopeia" % "rift-java-core" % riftJava
+    "io.github.achird-labs" % "rift-java-core" % riftJava
   )
 
   /** `container(...)` transport wraps `RiftContainer`, which lives in the testcontainers artifact.
@@ -27,7 +27,7 @@ object Dependencies {
     * artifact.
     */
   val riftJavaTestcontainersDeps: Seq[ModuleID] = Seq(
-    "io.github.etacassiopeia" % "rift-java-testcontainers" % riftJava % Optional
+    "io.github.achird-labs" % "rift-java-testcontainers" % riftJava % Optional
   )
 
   /** Embedded transport (in-process engine via stable FFM) + its native library, both `Test`-only,
@@ -37,8 +37,8 @@ object Dependencies {
     * the host's native jar (the natives artifact is classifier-per-platform, no default jar).
     */
   val riftJavaEmbeddedTestDeps: Seq[ModuleID] = Seq(
-    "io.github.etacassiopeia" % "rift-java-embedded" % riftJava % Test,
-    ("io.github.etacassiopeia" % "rift-java-natives" % riftJava % Test)
+    "io.github.achird-labs" % "rift-java-embedded" % riftJava % Test,
+    ("io.github.achird-labs" % "rift-java-natives" % riftJava % Test)
       .classifier(RiftNatives.currentClassifier)
   )
 

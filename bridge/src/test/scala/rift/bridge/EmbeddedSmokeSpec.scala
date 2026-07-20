@@ -8,7 +8,7 @@ import munit.FunSuite
 import rift.dsl.*
 import rift.model.Port
 
-import io.github.etacassiopeia.rift.Rift as JRift
+import io.github.achirdlabs.rift.Rift as JRift
 
 /** AC8 — a real end-to-end smoke over the embedded engine, proving the connector wiring against a
   * live engine. Guarded on `isEmbeddedAvailable`: skipped (not failed) wherever the native runtime

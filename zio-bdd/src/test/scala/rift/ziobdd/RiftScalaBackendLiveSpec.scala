@@ -10,7 +10,7 @@ import zio.bdd.mock as spi
 
 import rift.zio.Rift
 
-import io.github.etacassiopeia.rift.Rift as JRift
+import io.github.achirdlabs.rift.Rift as JRift
 
 /** Live behavioral gate for the adapter (issue #18) — the MockControl contract against a real
   * embedded engine.

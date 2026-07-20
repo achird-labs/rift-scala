@@ -1,6 +1,6 @@
 package rift.bridge
 
-import io.github.etacassiopeia.rift.RiftVersion
+import io.github.achirdlabs.rift.RiftVersion
 
 /** The three version pins a consumer needs to reason about compatibility (D9): this build, the
   * pinned rift-java facade, and the engine rift-java transitively pins.

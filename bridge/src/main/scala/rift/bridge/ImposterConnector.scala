@@ -11,12 +11,12 @@ import rift.dsl.RequestMatch
 import rift.json.Json
 import rift.model.{FlowId, Port, RecordedRequest, Stub, Times}
 
-import io.github.etacassiopeia.rift.Imposter as JImposter
-import io.github.etacassiopeia.rift.StubRef as JStubRef
-import io.github.etacassiopeia.rift.Scenarios as JScenarios
-import io.github.etacassiopeia.rift.Space as JSpace
-import io.github.etacassiopeia.rift.FlowState as JFlowState
-import io.github.etacassiopeia.rift.Recording as JRecording
+import io.github.achirdlabs.rift.Imposter as JImposter
+import io.github.achirdlabs.rift.StubRef as JStubRef
+import io.github.achirdlabs.rift.Scenarios as JScenarios
+import io.github.achirdlabs.rift.Space as JSpace
+import io.github.achirdlabs.rift.FlowState as JFlowState
+import io.github.achirdlabs.rift.Recording as JRecording
 
 /** Blocking, throwing (`RiftError`) handle on one imposter — mirrors `rift.zio.ImposterHandle`
   * (DESIGN.md §5.2/§5.3) 1:1 but blocking.

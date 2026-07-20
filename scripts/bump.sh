@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # The rift-scala-specific edit half of the dependency-bump loop, invoked by the reusable
-# EtaCassiopeia/rift-java/.github/workflows/dep-bump.yml.
+# achird-labs/rift-java/.github/workflows/dep-bump.yml.
 #
 #   scripts/bump.sh --current        print the currently pinned rift-java version (bare, no leading v)
 #   scripts/bump.sh <new-version>    rewrite the pin to <new-version> and self-verify

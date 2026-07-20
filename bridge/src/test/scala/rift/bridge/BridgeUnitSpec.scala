@@ -9,9 +9,9 @@ import rift.RiftError
 import rift.model.Port
 import rift.json.Json
 
-import io.github.etacassiopeia.rift.error as jerr
-import io.github.etacassiopeia.rift.verify as jverify
-import io.github.etacassiopeia.rift.json.JsonValue
+import io.github.achirdlabs.rift.error as jerr
+import io.github.achirdlabs.rift.verify as jverify
+import io.github.achirdlabs.rift.json.JsonValue
 
 /** AC1 — total mapping from the rift-java boundary. Every sealed `RiftException` subtype and
   * `VerificationException` maps to a `RiftError`; anything unrecognised stays a defect (`None`).
@@ -178,7 +178,7 @@ class JsonSeamSpec extends FunSuite:
   */
 class FacadeMappingSpec extends FunSuite:
   import rift.model.Times
-  import io.github.etacassiopeia.rift.VersionCheck as JVersionCheck
+  import io.github.achirdlabs.rift.VersionCheck as JVersionCheck
 
   test("Times maps to the matching VerificationTimes predicate"):
     assert(FacadeEncode.times(Times.Exactly(3)).matches(3))

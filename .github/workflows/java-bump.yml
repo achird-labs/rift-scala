@@ -1,8 +1,8 @@
-# Keeps `val riftJava` in project/Dependencies.scala in sync with the latest EtaCassiopeia/rift-java
+# Keeps `val riftJava` in project/Dependencies.scala in sync with the latest achird-labs/rift-java
 # release. Thin caller of the shared reusable dep-bump scaffold — all invariant logic (poll / compare
 # / idempotent branch+PR / injection-safe changelog / dry-run) lives in rift-java's dep-bump.yml, and
 # the one-line rift-java pin edit lives in scripts/bump.sh. A real "chore/rift-java-<version>" PR only
-# appears when EtaCassiopeia/rift-java has published a newer release. On green CI, auto-release.yml
+# appears when achird-labs/rift-java has published a newer release. On green CI, auto-release.yml
 # merges it and cuts the next patch.
 
 name: Rift-java Bump
@@ -24,9 +24,9 @@ permissions:
 
 jobs:
   bump:
-    uses: EtaCassiopeia/rift-java/.github/workflows/dep-bump.yml@master
+    uses: achird-labs/rift-java/.github/workflows/dep-bump.yml@master
     with:
-      upstream_repo: EtaCassiopeia/rift-java
+      upstream_repo: achird-labs/rift-java
       branch_prefix: chore/rift-java-
       dep_name: rift-java
       dry_run: ${{ github.event.inputs.dry_run == 'true' }}

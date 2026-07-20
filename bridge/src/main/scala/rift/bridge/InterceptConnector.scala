@@ -8,7 +8,7 @@ import scala.jdk.CollectionConverters.*
 
 import rift.dsl.{RequestMatch, ResponseBuilder}
 
-import io.github.etacassiopeia.rift.{
+import io.github.achirdlabs.rift.{
   Intercept as JIntercept,
   InterceptRuleBuilder as JInterceptRuleBuilder
 }

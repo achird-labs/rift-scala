@@ -5,7 +5,7 @@ import zio.test.*
 
 import rift.zio.Rift
 
-import io.github.etacassiopeia.rift.Rift as JRift
+import io.github.achirdlabs.rift.Rift as JRift
 
 /** G3 — replay over the **embedded** engine (engine-required, GUARDED).
   *

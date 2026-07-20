@@ -130,7 +130,7 @@ consumer sources that PEM pair from a secrets manager or CI secret, not from the
 ## Why the test is guarded, not skipped in a suite layer
 
 `Rift.embedded` acquires the embedded native engine, which isn't present on a bare CI JVM. The spec
-checks `io.github.etacassiopeia.rift.Rift.isEmbeddedAvailable()` **before** building any layer, and
+checks `io.github.achirdlabs.rift.Rift.isEmbeddedAvailable()` **before** building any layer, and
 only calls `Rift.embedded.build` (inside `ZIO.scoped`) once that check has already passed — so CI
 skips the test instead of failing it, without ever paying the acquisition cost. The same guard shape
 is used by `bridge.EmbeddedSmokeSpec` and `cats.EmbeddedSmokeSpec` elsewhere in this repo.

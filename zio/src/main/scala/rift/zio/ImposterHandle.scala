@@ -163,7 +163,7 @@ final class StubRef private[zio] (underlying: rift.bridge.StubHandle):
 
 /** An imposter's named-scenario state machine (mirrors `rift.bridge.ScenariosHandle`).
   *
-  * `setState`/`reset` are NOT flow-scoped: the underlying facade (`io.github.etacassiopeia.rift.
+  * `setState`/`reset` are NOT flow-scoped: the underlying facade (`io.github.achirdlabs.rift.
   * Scenarios`) only exposes a flow-scoped `list`, not flow-scoped `setState`/`reset` — adding a
   * `flowId` parameter here would silently no-op it rather than actually scope the call, so it is
   * left off rather than faked.
@@ -237,7 +237,7 @@ private[zio] final case class SpaceHandleLive(underlying: rift.bridge.SpaceHandl
 
 /** Per-flow key/value state (mirrors `rift.bridge.FlowStateHandle`).
   *
-  * No `clear`: the underlying facade (`io.github.etacassiopeia.rift.FlowState`) exposes only
+  * No `clear`: the underlying facade (`io.github.achirdlabs.rift.FlowState`) exposes only
   * `get`/`put`/`delete`, no bulk clear — faking one via a delete-every-known-key loop would need a
   * key listing the facade doesn't provide either, so it is left off rather than faked.
   */

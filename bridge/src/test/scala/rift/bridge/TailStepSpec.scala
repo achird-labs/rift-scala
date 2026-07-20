@@ -7,7 +7,7 @@ import munit.FunSuite
 import rift.json.Json
 import rift.model.{FlowId, Headers, Method, RecordedRequest}
 
-import io.github.etacassiopeia.rift.MatchClause as JMatchClause
+import io.github.achirdlabs.rift.MatchClause as JMatchClause
 
 /** The pure cursor + signal transition shared by the ZIO and fs2 tails (issue #37, DESIGN.md §5.3,
   * D6). These pin the emission rules the two unfolds must not diverge on: a control signal per
