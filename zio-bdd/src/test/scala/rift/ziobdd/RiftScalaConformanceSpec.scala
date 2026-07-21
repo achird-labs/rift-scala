@@ -8,10 +8,10 @@ import zio.bdd.mock.conformance.*
 
 import io.github.achirdlabs.rift.Rift as JRift
 
-/** Runs zio-bdd's OWN published conformance suite (`zio-bdd-mock-conformance`, zio-bdd #332) against
-  * `RiftScalaBackend` — the SPI-defined compliance bar, not a hand-written stand-in. The scenario
-  * catalogues program only against `MockControl`, so this is a pure backend swap: the same scenarios
-  * that certify zio-bdd's own embedded/WireMock/container adapters, run against ours.
+/** Runs zio-bdd's OWN published conformance suite (`zio-bdd-mock-conformance`, zio-bdd #332)
+  * against `RiftScalaBackend` — the SPI-defined compliance bar, not a hand-written stand-in. The
+  * scenario catalogues program only against `MockControl`, so this is a pure backend swap: the same
+  * scenarios that certify zio-bdd's own embedded/WireMock/container adapters, run against ours.
   *
   * Guarded on the embedded engine exactly like `RiftScalaBackendLiveSpec`: a JVM without the engine
   * (JDK < 22) skips; the JDK 22+ job runs the full matrix.
