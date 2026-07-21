@@ -8,3 +8,7 @@ project/metals.sbt
 *.class
 *.log
 .DS_Store
+
+# MkDocs build output — the site is built and deployed by .github/workflows/pages.yml,
+# never committed.
+site/
