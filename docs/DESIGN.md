@@ -1,11 +1,13 @@
 # rift-scala — Library Design
 
 **Status:** accepted design, implementation phase (M3/M4/M5).
-**Informed by:** rift engine **v0.14.0** wire surface, **rift-java v0.1.2** (released 2026-07), the
+**Informed by:** rift engine **v0.15.0** wire surface, **rift-java v0.1.3** (released 2026-07), the
 `sdk-conformance` contract (RFC-003 §9.2), and **zio-bdd v1.4.2**'s `MockControl` SPI.
 (Originally authored against v0.13.5 / rift-java 0.1.1; re-verified against v0.14.0 — the
 imposter-definition wire surface is unchanged, and the engine now carries the `Inject` wait
-variant natively, closing the rift#608 gap this design already modeled.)
+variant natively, closing the rift#608 gap this design already modeled. Re-verified again against
+v0.15.0: the conformance corpus fixtures are byte-identical to v0.14.0's, so nothing this design
+models moved.)
 
 This document is the single source of truth for the public API of every rift-scala module. Each
 feature issue (#2–#13 and the M5 issues) links to its section here; scope changes land here first.
@@ -62,7 +64,7 @@ Key facade facts:
 - Errors: `sealed RiftException permits InvalidDefinition, EngineUnavailable,
   CommunicationError, ImposterNotFound, EngineError` (all unchecked), plus
   `VerificationException extends AssertionError`.
-- Engine pin: rift-java 0.1.2 → engine **0.14.0**; compatibility floor 0.13.1; version
+- Engine pin: rift-java 0.1.3 → engine **0.15.0**; compatibility floor 0.13.1; version
   preflight on `connect` (configurable `FAIL | WARN | OFF`).
 - Embedded needs `--enable-native-access=ALL-UNNAMED` and a natives classifier jar (or
   `-Drift.ffi.lib`); on JDK 21 additionally `--enable-preview` with the `-jdk21` artifact.
@@ -616,8 +618,8 @@ degrade to a partial report (never a wrong error case); the engine's `verify` st
 ```scala
 object RiftVersions:
   val riftScala: String   // this build
-  val riftJava: String    // pinned, e.g. "0.1.2"
-  val engine: String      // transitively pinned, e.g. "0.14.0" (via rift-version.properties)
+  val riftJava: String    // pinned, e.g. "0.1.3"
+  val engine: String      // transitively pinned, e.g. "0.15.0" (via rift-version.properties)
 ```
 
 **Embedded runtime requirements** (documented, and validated with a clear
@@ -1235,10 +1237,11 @@ rift-java 0.1.1 is released — nothing in M3 is blocked anymore.
    events). The bridge reaches both only through rift-java's facade (D2): the **cursor is live in
    rift-java 0.1.2** (`Imposter.recordedPage()` / `recordedSince(long)` → `RecordedPage{requests,
    nextIndex, truncated}`, [rift-java#130](https://github.com/achird-labs/rift-java/issues/130)),
-   so D6's cursor tail is buildable today; the **SSE client**
-   ([rift-java#131](https://github.com/achird-labs/rift-java/issues/131)) is not yet on the
-   facade (only the `RiftEvent` ADT exists), so the lifecycle/`lagged` event stream stays an
-   additive surface. (`Dependencies.scala` pins `riftJava = "0.1.2"` → engine 0.14.0.)
+   so D6's cursor tail is buildable today. The **SSE client**
+   ([rift-java#131](https://github.com/achird-labs/rift-java/issues/131)) has since landed on the
+   facade — `Rift.events(EventStreamOptions)` returns an `EventStream` of the `RiftEvent` ADT,
+   including the lifecycle and `Lagged` variants — so that surface is now adoptable rather than
+   pending. (`Dependencies.scala` pins `riftJava = "0.1.3"` → engine 0.15.0.)
 3. **`rift-scala-bom` / sbt natives helper** — if classifier selection proves to be a support
    burden, ship `RiftNatives.currentClassifier` as a tiny sbt plugin or documented snippet
    first (bridge README), promote to an artifact on demand.

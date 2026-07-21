@@ -23,6 +23,15 @@ PIN_FILE="project/Dependencies.scala"
 VERSIONS_SPEC="bridge/src/test/scala/rift/bridge/BridgeUnitSpec.scala"
 RIFT_JAVA_POM="https://repo1.maven.org/maven2/io/github/achird-labs/rift-java-parent"
 
+# The vendored fixtures carry the engine version in prose, and PROVENANCE.md claims they are
+# "version-locked to the engine pinned by this build" — a lock nothing enforced, so it silently
+# stopped being true (#74). Re-stamping it here keeps the claim honest. Note this only moves the
+# LABEL: whether the fixture *contents* changed is a question only a diff against the new
+# sdk-conformance release can answer, which is why the note below tells a reader to do exactly that.
+CORPUS_PROVENANCE="model/src/test/resources/corpus/PROVENANCE.md"
+EXAMPLES_PROVENANCE="model/src/test/resources/examples/PROVENANCE.md"
+CORPUS_SPEC="model/src/test/scala/rift/model/CorpusRoundTripSpec.scala"
+
 current() {
   # Portable sed (GNU + BSD) so the script runs locally too.
   sed -n 's|.*val riftJava = "\([^"]*\)".*|\1|p' "${PIN_FILE}" | head -n1
@@ -44,11 +53,18 @@ fi
 # a wrong literal here is a red build whose message points at the engine, not at this script. Note
 # Central's rsync lags a release by ~10-30 minutes, so a bump attempted in that window fails here —
 # re-run once the POM is served rather than hand-editing around it.
-ENGINE="$(curl -fsSL "${RIFT_JAVA_POM}/${NEW}/rift-java-parent-${NEW}.pom" 2>/dev/null \
+# `|| true` is load-bearing: under `set -e` a failing curl inside a command substitution kills the
+# script outright (exit 56, no output), so the diagnostic below never prints and the caller is left
+# with a bare curl status. Let it fail soft and let the emptiness check do the talking.
+POM="$(curl -fsSL "${RIFT_JAVA_POM}/${NEW}/rift-java-parent-${NEW}.pom" 2>/dev/null || true)"
+ENGINE="$(printf '%s' "${POM}" \
   | sed -n 's|.*<rift\.engine\.version>\([^<]*\)</rift\.engine\.version>.*|\1|p' | head -n1)"
 if [ -z "${ENGINE}" ]; then
   echo "Could not read <rift.engine.version> from rift-java-parent ${NEW} on Maven Central." >&2
+  echo "Checked: ${RIFT_JAVA_POM}/${NEW}/rift-java-parent-${NEW}.pom" >&2
   echo "If ${NEW} was released in the last half hour this is Central's rsync lag — retry shortly." >&2
+  echo "If it is a pre-0.1.3 version, it was published under the old io.github.etacassiopeia" >&2
+  echo "groupId and does not exist at these coordinates at all." >&2
   exit 1
 fi
 
@@ -58,11 +74,20 @@ sed -i.bak "s|Pins the engine ([0-9][^)]*)|Pins the engine (${ENGINE})|" "${PIN_
 # RiftVersionsSpec's two drift-catchers.
 sed -i.bak "s|assertEquals(RiftVersions.riftJava, \"[^\"]*\")|assertEquals(RiftVersions.riftJava, \"${NEW}\")|" "${VERSIONS_SPEC}"
 sed -i.bak "s|assertEquals(RiftVersions.engine, \"[^\"]*\")|assertEquals(RiftVersions.engine, \"${ENGINE}\")|" "${VERSIONS_SPEC}"
-rm -f "${PIN_FILE}.bak" "${VERSIONS_SPEC}.bak"
+# The vendored-fixture provenance (#74): every place that names the engine or rift-java version.
+sed -i.bak "s|sdk-conformance-v[0-9][0-9.]*|sdk-conformance-v${ENGINE}|g" "${CORPUS_PROVENANCE}" "${CORPUS_SPEC}"
+sed -i.bak "s|engine \`v[0-9][0-9.]*\`|engine \`v${ENGINE}\`|g" "${CORPUS_PROVENANCE}"
+sed -i.bak "s|Version: \*\*v[0-9][0-9.]*\*\*|Version: **v${ENGINE}**|" "${EXAMPLES_PROVENANCE}"
+sed -i.bak "s|pinned by rift-java [0-9][0-9.]*|pinned by rift-java ${NEW}|" "${EXAMPLES_PROVENANCE}"
+rm -f "${PIN_FILE}.bak" "${VERSIONS_SPEC}.bak" "${CORPUS_PROVENANCE}.bak" \
+      "${EXAMPLES_PROVENANCE}.bak" "${CORPUS_SPEC}.bak"
 
 # Fail loudly if any target still carries the old version — a half-bumped tree ships a red PR whose
 # failure names the engine rather than the bump that caused it.
-if grep -q "val riftJava = \"${CURRENT}\"" "${PIN_FILE}" \
+# The "old value is still present" arm only means anything when the version actually moved —
+# re-running at the current version is a legitimate idempotent re-stamp (it repairs provenance that
+# drifted without a bump), and must not be reported as a failed bump.
+if { [ "${NEW}" != "${CURRENT}" ] && grep -q "val riftJava = \"${CURRENT}\"" "${PIN_FILE}"; } \
    || ! grep -q "val riftJava = \"${NEW}\"" "${PIN_FILE}" \
    || ! grep -q "assertEquals(RiftVersions.riftJava, \"${NEW}\")" "${VERSIONS_SPEC}" \
    || ! grep -q "assertEquals(RiftVersions.engine, \"${ENGINE}\")" "${VERSIONS_SPEC}"; then
