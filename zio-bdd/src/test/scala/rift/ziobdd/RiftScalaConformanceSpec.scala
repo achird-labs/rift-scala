@@ -6,7 +6,7 @@ import zio.test.*
 import zio.bdd.mock.*
 import zio.bdd.mock.conformance.*
 
-import io.github.etacassiopeia.rift.Rift as JRift
+import io.github.achirdlabs.rift.Rift as JRift
 
 /** Runs zio-bdd's OWN published conformance suite (`zio-bdd-mock-conformance`, zio-bdd #332) against
   * `RiftScalaBackend` — the SPI-defined compliance bar, not a hand-written stand-in. The scenario
