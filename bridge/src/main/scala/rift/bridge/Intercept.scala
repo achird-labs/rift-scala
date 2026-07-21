@@ -3,7 +3,7 @@ package rift.bridge
 import rift.RiftError
 import rift.json.Json
 
-import io.github.etacassiopeia.rift.{
+import io.github.achirdlabs.rift.{
   InterceptOptions as JInterceptOptions,
   InterceptRule as JInterceptRule,
   RuleKind as JRuleKind,

@@ -4,7 +4,7 @@ A **codec side-car**: bridges your circe `Encoder`/`Decoder`s to the model's `Js
 so request/response bodies can be typed values instead of JSON strings.
 
 ```scala
-libraryDependencies += "io.github.etacassiopeia" %% "rift-scala-circe" % riftScalaV
+libraryDependencies += "io.github.achird-labs" %% "rift-scala-circe" % riftScalaV
 ```
 
 ## Why it is a separate artifact

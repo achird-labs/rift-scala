@@ -7,7 +7,7 @@ import munit.FunSuite
 import rift.dsl.*
 import rift.model.Port
 
-import io.github.etacassiopeia.rift.Rift as JRift
+import io.github.achirdlabs.rift.Rift as JRift
 
 /** A real end-to-end smoke over the embedded engine, proving the `Either`-shaped wiring against a
   * live engine (mirrors the bridge's own `EmbeddedSmokeSpec`, DESIGN.md §5.11). Guarded on

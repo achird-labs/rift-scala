@@ -13,7 +13,7 @@ import rift.model.Times
 import rift.zio.Rift
 import rift.zio.testkit.assertions.eventuallyReceived
 
-import io.github.etacassiopeia.rift.Rift as JRift
+import io.github.achirdlabs.rift.Rift as JRift
 
 /** RUNNABLE SAMPLE — the "ledger pattern" (issue #7).
   *

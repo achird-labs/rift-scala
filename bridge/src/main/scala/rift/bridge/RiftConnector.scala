@@ -9,8 +9,8 @@ import rift.RiftError
 import rift.json.Json
 import rift.model.{ApplyResult, EngineInfo, Port}
 
-import io.github.etacassiopeia.rift.Rift as JRift
-import io.github.etacassiopeia.rift.model.ImposterDefinition as JImposterDefinition
+import io.github.achirdlabs.rift.Rift as JRift
+import io.github.achirdlabs.rift.model.ImposterDefinition as JImposterDefinition
 
 /** Blocking, throwing (`RiftError`), thread-safe. One instance per engine (DESIGN.md §5.2). All
   * effect-module connectors (`rift.zio`, `rift.cats`, ...) are thin wrappers over this and
@@ -99,7 +99,7 @@ object RiftConnector:
     // artifact is already present chasing the wrong fix with the real class name discarded.
     try
       Class.forName(
-        "io.github.etacassiopeia.rift.testcontainers.RiftContainer",
+        "io.github.achirdlabs.rift.testcontainers.RiftContainer",
         false,
         getClass.getClassLoader
       )
@@ -112,10 +112,10 @@ object RiftConnector:
 
     val container = config.image match
       case Some(image) =>
-        new io.github.etacassiopeia.rift.testcontainers.RiftContainer(
+        new io.github.achirdlabs.rift.testcontainers.RiftContainer(
           org.testcontainers.utility.DockerImageName.parse(image)
         )
-      case None => new io.github.etacassiopeia.rift.testcontainers.RiftContainer()
+      case None => new io.github.achirdlabs.rift.testcontainers.RiftContainer()
     config.apiKey.foreach(container.withApiKey)
     if config.imposterPorts.nonEmpty then container.withImposterPorts(config.imposterPorts.toArray*)
     if config.gateway then container.withGateway()

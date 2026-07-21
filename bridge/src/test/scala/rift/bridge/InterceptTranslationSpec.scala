@@ -6,9 +6,9 @@ import rift.RiftError
 import rift.dsl.*
 import rift.json.Json
 
-import io.github.etacassiopeia.rift.{InterceptRule as JInterceptRule, RuleKind as JRuleKind}
-import io.github.etacassiopeia.rift.TruststoreFormat as JTruststoreFormat
-import io.github.etacassiopeia.rift.json.JsonValue as JJsonValue
+import io.github.achirdlabs.rift.{InterceptRule as JInterceptRule, RuleKind as JRuleKind}
+import io.github.achirdlabs.rift.TruststoreFormat as JTruststoreFormat
+import io.github.achirdlabs.rift.json.JsonValue as JJsonValue
 
 /** CI-safe gate for the intercept surface (issue #34). Every check here is a pure Scala↔Java
   * translation — no live engine, so it runs in CI. The full engine round-trip is the

@@ -4,8 +4,8 @@ import scala.jdk.CollectionConverters.*
 
 import munit.FunSuite
 
-import io.github.etacassiopeia.rift.{RecordMode as JRecordMode, RecordSpec as JRecordSpec}
-import io.github.etacassiopeia.rift.dsl.RequestField as JRequestField
+import io.github.achirdlabs.rift.{RecordMode as JRecordMode, RecordSpec as JRecordSpec}
+import io.github.achirdlabs.rift.dsl.RequestField as JRequestField
 
 /** The `RecordSpec`/`RecordMode`/`RequestField` config maps onto the facade `RecordSpec.builder()`
   * (issue #35). The default-mirroring test is the load-bearing one: the facade builder defaults are

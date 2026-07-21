@@ -7,10 +7,10 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.jdk.DurationConverters.*
 
-import io.github.etacassiopeia.rift.{ConnectOptions, EmbeddedOptions, SpawnOptions}
-import io.github.etacassiopeia.rift.VersionCheck as JVersionCheck
-import io.github.etacassiopeia.rift.{RecordMode as JRecordMode, RecordSpec as JRecordSpec}
-import io.github.etacassiopeia.rift.dsl.RequestField as JRequestField
+import io.github.achirdlabs.rift.{ConnectOptions, EmbeddedOptions, SpawnOptions}
+import io.github.achirdlabs.rift.VersionCheck as JVersionCheck
+import io.github.achirdlabs.rift.{RecordMode as JRecordMode, RecordSpec as JRecordSpec}
+import io.github.achirdlabs.rift.dsl.RequestField as JRequestField
 
 /** Mirrors rift-java's `VersionCheck` enum — how a mismatched engine/rift-java version is handled
   * on connect.

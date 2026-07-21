@@ -10,9 +10,9 @@ lazy val scala3 = "3.3.4"
 
 inThisBuild(
   Seq(
-    organization := "io.github.etacassiopeia",
-    organizationName := "EtaCassiopeia",
-    homepage := Some(url("https://github.com/EtaCassiopeia/rift-scala")),
+    organization := "io.github.achird-labs",
+    organizationName := "Achird Labs",
+    homepage := Some(url("https://github.com/achird-labs/rift-scala")),
     licenses := Seq(
       "Apache-2.0" -> url("https://www.apache.org/licenses/LICENSE-2.0")
     ),
@@ -26,12 +26,12 @@ inThisBuild(
     ),
     scmInfo := Some(
       ScmInfo(
-        url("https://github.com/EtaCassiopeia/rift-scala"),
-        "scm:git@github.com:EtaCassiopeia/rift-scala.git"
+        url("https://github.com/achird-labs/rift-scala"),
+        "scm:git@github.com:achird-labs/rift-scala.git"
       )
     ),
     // sbt-ci-release 1.11+ publishes to the Sonatype Central Portal by default
-    // (io.github.etacassiopeia) from CI on a v* tag — the legacy OSSRH host was sunset.
+    // (io.github.achird-labs) from CI on a v* tag — the legacy OSSRH host was sunset.
     versionScheme := Some("early-semver")
   )
 )

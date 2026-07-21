@@ -1,6 +1,6 @@
 # rift-scala
 
-Official Scala 3 SDK for [Rift](https://github.com/EtaCassiopeia/rift) — a high-performance,
+Official Scala 3 SDK for [Rift](https://github.com/achird-labs/rift) — a high-performance,
 Mountebank-compatible HTTP/HTTPS mock server written in Rust. Effect-library-native:
 ZIO, Cats Effect 3 / FS2, Kyo, or no effect system at all.
 
@@ -33,7 +33,7 @@ object PaymentsSpec extends ZIOSpecDefault:
 | Artifact | Contents |
 |---|---|
 | `rift-scala-model` | pure typed wire model + DSL (no effect dependency) |
-| `rift-scala-bridge` | transports + natives via [rift-java](https://github.com/EtaCassiopeia/rift-java) |
+| `rift-scala-bridge` | transports + natives via [rift-java](https://github.com/achird-labs/rift-java) |
 | `rift-scala-zio` / `rift-scala-zio-testkit` | ZIO service + ZLayer lifecycles, `ZStream` request tail, zio-test glue |
 | `rift-scala-cats` / `rift-scala-cats-testkit` | Cats Effect 3 `Rift[F]`, `Resource` lifecycles, munit/weaver glue |
 | `rift-scala-fs2` | `Stream[F, RecordedRequest]` tailing + verification pipes |
@@ -61,5 +61,5 @@ dependency graph `model ◁ bridge ◁ {zio, cats, kyo, pure}`, `zio ◁ zio-tes
 `cats ◁ {cats-testkit, fs2}`, plus the model-only codec side-cars `zio-json` and `circe`
 (full picture in [docs/DESIGN.md](docs/DESIGN.md) §3). A module's external library dependencies (zio, cats-effect,
 fs2, kyo, rift-java) are introduced by that module's own feature issue, not the build
-bootstrap. Artifacts publish to Sonatype under `io.github.etacassiopeia` via
+bootstrap. Artifacts publish to Sonatype under `io.github.achird-labs` via
 `sbt-ci-release` on a `v*` tag.
