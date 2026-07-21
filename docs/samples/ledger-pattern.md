@@ -4,7 +4,7 @@ A walkthrough of a real-world consumer's shape — fixed-port TLS intercept with
 datafile hot-swap, revision-bump polling, and recorded-request verification — composed entirely
 from shipped rift-scala APIs.
 
-Runnable spec: [`zio-testkit/src/test/scala/rift/zio/testkit/LedgerPatternSampleSpec.scala`](../../zio-testkit/src/test/scala/rift/zio/testkit/LedgerPatternSampleSpec.scala).
+Runnable spec: [`zio-testkit/src/test/scala/rift/zio/testkit/LedgerPatternSampleSpec.scala`](https://github.com/achird-labs/rift-scala/blob/master/zio-testkit/src/test/scala/rift/zio/testkit/LedgerPatternSampleSpec.scala).
 
 ## The scenario
 
