@@ -26,12 +26,12 @@ object PaymentsSpec extends ZIOSpecDefault:
     test("records the lookup"):
       for
         users <- Rift.create(
-                   imposter("users").record.stub(
-                     get("/api/users/1").reply(ok.json("""{"id":1}"""))
-                   )
-                 )
-        _     <- callSut(users.uri)              // point your SUT at users.uri
-        _     <- users.verify(get("/api/users/1"), 1)
+          imposter("users").record.stub(
+            get("/api/users/1").reply(ok.json("""{"id":1}"""))
+          )
+        )
+        _ <- callSut(users.uri) // point your SUT at users.uri
+        _ <- users.verify(get("/api/users/1"), 1)
       yield assertCompletes
   ).provideShared(Rift.embedded)
 ```

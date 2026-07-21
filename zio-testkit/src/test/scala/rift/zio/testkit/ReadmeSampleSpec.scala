@@ -28,12 +28,12 @@ object ReadmeSampleSpec extends ZIOSpecDefault:
   private val readmeSample =
     for
       users <- Rift.create(
-                 imposter("users").record.stub(
-                   get("/api/users/1").reply(ok.json("""{"id":1}"""))
-                 )
-               )
-      _     <- callSut(users.uri)
-      _     <- users.verify(get("/api/users/1"), 1)
+        imposter("users").record.stub(
+          get("/api/users/1").reply(ok.json("""{"id":1}"""))
+        )
+      )
+      _ <- callSut(users.uri)
+      _ <- users.verify(get("/api/users/1"), 1)
     yield assertCompletes
 
   def spec = suite("README sample")(
