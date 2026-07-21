@@ -169,6 +169,12 @@ final class ScenariosHandle private[bridge] (underlying: JScenarios):
   def state(name: String): String = FacadeBoundary.run(underlying.state(name))
   def setState(name: String, state: String): Unit =
     FacadeBoundary.run(underlying.setState(name, state))
+
+  /** Write scenario `name`'s state within a single `flowId` on a correlated imposter — the per-flow
+    * write counterpart to the per-flow `list(flowId)` read. Leaves other flows' state untouched.
+    */
+  def setState(name: String, state: String, flowId: String): Unit =
+    FacadeBoundary.run(underlying.setState(name, state, flowId))
   def reset(): Unit = FacadeBoundary.run(underlying.reset())
 
 /** An isolated `_rift` flow-state space (correlated by `FlowId`) — its own stub set, recordings,

@@ -356,8 +356,8 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
               _ <- control.replaceRules(space, List(okRule("/m3", "swapped")))
               swapped <- get(space.baseUri, "/m3", hdr*)
               oldGone <- get(space.baseUri, "/m", hdr*)
-              // Correlated scenario STATE WRITES stay gapped (#65 unlocked define/currentState, not
-              // reset/setState — those need per-flow setState upstream, rift-java#151).
+              // A scenario write to a space that never declared it is a typed no-scenario failure
+              // (the write path is live now — rift-java#152 — but still gated on a declared scenario).
               inspection <- control.stateInspection
               gap <- inspection.setState(space, "invoice", spi.ScenarioState("Paid")).exit
             yield assertTrue(
@@ -370,7 +370,7 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
               swapped == (200, "swapped"),
               oldGone._1 == 404,
               gap.causeOption.flatMap(_.failureOption).exists {
-                case spi.MockError.InvalidDefinition(reason) => reason.contains("per-flow")
+                case spi.MockError.InvalidDefinition(reason) => reason.contains("no scenario")
                 case _ => false
               }
             )
@@ -419,7 +419,7 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
         }
       },
       test(
-        "correlated scenarios advance + inspect per-flow; writes and custom initial are typed gaps"
+        "correlated scenarios advance, inspect, write, reset, and pin a custom initial — all per-flow"
       ) {
         ZIO.scoped {
           withControl(spi.Isolation.Correlated) { control =>
@@ -463,31 +463,38 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
               aliceState <- inspection.currentState(alice, "invoice")
               bobState <- inspection.currentState(bob, "invoice")
               unknownState <- inspection.currentState(alice, "nope").exit
-              // State writes and a custom initial state remain gapped (rift-java#151).
-              resetGap <- scenarios.reset(alice, "invoice").exit
-              setGap <- inspection.setState(alice, "invoice", spi.ScenarioState("Paid")).exit
-              customGap <- scenarios
-                .define(
-                  bob,
-                  spi.ScenarioDef(
-                    "custom",
-                    List(
-                      spi.StatefulRule(
-                        spi.ScenarioState("Custom"),
-                        spi.RequestMatch(path = spi.PathMatch.Exact("/x")),
-                        spi.ResponseDef(body = spi.Body.Text("x")),
-                        None
-                      )
-                    ),
-                    spi.ScenarioState("Custom")
-                  )
+              // A per-flow WRITE on bob moves only bob (Started -> Paid); alice's flow is untouched.
+              _ <- inspection.setState(bob, "invoice", spi.ScenarioState("Paid"))
+              bobPinned <- inspection.currentState(bob, "invoice")
+              // reset returns alice's flow to the declared initial. After it, alice=Started while
+              // bob=Paid — the two writes stayed flow-scoped off the shared imposter.
+              _ <- scenarios.reset(alice, "invoice")
+              aliceReset <- inspection.currentState(alice, "invoice")
+              bobStillPinned <- inspection.currentState(bob, "invoice")
+              // A write to an undeclared scenario is a TYPED failure, not a silent engine no-op.
+              setUnknown <- inspection.setState(alice, "nope", spi.ScenarioState("Paid")).exit
+              resetUnknown <- scenarios.reset(alice, "nope").exit
+              // A custom initial state is pinned per-flow at define time (Started + a per-flow set).
+              _ <- scenarios.define(
+                bob,
+                spi.ScenarioDef(
+                  "custom",
+                  List(
+                    spi.StatefulRule(
+                      spi.ScenarioState("Custom"),
+                      spi.RequestMatch(path = spi.PathMatch.Exact("/x")),
+                      spi.ResponseDef(body = spi.Body.Text("x")),
+                      None
+                    )
+                  ),
+                  spi.ScenarioState("Custom")
                 )
-                .exit
+              )
+              customState <- inspection.currentState(bob, "custom")
               // A rule mutation rebuilds bob's flow; the scenario stubs must SURVIVE (issue #65
-              // review — they were previously untracked and silently dropped). bob was never
-              // advanced, so after the rebuild resets its state to Started, the first request
-              // re-serves "a" (proving the scenario re-registered) AND advances it to Paid (proving
-              // the re-registered FSM is live).
+              // review — they were previously untracked and silently dropped). The rebuild resets
+              // the flow state to Started, so the first request re-serves "a" (proving the scenario
+              // re-registered) AND advances it to Paid (proving the re-registered FSM is live).
               _ <- control.addRule(bob, okRule("/other", "z"), spi.Priority.Overlay)
               bobScenarioSurvived <- get(bob.baseUri, "/s", hdr(bob)*)
               bobStillDefined <- inspection.currentState(bob, "invoice")
@@ -495,11 +502,14 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
               aliceServed == (200, "a"),
               aliceState.value == "Paid",
               bobState.value == "Started",
-              // undeclared scenario is a TYPED failure, not a defect (matches the write-gap arms)
+              // undeclared scenario read is a TYPED failure, not a defect
               isInvalidDef(unknownState),
-              isInvalidDef(resetGap),
-              isInvalidDef(setGap),
-              isInvalidDef(customGap),
+              bobPinned.value == "Paid",
+              aliceReset.value == "Started",
+              bobStillPinned.value == "Paid",
+              isInvalidDef(setUnknown),
+              isInvalidDef(resetUnknown),
+              customState.value == "Custom",
               bobScenarioSurvived == (200, "a"),
               bobStillDefined.value == "Paid"
             )
