@@ -141,7 +141,8 @@ lazy val zioTestkit = riftModule("zioTestkit", "zio-testkit")
 lazy val zioBdd = riftModule("zioBdd", "zio-bdd")
   .dependsOn(zio)
   .settings(
-    libraryDependencies ++= Dependencies.zioBddDeps ++ Dependencies.zioTestDeps,
+    libraryDependencies ++=
+      Dependencies.zioBddDeps ++ Dependencies.zioBddConformanceDeps ++ Dependencies.zioTestDeps,
     libraryDependencies ++=
       (if (buildJavaSpec >= 22) Dependencies.riftJavaEmbeddedTestDeps else Seq.empty),
     Test / fork := true,
