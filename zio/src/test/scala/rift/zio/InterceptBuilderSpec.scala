@@ -86,6 +86,8 @@ object InterceptBuilderSpec extends ZIOSpecDefault:
     def recorded: IO[RiftError, Chunk[RecordedRequest]] = die
     def recorded(matching: RequestMatch): IO[RiftError, Chunk[RecordedRequest]] = die
     def clearRecorded: IO[RiftError, Unit] = die
+    def clearRecorded(filters: Chunk[TailFilter]): IO[RiftError, Unit] = die
+    def clearProxyResponses: IO[RiftError, Unit] = die
     def verify(matching: RequestMatch, times: Times): IO[RiftError, Unit] = die
     def verify(matching: RequestMatch, times: Int): IO[RiftError, Unit] = die
     def verifyNoInteractions: IO[RiftError, Unit] = die

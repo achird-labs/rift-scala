@@ -40,6 +40,9 @@ private[testkit] final class FakeImposterHandle(
   def recorded(matching: RequestMatch): IO[RiftError, Chunk[RecordedRequest]] =
     ZIO.die(new NotImplementedError)
   def clearRecorded: IO[RiftError, Unit] = ZIO.die(new NotImplementedError)
+  def clearRecorded(filters: Chunk[TailFilter]): IO[RiftError, Unit] =
+    ZIO.die(new NotImplementedError)
+  def clearProxyResponses: IO[RiftError, Unit] = ZIO.die(new NotImplementedError)
   def verify(matching: RequestMatch, times: Times): IO[RiftError, Unit] = verifyResult
   def verify(matching: RequestMatch, times: Int): IO[RiftError, Unit] = verifyResult
   def verifyNoInteractions: IO[RiftError, Unit] = verifyNoInteractionsResult

@@ -167,6 +167,8 @@ object Inventory:
     Op("Imposter CRUD", "replaceStubs", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Imposter CRUD", "stubs", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Imposter CRUD", "stub", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
+    Op("Imposter CRUD", "clearRecorded (scoped)", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
+    Op("Imposter CRUD", "clearProxyResponses", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Imposter CRUD", "delete", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Imposter CRUD", "enable", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Imposter CRUD", "disable", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),

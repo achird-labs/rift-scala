@@ -95,7 +95,21 @@ final class ImposterConnector private[bridge] (underlying: JImposter):
       )
     )
 
-  def clearRecorded(): Unit = FacadeBoundary.run(underlying.clearRecorded())
+  /** Drop journal entries matching `filters` (evaluated server-side as `MatchClause`s), or the
+    * whole journal when called with none — the same "no filters means unfiltered" reading as
+    * `recordedPage`. Scoped clears let one tenant's traffic be dropped without wiping everyone
+    * else's on a shared imposter.
+    */
+  def clearRecorded(filters: TailFilter*): Unit =
+    FacadeBoundary.run {
+      if filters.isEmpty then underlying.clearRecorded()
+      else underlying.clearRecorded(FacadeEncode.matchClauses(filters)*)
+    }
+
+  /** Clears the cached proxy responses that `proxyOnce`/`proxyAlways` replay. A different store
+    * from the recorded-request journal, which this leaves untouched.
+    */
+  def clearProxyResponses(): Unit = FacadeBoundary.run(underlying.clearProxyResponses())
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): Unit =
     FacadeBoundary.run(

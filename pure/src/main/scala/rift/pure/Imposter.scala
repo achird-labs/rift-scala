@@ -7,7 +7,7 @@ import rift.RiftError
 import rift.json.Json
 import rift.model.{FlowId, Port, RecordedRequest, ScenarioStatus, Stub, StubId, Times}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
-import rift.bridge.{ImposterDefinition, RecordSpec}
+import rift.bridge.{ImposterDefinition, RecordSpec, TailFilter}
 
 /** Mirrors `rift.bridge.ImposterConnector` (DESIGN.md §5.11) 1:1, `Either[RiftError, _]`-shaped.
   *
@@ -49,7 +49,18 @@ final class Imposter private[pure] (private[pure] val connector: rift.bridge.Imp
   def recorded(matching: RequestMatch): Either[RiftError, Vector[RecordedRequest]] =
     catchRiftError(connector.recorded(matching))
 
-  def clearRecorded(): Either[RiftError, Unit] = catchRiftError(connector.clearRecorded())
+  /** Drop journal entries matching `filters` server-side, or the whole journal when `filters` is
+    * empty — the same reading as `recordedPage`. Shares the `TailFilter` vocabulary, so it covers
+    * header, flow, method and path.
+    */
+  def clearRecorded(filters: TailFilter*): Either[RiftError, Unit] =
+    catchRiftError(connector.clearRecorded(filters*))
+
+  /** Clears the cached proxy responses that `proxyOnce`/`proxyAlways` replay — a different store
+    * from the recorded-request journal, which this leaves untouched.
+    */
+  def clearProxyResponses(): Either[RiftError, Unit] =
+    catchRiftError(connector.clearProxyResponses())
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): Either[RiftError, Unit] =
     catchRiftError(connector.verify(matching, times))

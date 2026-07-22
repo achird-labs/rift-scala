@@ -41,6 +41,9 @@ private[testkit] final class FakeImposterHandle(
   def recordedSince(cursor: Long, filters: TailFilter*): IO[RecordedPage] =
     IO.raiseError(new NotImplementedError)
   def clearRecorded: IO[Unit] = IO.raiseError(new NotImplementedError)
+  def clearRecorded(filters: rift.bridge.TailFilter*): IO[Unit] =
+    IO.raiseError(new NotImplementedError)
+  def clearProxyResponses: IO[Unit] = IO.raiseError(new NotImplementedError)
   def verify(matching: RequestMatch, times: Times): IO[Unit] = verifyResult
   def verify(matching: RequestMatch, times: Int): IO[Unit] = verifyResult
   def verifyNoInteractions: IO[Unit] = verifyNoInteractionsResult

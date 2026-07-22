@@ -63,6 +63,8 @@ class FilterThreadingSpec extends CatsEffectSuite:
     def recorded: IO[Vector[RecordedRequest]] = unused
     def recorded(matching: RequestMatch): IO[Vector[RecordedRequest]] = unused
     def clearRecorded: IO[Unit] = unused
+    def clearRecorded(filters: rift.bridge.TailFilter*): IO[Unit] = unused
+    def clearProxyResponses: IO[Unit] = unused
     def verify(matching: RequestMatch, times: Times): IO[Unit] = unused
     def verify(matching: RequestMatch, times: Int): IO[Unit] = unused
     def verifyNoInteractions: IO[Unit] = unused
