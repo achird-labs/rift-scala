@@ -6,8 +6,13 @@ import JsonSupport.*
 
 final case class ImposterDefinition(
     port: Option[Port] = None,
+    /** Bind interface. The engine defaults to `0.0.0.0`; this pins a specific one. */
+    host: Option[String] = None,
     protocol: Protocol = Protocol.Http,
     name: Option[String] = None,
+    serviceName: Option[String] = None,
+    /** Service-identity metadata, stored by the engine verbatim — hence raw `Json`. */
+    serviceInfo: Option[Json] = None,
     recordRequests: Boolean = false,
     recordMatches: Boolean = false,
     stubs: Vector[Stub] = Vector.empty,
@@ -22,8 +27,11 @@ final case class ImposterDefinition(
   def toJson: Json =
     val fixed: Vector[Option[(String, Json)]] = Vector(
       port.map(p => "port" -> Json.Num(BigDecimal(Port.value(p)))),
+      host.map(h => "host" -> Json.Str(h)),
       Some("protocol" -> protocol.toJson),
       name.map(n => "name" -> Json.Str(n)),
+      serviceName.map(n => "serviceName" -> Json.Str(n)),
+      serviceInfo.map(i => "serviceInfo" -> i),
       if recordRequests then Some("recordRequests" -> Json.Bool(true)) else None,
       if recordMatches then Some("recordMatches" -> Json.Bool(true)) else None,
       if stubs.nonEmpty then Some("stubs" -> Json.Arr(stubs.map(_.toJson))) else None,
@@ -42,8 +50,11 @@ final case class ImposterDefinition(
 object ImposterDefinition:
   private val modeledKeys = Set(
     "port",
+    "host",
     "protocol",
     "name",
+    "serviceName",
+    "serviceInfo",
     "recordRequests",
     "recordMatches",
     "stubs",
@@ -72,7 +83,10 @@ object ImposterDefinition:
       protocol <- fields.field("protocol") match
         case Some(p) => Protocol.fromJson(p).left.map(_.under("protocol"))
         case None => Right(Protocol.Http)
+      host <- optString(fields, "host")
       name <- optString(fields, "name")
+      serviceName <- optString(fields, "serviceName")
+      serviceInfo = fields.field("serviceInfo")
       recordRequests <- optBool(fields, "recordRequests", false)
       recordMatches <- optBool(fields, "recordMatches", false)
       stubs <- fields.field("stubs") match
@@ -93,17 +107,20 @@ object ImposterDefinition:
         case Some(r) => RiftConfig.fromJson(r).map(Some(_)).left.map(_.under("_rift"))
         case None => Right(None)
     yield ImposterDefinition(
-      port,
-      protocol,
-      name,
-      recordRequests,
-      recordMatches,
-      stubs,
-      defaultResponse,
-      defaultForward,
-      allowCors,
-      strictBehaviors,
-      tls,
-      rift,
-      fields.remainder(modeledKeys)
+      port = port,
+      host = host,
+      protocol = protocol,
+      name = name,
+      serviceName = serviceName,
+      serviceInfo = serviceInfo,
+      recordRequests = recordRequests,
+      recordMatches = recordMatches,
+      stubs = stubs,
+      defaultResponse = defaultResponse,
+      defaultForward = defaultForward,
+      allowCors = allowCors,
+      strictBehaviors = strictBehaviors,
+      tls = tls,
+      rift = rift,
+      extra = fields.remainder(modeledKeys)
     )

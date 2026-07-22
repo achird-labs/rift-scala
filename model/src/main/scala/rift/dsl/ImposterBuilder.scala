@@ -50,7 +50,10 @@ def redisFlowState(url: String): FlowStateConfigBuilder = new FlowStateConfigBui
 final class ImposterBuilder private[dsl] (
     private val nameValue: Option[String],
     private val portValue: Option[Port] = None,
+    private val hostValue: Option[String] = None,
     private val protocolValue: Protocol = Protocol.Http,
+    private val serviceNameValue: Option[String] = None,
+    private val serviceInfoValue: Option[Json] = None,
     private val recordRequestsFlag: Boolean = false,
     private val recordMatchesFlag: Boolean = false,
     private val stubsValue: Vector[Stub] = Vector.empty,
@@ -65,7 +68,10 @@ final class ImposterBuilder private[dsl] (
 ):
   private def withState(
       portValue: Option[Port] = this.portValue,
+      hostValue: Option[String] = this.hostValue,
       protocolValue: Protocol = this.protocolValue,
+      serviceNameValue: Option[String] = this.serviceNameValue,
+      serviceInfoValue: Option[Json] = this.serviceInfoValue,
       recordRequestsFlag: Boolean = this.recordRequestsFlag,
       recordMatchesFlag: Boolean = this.recordMatchesFlag,
       stubsValue: Vector[Stub] = this.stubsValue,
@@ -80,7 +86,10 @@ final class ImposterBuilder private[dsl] (
     new ImposterBuilder(
       nameValue,
       portValue,
+      hostValue,
       protocolValue,
+      serviceNameValue,
+      serviceInfoValue,
       recordRequestsFlag,
       recordMatchesFlag,
       stubsValue,
@@ -118,6 +127,16 @@ final class ImposterBuilder private[dsl] (
   def allowCors: ImposterBuilder = withState(allowCorsFlag = true)
   def strictBehaviors: ImposterBuilder = withState(strictBehaviorsFlag = true)
 
+  /** Bind the imposter to a specific interface. The engine binds `0.0.0.0` by default, so this
+    * narrows rather than widens — e.g. `host("127.0.0.1")` for loopback-only.
+    */
+  def host(interface: String): ImposterBuilder = withState(hostValue = Some(interface))
+
+  def serviceName(name: String): ImposterBuilder = withState(serviceNameValue = Some(name))
+
+  /** Service-identity metadata. Raw `Json` because the engine stores it verbatim. */
+  def serviceInfo(info: Json): ImposterBuilder = withState(serviceInfoValue = Some(info))
+
   private def rift: RiftConfig = riftValue.getOrElse(RiftConfig())
 
   def flowState(config: FlowStateConfigBuilder): ImposterBuilder =
@@ -130,6 +149,14 @@ final class ImposterBuilder private[dsl] (
 
   def script(name: String, source: ScriptSource): ImposterBuilder =
     withState(riftValue = Some(rift.copy(scripts = rift.scripts :+ (name -> source))))
+
+  /** Expose the imposter's metrics endpoint on `port`. Sets the `_rift.metrics` block, whose wire
+    * type already round-tripped — only the setter was missing.
+    */
+  def metrics(port: Int): ImposterBuilder =
+    withState(riftValue =
+      Some(rift.copy(metrics = Some(MetricsConfig(enabled = true, port = port))))
+    )
 
   /** The imposter-level `_rift.proxy` block — where this imposter proxies to, and how it pools
     * those connections. Distinct from a per-stub `proxyTo(...)` response.
@@ -156,6 +183,9 @@ final class ImposterBuilder private[dsl] (
       port = portValue,
       protocol = protocolValue,
       name = nameValue,
+      host = hostValue,
+      serviceName = serviceNameValue,
+      serviceInfo = serviceInfoValue,
       recordRequests = recordRequestsFlag,
       recordMatches = recordMatchesFlag,
       stubs = stubsValue,
@@ -173,6 +203,9 @@ def imposter(name: String): ImposterBuilder = new ImposterBuilder(Some(name))
 private def fromDefinition(definition: ImposterDefinition): ImposterBuilder =
   new ImposterBuilder(
     nameValue = definition.name,
+    hostValue = definition.host,
+    serviceNameValue = definition.serviceName,
+    serviceInfoValue = definition.serviceInfo,
     portValue = definition.port,
     protocolValue = definition.protocol,
     recordRequestsFlag = definition.recordRequests,

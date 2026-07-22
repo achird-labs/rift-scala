@@ -429,3 +429,59 @@ class DslSpec extends munit.FunSuite:
       case Response.Is(_, behaviors, _, _) =>
         assertEquals(behaviors.shellTransform, Vector("tr a-z A-Z"))
       case other => fail(s"expected an is-response, got $other")
+
+  // ── issue #91: ImposterSpec parity fields ─────────────────────────────────
+  // host/serviceName/serviceInfo are modelled by the facade record but were absent here, so they
+  // decoded into `extra` — the bytes survived but typed reads missed them and the builder could
+  // not write them at all.
+  test("host, serviceName and serviceInfo reach the wire as top-level keys"):
+    val info = Json.obj("team" -> Json.Str("payments"))
+    val rendered = imposter("api")
+      .host("127.0.0.1")
+      .serviceName("billing")
+      .serviceInfo(info)
+      .build
+      .toJson
+      .render
+    assert(rendered.contains("\"host\":\"127.0.0.1\""), rendered)
+    assert(rendered.contains("\"serviceName\":\"billing\""), rendered)
+    assert(rendered.contains("\"serviceInfo\""), rendered)
+    assert(rendered.contains("payments"), rendered)
+
+  test("metrics sets the _rift.metrics block"):
+    val rendered = imposter("api").metrics(9091).build.toJson.render
+    assert(rendered.contains("metrics"), rendered)
+    assert(rendered.contains("9091"), rendered)
+
+  test("the new fields decode into typed fields and no longer land in extra"):
+    val doc = Json.obj(
+      "name" -> Json.Str("api"),
+      "host" -> Json.Str("0.0.0.0"),
+      "serviceName" -> Json.Str("billing"),
+      "serviceInfo" -> Json.obj("team" -> Json.Str("payments"))
+    )
+    val decoded = ImposterDefinition.fromJson(doc).fold(e => fail(e.toString), identity)
+    assertEquals(decoded.host, Some("0.0.0.0"))
+    assertEquals(decoded.serviceName, Some("billing"))
+    assert(decoded.serviceInfo.isDefined, decoded.serviceInfo.toString)
+    val extraKeys = decoded.extra.map(_._1)
+    assert(!extraKeys.contains("host"), extraKeys.toString)
+    assert(!extraKeys.contains("serviceName"), extraKeys.toString)
+    assert(!extraKeys.contains("serviceInfo"), extraKeys.toString)
+
+  test("a document carrying all three round-trips decode -> encode -> decode"):
+    val doc = Json.obj(
+      "name" -> Json.Str("api"),
+      "host" -> Json.Str("10.0.0.1"),
+      "serviceName" -> Json.Str("svc"),
+      "serviceInfo" -> Json.obj("k" -> Json.Str("v"))
+    )
+    val once = ImposterDefinition.fromJson(doc).fold(e => fail(e.toString), identity)
+    val twice = ImposterDefinition.fromJson(once.toJson).fold(e => fail(e.toString), identity)
+    assertEquals(twice, once)
+
+  test("absent fields emit nothing"):
+    val rendered = imposter("api").build.toJson.render
+    assert(!rendered.contains("\"host\""), rendered)
+    assert(!rendered.contains("serviceName"), rendered)
+    assert(!rendered.contains("serviceInfo"), rendered)

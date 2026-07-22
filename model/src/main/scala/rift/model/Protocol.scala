@@ -2,6 +2,12 @@ package rift.model
 
 import rift.json.{Json, JsonError}
 
+/** Closed at `http`/`https` deliberately, even though the facade's `ImposterSpec.protocol` takes an
+  * arbitrary `String`. The engine validates the value on create and rejects anything else
+  * (`InvalidProtocol`), so a `Custom(name)` case would make states representable that no engine
+  * accepts, for no capability gained. The loud decode failure below is therefore correct: no
+  * engine-produced document can carry another value.
+  */
 enum Protocol:
   case Http, Https
 
