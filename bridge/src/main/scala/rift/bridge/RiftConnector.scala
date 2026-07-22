@@ -134,6 +134,10 @@ object RiftConnector:
     if config.imposterPorts.nonEmpty then container.withImposterPorts(config.imposterPorts.toArray*)
     if config.gateway then container.withGateway()
     config.interceptPort.foreach(p => container.withInterceptPort(p))
+    // The engine reads `MB_ALLOW_INJECTION` as the env form of `--allowInjection` (rift
+    // rift-http-proxy/server.rs). `RiftContainer` has no dedicated setter, but it extends
+    // testcontainers' GenericContainer, so set the env directly rather than needing a rift-java bump.
+    if config.allowInjection then container.withEnv("MB_ALLOW_INJECTION", "true")
 
     // stop() the container if anything after start() fails (notably client(), which opens a real
     // connection and can throw under versionCheck=FAIL) — otherwise the started Docker container is

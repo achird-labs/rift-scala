@@ -101,7 +101,11 @@ final case class ContainerConfig(
     imposterPorts: Vector[Int] = Vector.empty,
     apiKey: Option[String] = None,
     gateway: Boolean = false,
-    interceptPort: Option[Int] = None
+    interceptPort: Option[Int] = None,
+    // Enable the engine's script-injection surface (`_rift.script`, `_behaviors.decorate`). The
+    // engine gates it behind `--allowInjection` (env `MB_ALLOW_INJECTION`) and defaults it OFF for
+    // safety, so this stays opt-in; a consumer that drives the scripting capability sets it true.
+    allowInjection: Boolean = false
 )
 
 /** Mirrors rift-java's `RecordMode` — how a proxy-capture session records matched requests. */
