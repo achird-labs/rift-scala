@@ -85,6 +85,18 @@ final class RiftConnector private (
       InterceptConnector(underlying.intercept(attachOptions.getOrElse(config.toOptions)))
     )
 
+  /** Attach to an intercept listener started out of process — a remote or CI-managed engine.
+    *
+    * Takes no `InterceptConfig` on purpose: the running listener already owns its CA and address,
+    * so `attach = true` alongside CA material would be a representable state the facade silently
+    * ignores. The container transport's pre-resolved attach options are deliberately not consulted
+    * here either — an explicit call names its own target.
+    */
+  def interceptAttach(host: String, port: Int): InterceptConnector =
+    FacadeBoundary.run(
+      InterceptConnector(underlying.intercept(JInterceptOptions.attach(host, port)))
+    )
+
   def close(): Unit =
     try FacadeBoundary.run(underlying.close())
     finally onClose()

@@ -1,6 +1,6 @@
 package rift.pure
 
-import java.net.{InetSocketAddress, URI}
+import java.net.{InetSocketAddress, ProxySelector, URI}
 import java.nio.file.Path
 import javax.net.ssl.SSLContext
 
@@ -19,6 +19,11 @@ final class Intercept private[pure] (connector: rift.bridge.InterceptConnector)
   def proxyUri: URI = connector.proxyUri
 
   def address: Either[RiftError, InetSocketAddress] = catchRiftError(connector.address)
+
+  /** A `ProxySelector` routing a whole JVM's HTTP through this proxy (`ProxySelector.setDefault`,
+    * or `HttpClient.Builder.proxy`).
+    */
+  def proxySelector: Either[RiftError, ProxySelector] = catchRiftError(connector.proxySelector)
 
   /** Start a rule for `host`: `.when(match)` then a terminal `serve/forward/redirectTo`. */
   def rule(host: String): InterceptRuleBuilder = new InterceptRuleBuilder(connector.rule(host))

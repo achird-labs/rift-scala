@@ -213,6 +213,15 @@ object Inventory:
       pure = Yes,
       reflectable = true
     ),
+    Op(
+      "Intercept",
+      "interceptAttach",
+      zio = Yes,
+      cats = Yes,
+      fs2 = ViaCats,
+      pure = Yes,
+      reflectable = true
+    ),
     Op("Intercept", "rule", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "when", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "serve", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
@@ -220,6 +229,7 @@ object Inventory:
     Op("Intercept", "redirectTo", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "rules", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "clearRules", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
+    Op("Intercept", "proxySelector", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "caPem", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "sslContext", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "exportTruststore", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
