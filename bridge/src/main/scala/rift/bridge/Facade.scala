@@ -103,12 +103,24 @@ private[bridge] object FacadeEncode:
   def requestMatch(matching: RequestMatch): jverify.RequestMatch =
     jverify.RequestMatch.ofJson(json(Json.Arr(matching.predicates.map(_.toJson))))
 
-  /** Total mapping of a `TailFilter` onto the facade's narrow `MatchClause` — the two are defined
-    * to mirror each other exactly (`header`/`flowId`), so this can never be lossy.
+  /** Total mapping of a `TailFilter` onto the facade's `MatchClause` — the two enums mirror each
+    * other case for case (`header`/`flowId`/`method`/`path`), so this can never be lossy.
+    *
+    * The facade's `method`/`path` factories validate their argument and throw
+    * `IllegalArgumentException`, which is not a `RiftException` and so would escape
+    * `FacadeBoundary` as a defect. Translated here to the typed error instead, since a malformed
+    * filter is a caller mistake, not a bug.
     */
-  def matchClause(filter: TailFilter): JMatchClause = filter match
-    case TailFilter.Header(name, value) => JMatchClause.header(name, value)
-    case TailFilter.Flow(flowId) => JMatchClause.flowId(FlowId.value(flowId))
+  def matchClause(filter: TailFilter): JMatchClause =
+    try
+      filter match
+        case TailFilter.Header(name, value) => JMatchClause.header(name, value)
+        case TailFilter.Flow(flowId) => JMatchClause.flowId(FlowId.value(flowId))
+        case TailFilter.Method(value) => JMatchClause.method(value)
+        case TailFilter.Path(value) => JMatchClause.path(value)
+    catch
+      case e: IllegalArgumentException =>
+        throw RiftError.InvalidDefinition(s"invalid tail filter: ${e.getMessage}", None)
 
   def matchClauses(filters: Seq[TailFilter]): Array[JMatchClause] =
     filters.iterator.map(matchClause).toArray

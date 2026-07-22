@@ -4,6 +4,7 @@ import java.time.Instant
 
 import munit.FunSuite
 
+import rift.RiftError
 import rift.json.Json
 import rift.model.{FlowId, Headers, Method, RecordedRequest}
 
@@ -82,3 +83,34 @@ class TailStepSpec extends FunSuite:
 
   test("matchClauses on no filters is the empty (unfiltered) array"):
     assertEquals(FacadeEncode.matchClauses(Nil).toList, Nil)
+
+  // Issue #96 — `MatchClause` has always had four factories; `TailFilter` modelled two, so a tail
+  // could not be filtered server-side by method or path. These pin the mapping case for case.
+  test("matchClauses maps the method and path filters to their facade counterparts"):
+    val out = FacadeEncode.matchClauses(Seq(TailFilter.Method("POST"), TailFilter.Path("/orders")))
+    assertEquals(out.toList, List(JMatchClause.method("POST"), JMatchClause.path("/orders")))
+
+  test("all four filter kinds map in order, none collapsing onto another"):
+    val flow = FlowId.from("flow-9").fold(e => fail(s"bad flow id: $e"), identity)
+    val out = FacadeEncode.matchClauses(
+      Seq(
+        TailFilter.Header("h", "v"),
+        TailFilter.Flow(flow),
+        TailFilter.Method("GET"),
+        TailFilter.Path("/a")
+      )
+    )
+    assertEquals(
+      out.toList,
+      List(
+        JMatchClause.header("h", "v"),
+        JMatchClause.flowId("flow-9"),
+        JMatchClause.method("GET"),
+        JMatchClause.path("/a")
+      )
+    )
+
+  // The facade records validate and throw IllegalArgumentException, which is not a RiftException
+  // and would otherwise surface as a defect rather than a typed failure.
+  test("an invalid method token is a typed InvalidDefinition, not a bare IllegalArgumentException"):
+    intercept[RiftError.InvalidDefinition](FacadeEncode.matchClause(TailFilter.Method("GE T")))

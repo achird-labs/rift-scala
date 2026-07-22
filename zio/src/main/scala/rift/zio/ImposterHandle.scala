@@ -38,9 +38,9 @@ trait ImposterHandle:
   def requests: ZStream[Any, RiftError, RecordedRequest] // 100ms poll
   def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest]
 
-  /** Server-side `filters`-narrowed request tail (`TailFilter.Header`/`Flow` → facade
-    * `MatchClause`); the engine advances the cursor past rejected entries, so this never re-scans
-    * the journal.
+  /** Server-side `filters`-narrowed request tail (`TailFilter.Header`/`Flow`/`Method`/`Path` →
+    * facade `MatchClause`); the engine advances the cursor past rejected entries, so this never
+    * re-scans the journal.
     */
   def requests(
       pollEvery: Duration,
