@@ -1,6 +1,6 @@
 package rift.cats
 
-import java.net.{InetSocketAddress, URI}
+import java.net.{InetSocketAddress, ProxySelector, URI}
 import java.nio.file.Path
 import javax.net.ssl.SSLContext
 
@@ -18,6 +18,11 @@ import rift.bridge.{InterceptConnector, InterceptRule, TruststoreFormat}
 trait InterceptHandle[F[_]]:
   def proxyUri: URI
   def address: F[InetSocketAddress]
+
+  /** A `ProxySelector` routing a whole JVM's HTTP through this proxy (`ProxySelector.setDefault`,
+    * or `HttpClient.Builder.proxy`).
+    */
+  def proxySelector: F[ProxySelector]
   def rule(host: String): InterceptRuleBuilder[F]
 
   /** An all-hosts rule — matches every intercepted host, for a SUT proxied JVM-wide whose upstream
@@ -47,6 +52,7 @@ private[cats] final class InterceptHandleLive[F[_]: Async](connector: InterceptC
     extends InterceptHandle[F]:
   def proxyUri: URI = connector.proxyUri
   def address: F[InetSocketAddress] = blockingF(connector.address)
+  def proxySelector: F[ProxySelector] = blockingF(connector.proxySelector)
   def rule(host: String): InterceptRuleBuilder[F] =
     InterceptRuleBuilderLive[F](connector, Some(host))
   def rule(): InterceptRuleBuilder[F] = InterceptRuleBuilderLive[F](connector, None)

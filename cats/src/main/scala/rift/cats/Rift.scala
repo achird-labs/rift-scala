@@ -32,6 +32,11 @@ trait Rift[F[_]]:
   def adminUri: F[URI]
   def intercept(config: InterceptConfig = InterceptConfig()): Resource[F, InterceptHandle[F]]
 
+  /** Attach to an intercept listener started out of process — a remote or CI-managed engine. No
+    * `InterceptConfig`: the running listener already owns its CA and address.
+    */
+  def interceptAttach(host: String, port: Int): Resource[F, InterceptHandle[F]]
+
 /** Runs a blocking bridge downcall on `Sync[F].blocking`. Unlike ZIO's typed-error/defect split
   * (`refineToOrDie`), a cats-effect `F` has a single `Throwable` error channel, so the `RiftError`
   * the bridge already throws for every modeled failure (DESIGN.md §5.2, D3) rethrows into it as-is
@@ -75,6 +80,13 @@ private[cats] final class RiftLive[F[_]: Async](connector: RiftConnector) extend
   def intercept(config: InterceptConfig): Resource[F, InterceptHandle[F]] =
     Resource
       .fromAutoCloseable(blockingF(connector.intercept(config)))
+      .map(
+        new InterceptHandleLive[F](_)
+      )
+
+  def interceptAttach(host: String, port: Int): Resource[F, InterceptHandle[F]] =
+    Resource
+      .fromAutoCloseable(blockingF(connector.interceptAttach(host, port)))
       .map(
         new InterceptHandleLive[F](_)
       )

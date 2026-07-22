@@ -59,6 +59,15 @@ final class Rift private (connector: RiftConnector) extends AutoCloseable:
   def interceptUnsafe(config: InterceptConfig = InterceptConfig()): Intercept =
     new Intercept(connector.intercept(config))
 
+  /** Attach to an intercept listener started out of process — a remote or CI-managed engine. No
+    * `InterceptConfig`: the running listener already owns its CA and address.
+    */
+  def interceptAttach(host: String, port: Int): Either[RiftError, Intercept] =
+    catchRiftError(new Intercept(connector.interceptAttach(host, port)))
+
+  def interceptAttachUnsafe(host: String, port: Int): Intercept =
+    new Intercept(connector.interceptAttach(host, port))
+
   def close(): Unit = connector.close()
 
 object Rift:

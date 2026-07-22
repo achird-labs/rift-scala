@@ -32,6 +32,11 @@ trait Rift:
   def adminUri: UIO[URI]
   def intercept(config: InterceptConfig = InterceptConfig()): ZIO[Scope, RiftError, InterceptHandle]
 
+  /** Attach to an intercept listener started out of process — a remote or CI-managed engine. No
+    * `InterceptConfig`: the running listener already owns its CA and address.
+    */
+  def interceptAttach(host: String, port: Int): ZIO[Scope, RiftError, InterceptHandle]
+
 /** Runs a blocking bridge downcall on `ZIO.attemptBlocking`, recovering the `RiftError` the bridge
   * already throws for every modeled failure (DESIGN.md §5.2, D3) and letting anything else die as
   * the defect it is. Shared by every `*Live`/`Ref` wrapper in this package.
@@ -77,6 +82,13 @@ private[zio] final case class RiftLive(connector: RiftConnector) extends Rift:
   def intercept(config: InterceptConfig): ZIO[Scope, RiftError, InterceptHandle] =
     ZIO
       .acquireRelease(blockingIO(connector.intercept(config)))(c =>
+        ZIO.attemptBlocking(c.close()).orDie
+      )
+      .map(InterceptHandleLive(_))
+
+  def interceptAttach(host: String, port: Int): ZIO[Scope, RiftError, InterceptHandle] =
+    ZIO
+      .acquireRelease(blockingIO(connector.interceptAttach(host, port)))(c =>
         ZIO.attemptBlocking(c.close()).orDie
       )
       .map(InterceptHandleLive(_))

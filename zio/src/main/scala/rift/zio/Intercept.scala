@@ -1,6 +1,6 @@
 package rift.zio
 
-import java.net.{InetSocketAddress, URI}
+import java.net.{InetSocketAddress, ProxySelector, URI}
 import java.nio.file.Path
 import javax.net.ssl.SSLContext
 
@@ -17,6 +17,11 @@ import rift.bridge.{InterceptConnector, InterceptRule, TruststoreFormat}
 trait InterceptHandle:
   def proxyUri: URI
   def address: IO[RiftError, InetSocketAddress]
+
+  /** A `ProxySelector` routing a whole JVM's HTTP through this proxy (`ProxySelector.setDefault`,
+    * or `HttpClient.Builder.proxy`).
+    */
+  def proxySelector: IO[RiftError, ProxySelector]
   def rule(host: String): InterceptRuleBuilder
 
   /** An all-hosts rule — matches every intercepted host, for a SUT proxied JVM-wide whose upstream
@@ -46,6 +51,7 @@ private[zio] final case class InterceptHandleLive(connector: InterceptConnector)
     extends InterceptHandle:
   def proxyUri: URI = connector.proxyUri
   def address: IO[RiftError, InetSocketAddress] = blockingIO(connector.address)
+  def proxySelector: IO[RiftError, ProxySelector] = blockingIO(connector.proxySelector)
   def rule(host: String): InterceptRuleBuilder = InterceptRuleBuilderLive(connector, Some(host))
   def rule(): InterceptRuleBuilder = InterceptRuleBuilderLive(connector, None)
   def rules: IO[RiftError, Chunk[InterceptRule]] =

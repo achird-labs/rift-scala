@@ -70,6 +70,7 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | Operation | zio | cats | fs2 | pure | kyo |
 |---|---|---|---|---|---|
 | `intercept` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `interceptAttach` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `rule` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `when` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `serve` | ✓ | ✓ | via cats | ✓ | parked (#11) |
@@ -77,6 +78,7 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | `redirectTo` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `rules` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `clearRules` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `proxySelector` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `caPem` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `sslContext` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `exportTruststore` | ✓ | ✓ | via cats | ✓ | parked (#11) |

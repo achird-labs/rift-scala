@@ -37,6 +37,7 @@ object RiftScalaBackendContractSpec extends ZIOSpecDefault:
     def info: IO[RiftError, EngineInfo] = die
     def adminUri: UIO[URI] = ZIO.die(new NotImplementedError("FailingRift"))
     def intercept(config: InterceptConfig): ZIO[Scope, RiftError, InterceptHandle] = die
+    def interceptAttach(host: String, port: Int): ZIO[Scope, RiftError, InterceptHandle] = die
 
   private val layer: ULayer[spi.MockControl] =
     ZLayer.succeed[Rift](FailingRift) >>> RiftScalaBackend.fromService

@@ -1,6 +1,6 @@
 package rift.bridge
 
-import java.net.{InetSocketAddress, URI}
+import java.net.{InetSocketAddress, ProxySelector, URI}
 import java.nio.file.Path
 import javax.net.ssl.SSLContext
 
@@ -25,6 +25,12 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
   def proxyUri: URI = FacadeBoundary.run(underlying.uri())
 
   def address: InetSocketAddress = FacadeBoundary.run(underlying.address())
+
+  /** A `ProxySelector` routing traffic through this proxy — the standard way to point a whole JVM
+    * at it (`ProxySelector.setDefault`, or `HttpClient.Builder.proxy`) when the SUT's client is not
+    * individually configurable.
+    */
+  def proxySelector: ProxySelector = FacadeBoundary.run(underlying.proxySelector())
 
   /** Start a rule for `host`: `.when(match)` then a terminal `serve/forward/redirectTo`. */
   def rule(host: String): InterceptRuleBuilder =
