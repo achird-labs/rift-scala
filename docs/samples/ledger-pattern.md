@@ -64,6 +64,20 @@ name — a third-party SDK with the host compiled in, or a JVM proxied wholesale
 matching every intercepted host. Everything downstream of the rule (`.when`, `serve`, `forward`,
 `redirectTo`) is identical.
 
+`redirectTo` earns its place here because this pattern hot-swaps a whole imposter's stubs. It is
+*not* required merely to attach a behavior or a fault: `serve` carries the `_behaviors`/`_rift`
+constructs the engine's `IsSpec` can express, so a slow gateway or a dropped connection is a
+one-liner —
+
+```scala
+ic.rule().serve(ok.json(datafile).after(30.seconds))            // slow gateway
+ic.rule().serve(ok.withTcpFault(TcpFaultKind.ConnectionResetByPeer))  // reset
+```
+
+Reach for `redirectTo` when you need what `serve` still refuses to guess at: `copy`/`lookup`
+behaviors, an embedded `_rift.script`, or a forward-compatible behavior key this SDK does not model.
+Those reject loudly with the offending key named, rather than being silently dropped.
+
 ### 3 — the SUT's client, routed through the intercept
 
 ```scala

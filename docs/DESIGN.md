@@ -771,6 +771,9 @@ trait InterceptHandle:
   def proxyUri: URI
   def rule(host: String): InterceptRuleBuilder      // .when(match).serve(resp) | .forwardTo(port) | .redirectTo(imposter)
   def rule(): InterceptRuleBuilder                  // all-hosts (catch-all) form — matches every intercepted host
+  // `serve` carries the _behaviors/_rift constructs IsSpec can express (waits, decorate, repeat,
+  // shellTransform, templating, latency/error/tcp faults). copy/lookup/_rift.script and unknown
+  // behavior keys reject loudly naming the offender — those need redirectTo(imposter).
   def rules: IO[RiftError, Chunk[InterceptRule]]
   def clearRules: IO[RiftError, Unit]
   def caPem: IO[RiftError, String]
