@@ -23,6 +23,26 @@ final case class RecordedRequest(
 ):
   def toJson: Json = raw
 
+  /** Decodes the recorded JSON body as an `A` via its [[JsonBody]] codec — the read-back half of
+    * the codec side-car design, mirroring `ok.json(a)` on the write side.
+    *
+    * A missing body and a body that is not an `A` are distinct `Left`s rather than one: collapsing
+    * them (or returning `Option`) would report "wrong shape" for a request that carried no body.
+    *
+    * Note a non-JSON body does NOT land in the missing-body arm — `body` holds whatever the `body`
+    * key contained, so text arrives as a `Json.Str` and fails as a codec mismatch. The
+    * `bodyText`-only arm covers a producer that records the body outside the `body` key; the engine
+    * itself has no such field, so it reports what was observed rather than inferring why.
+    */
+  def bodyAs[A](using codec: JsonBody[A]): Either[JsonError.Decode, A] =
+    body match
+      case Some(json) => codec.decode(json).left.map(JsonError.Decode(_, Vector("body")))
+      case None =>
+        val message =
+          if bodyText.isDefined then "recorded request has no `body` field, only `bodyText`"
+          else "recorded request has no body"
+        Left(JsonError.Decode(message, Vector("body")))
+
 object RecordedRequest:
   def fromJson(json: Json): Either[JsonError.Decode, RecordedRequest] =
     for

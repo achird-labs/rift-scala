@@ -49,6 +49,19 @@ object PaymentsSpec extends ZIOSpecDefault:
 read back. Without it the imposter still serves stubs, but there is nothing to assert against
 afterwards.
 
+A recorded request's body decodes back to your own type with `bodyAs[A]`, using the same codec
+side-car that lets you write `ok.json(user)`:
+
+```scala
+for
+  reqs <- users.recorded
+  user <- ZIO.fromEither(reqs.head.bodyAs[User])
+yield assertTrue(user.name == "Alice")
+```
+
+It returns `Either[JsonError.Decode, A]` — a request with no body, one whose body was not JSON,
+and one that is not an `A` are three distinguishable failures rather than a bare `None`.
+
 ## Installation
 
 ```scala

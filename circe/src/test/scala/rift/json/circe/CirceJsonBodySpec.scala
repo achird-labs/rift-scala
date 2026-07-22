@@ -207,3 +207,34 @@ class CirceJsonBodySpec extends ScalaCheckSuite:
   test("decode's Left carries circe's failure message"):
     val r = summon[JsonBody[User]].decode(Json.Str("nope"))
     assert(r.left.exists(_.nonEmpty), s"expected a non-empty message, got $r")
+
+  // ── issue #85: the read-back half the module scaladoc advertises ─────────────
+  // Mirrors the zio-json side-car's gate: `recorded.bodyAs[User]` is what `CirceJsonCodec`'s doc
+  // promises, exercised through a *derived* codec rather than a built-in instance.
+  private def recordedWith(body: Option[Json]): rift.model.RecordedRequest =
+    rift.model.RecordedRequest(
+      method = rift.model.Method.POST,
+      path = "/users",
+      query = Map.empty,
+      headers = rift.model.Headers.empty,
+      body = body,
+      bodyText = body.map(_.render),
+      timestamp = java.time.Instant.EPOCH,
+      requestFrom = None,
+      flowId = None,
+      pathParams = Map.empty,
+      raw = Json.Null
+    )
+
+  test("bodyAs round-trips a derived codec off a recorded request"):
+    val user = User(1, "Alice", List("admin"))
+    val recorded = recordedWith(Some(summon[JsonBody[User]].encode(user)))
+    assertEquals(recorded.bodyAs[User], Right(user))
+
+  test("bodyAs surfaces a wrong-shape body as a Left carrying the codec's message"):
+    val recorded = recordedWith(Some(Json.Obj(Vector("id" -> Json.Num(BigDecimal(1))))))
+    val result = recorded.bodyAs[User]
+    // `result.left.map(...).getOrElse(d)` would silently answer `d` — the outer getOrElse reads
+    // the Right side. Project the Left out first.
+    val err = result.left.getOrElse(fail(s"expected a Left, got $result"))
+    assertEquals(err.path, Vector("body"))
