@@ -31,9 +31,10 @@ trait InterceptHandle:
 
 /** `.when(match)` then a terminal `serve/forward/redirectTo`. The facade builder is stateful, so
   * the ZIO wrapper stays pure by deferring every facade call to the terminal effect: `when`
-  * accumulates the matches, and the rule is materialized inside `blockingIO` when a terminal runs —
-  * each `when` is replayed onto the facade builder so chaining behaves exactly like the blocking
-  * bridge builder (no earlier `when` is dropped).
+  * accumulates the matches, and the rule is materialized inside `blockingIO` when a terminal runs.
+  * The accumulated matches are replayed onto the bridge builder, which buffers them and hands the
+  * facade their conjunction as a single `when` — so chaining behaves exactly like the blocking
+  * bridge builder and no earlier `when` is dropped (issue #82).
   */
 trait InterceptRuleBuilder:
   def when(matching: RequestMatch): InterceptRuleBuilder

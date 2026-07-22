@@ -374,6 +374,100 @@ class InterceptTranslationSpec extends FunSuite:
     intercept[NullPointerException](new InterceptConnector(stub).rule("api.example.com"))
     assertEquals(stub.ruleCalls, 1)
 
+  // Issue #82 — the facade's `when` ASSIGNS its predicate list (verified in rift-java-core 0.2.0
+  // bytecode: `putfield predicates`), so replaying N matches onto it keeps only the last. Asserting
+  // on a Scala-side accumulator provably cannot catch that — the gate has to observe what actually
+  // reached the facade. A real `JInterceptRuleBuilder` (public final, package-private ctor, so it
+  // cannot be subclassed or stubbed) is built reflectively over a null `InterceptImpl`: the ctor
+  // only stores the reference, so `when` lands normally and the terminal NPEs afterwards at
+  // `addServeRule` — which is exactly the window in which the facade's predicate list is readable.
+  private def facadeBuilder(): JInterceptRuleBuilder =
+    val ctor = classOf[JInterceptRuleBuilder]
+      .getDeclaredConstructor(Class.forName("io.github.achirdlabs.rift.InterceptImpl"))
+    ctor.setAccessible(true)
+    ctor.newInstance(null.asInstanceOf[AnyRef])
+
+  private def facadePredicates(builder: JInterceptRuleBuilder): java.util.List[?] =
+    val field = classOf[JInterceptRuleBuilder].getDeclaredField("predicates")
+    field.setAccessible(true)
+    field.get(builder).asInstanceOf[java.util.List[?]]
+
+  test("a terminal carries every chained when clause to the facade — none dropped"):
+    val jBuilder = facadeBuilder()
+    val first = get("/admin")
+    val second = onRequest.where(header("X-Env").is("prod"))
+    val builder = new InterceptRuleBuilder(jBuilder).when(first).when(second)
+    intercept[NullPointerException](builder.serve(ok))
+    val sent = facadePredicates(jBuilder)
+    assertEquals(sent.size, (first.predicates ++ second.predicates).size)
+    // Position, not just presence: `applied` concatenates in chain order, and a reordering
+    // regression would slip past a contains-only assertion.
+    val rendered = sent.toString
+    assert(rendered.indexOf("/admin") >= 0, rendered)
+    assert(rendered.indexOf("X-Env") > rendered.indexOf("/admin"), rendered)
+
+  // `forward` parses the port off the target before touching the (null) engine, so the target
+  // must carry one for the NPE to be what escapes.
+  test("chained when reaches the facade on the forward terminal too"):
+    val jBuilder = facadeBuilder()
+    val first = get("/admin")
+    val second = onRequest.where(header("X-Env").is("prod"))
+    val builder = new InterceptRuleBuilder(jBuilder).when(first).when(second)
+    intercept[NullPointerException](builder.forward("real.example.com:443"))
+    assertEquals(facadePredicates(jBuilder).size, (first.predicates ++ second.predicates).size)
+
+  test("a terminal with no when leaves the facade predicates empty — catch-all preserved"):
+    val jBuilder = facadeBuilder()
+    intercept[NullPointerException](new InterceptRuleBuilder(jBuilder).serve(ok))
+    assert(facadePredicates(jBuilder).isEmpty, facadePredicates(jBuilder).toString)
+
+  // Forks share one mutable facade builder whose predicate field survives a terminal, so a
+  // zero-`when` rule must still assign — otherwise it inherits the sibling's clauses and a
+  // catch-all silently narrows. The mirror image of #82, and why `applied` has no empty branch.
+  test("a catch-all terminal is not narrowed by a sibling fork that already ran a terminal"):
+    val jBuilder = facadeBuilder()
+    val base = new InterceptRuleBuilder(jBuilder)
+    intercept[NullPointerException](base.when(get("/admin")).serve(status(503)))
+    assert(facadePredicates(jBuilder).toString.contains("/admin"))
+    intercept[NullPointerException](base.serve(ok))
+    assert(
+      facadePredicates(jBuilder).isEmpty,
+      s"catch-all inherited the sibling's clauses: ${facadePredicates(jBuilder)}"
+    )
+
+  // `onRequest` contributes no predicates by design. Combining it with a real clause must keep the
+  // real one rather than collapsing the rule to a match-everything catch-all.
+  test("a vacuous clause does not widen a rule that also carries a restrictive one"):
+    val jBuilder = facadeBuilder()
+    val builder = new InterceptRuleBuilder(jBuilder).when(get("/admin")).when(onRequest)
+    intercept[NullPointerException](builder.serve(ok))
+    val sent = facadePredicates(jBuilder)
+    assertEquals(sent.size, get("/admin").predicates.size)
+    assert(sent.toString.contains("/admin"), sent.toString)
+
+  // Unlike the serve/forward cases the facade is never entered here — `redirectTo(null)` dies on
+  // the Scala side at `imposter.jImposter`. The clauses still land because Scala evaluates the
+  // receiver (`applied`) before the argument, so hoisting `imposter.jImposter` into a local above
+  // the call would break this test for a reason unrelated to what it guards.
+  test("chained when reaches the facade on the redirectTo terminal too"):
+    val jBuilder = facadeBuilder()
+    val first = get("/admin")
+    val second = onRequest.where(header("X-Env").is("prod"))
+    val builder = new InterceptRuleBuilder(jBuilder).when(first).when(second)
+    intercept[NullPointerException](builder.redirectTo(null))
+    assertEquals(facadePredicates(jBuilder).size, (first.predicates ++ second.predicates).size)
+
+  // Asserting on size alone would pass vacuously here (both the leaked and the correct list hold
+  // one predicate), so this checks *which* clause landed.
+  test("a discarded fork that never reaches a terminal leaks nothing into its sibling"):
+    val jBuilder = facadeBuilder()
+    val base = new InterceptRuleBuilder(jBuilder).when(get("/admin"))
+    base.when(onRequest.where(header("X-Env").is("prod"))) // discarded fork
+    intercept[NullPointerException](base.serve(ok))
+    val rendered = facadePredicates(jBuilder).toString
+    assert(rendered.contains("/admin"), rendered)
+    assert(!rendered.contains("X-Env"), s"discarded fork leaked into the sibling: $rendered")
+
 /** A facade `Intercept` that counts `rule()` calls and returns a null builder — see the all-hosts
   * tests above for why null is the point. Every other member is unreachable from those tests.
   */
