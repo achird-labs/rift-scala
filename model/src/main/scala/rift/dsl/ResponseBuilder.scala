@@ -100,6 +100,15 @@ final class IsResponseBuilder private[dsl] (
   def decorate(js: String): IsResponseBuilder =
     withState(behaviorsValue = behaviorsValue.copy(decorate = Some(js)))
 
+  /** `_behaviors.shellTransform`: pipe the response through shell command(s), in order. Repeated
+    * calls append, matching the facade's varargs accumulation. Always emits the array wire form —
+    * the bare-string spelling exists only to preserve what a decode saw.
+    */
+  def shellTransform(commands: String*): IsResponseBuilder =
+    withState(behaviorsValue =
+      behaviorsValue.copy(shellTransform = behaviorsValue.shellTransform ++ commands)
+    )
+
   def copy(from: FieldSelector, into: String, extractWith: CopyUsing): IsResponseBuilder =
     val entry =
       Json.obj("from" -> from.locatorJson, "into" -> Json.Str(into), "using" -> extractWith.toJson)

@@ -155,16 +155,13 @@ class InterceptTranslationSpec extends FunSuite:
     val repeated = wireOf(ok.json("{}").repeat(3))
     assert(repeated.contains("repeat") && repeated.contains("3"), repeated)
 
-    // no `shellTransform` on the response DSL — drive the model shape directly
-    val shell = wireOf(
-      Fixed(
-        Response.Is(
-          IsResponse(statusCode = Some(200)),
-          behaviors = Behaviors(shellTransform = Vector("sed s/a/b/"))
-        )
-      )
-    )
+    // Straight off the response DSL since #93 — this is the builder -> model -> facade path a
+    // user actually takes, not a hand-assembled model value.
+    val shell = wireOf(ok.json("{}").shellTransform("sed s/a/b/"))
     assert(shell.contains("shellTransform") && shell.contains("sed"), shell)
+
+    val chained = wireOf(ok.json("{}").shellTransform("first").shellTransform("second"))
+    assert(chained.contains("first") && chained.contains("second"), chained)
 
   test("serve translates the _rift templated flag"):
     val wire = wireOf(ok.json("{}").templated)
