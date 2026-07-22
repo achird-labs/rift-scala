@@ -29,6 +29,8 @@ private[testkit] final class FakeImposterHandle(
   def definition: IO[RiftError, ImposterDefinition] = ZIO.die(new NotImplementedError)
   def addStub(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef] =
     ZIO.die(new NotImplementedError)
+  def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): IO[RiftError, StubRef] =
+    ZIO.die(new NotImplementedError)
   def addStubFirst(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef] =
     ZIO.die(new NotImplementedError)
   def replaceStubs(stubs: Chunk[Stub]): IO[RiftError, Unit] = ZIO.die(new NotImplementedError)

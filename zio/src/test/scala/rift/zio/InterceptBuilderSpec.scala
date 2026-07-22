@@ -78,6 +78,7 @@ object InterceptBuilderSpec extends ZIOSpecDefault:
     def uri: URI = nope
     def definition: IO[RiftError, ImposterDefinition] = die
     def addStub(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef] = die
+    def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): IO[RiftError, StubRef] = die
     def addStubFirst(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef] = die
     def replaceStubs(stubs: Chunk[Stub]): IO[RiftError, Unit] = die
     def stubs: IO[RiftError, Chunk[Stub]] = die

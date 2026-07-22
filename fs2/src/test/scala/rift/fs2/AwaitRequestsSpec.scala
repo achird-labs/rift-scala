@@ -51,6 +51,8 @@ class AwaitRequestsSpec extends CatsEffectSuite:
         def uri: URI = ???
         def definition: IO[ImposterDefinition] = unimplemented
         def addStub(stub: StubBuilder[StubPhase.Complete]): IO[StubRef[IO]] = unimplemented
+        def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): IO[StubRef[IO]] =
+          unimplemented
         def addStubFirst(stub: StubBuilder[StubPhase.Complete]): IO[StubRef[IO]] = unimplemented
         def replaceStubs(stubs: Vector[Stub]): IO[Unit] = unimplemented
         def stubs: IO[Vector[Stub]] = unimplemented

@@ -162,6 +162,7 @@ object Inventory:
       reflectable = true
     ),
     Op("Imposter CRUD", "addStub", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
+    Op("Imposter CRUD", "addStub (indexed)", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Imposter CRUD", "addStubFirst", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Imposter CRUD", "replaceStubs", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Imposter CRUD", "stubs", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),

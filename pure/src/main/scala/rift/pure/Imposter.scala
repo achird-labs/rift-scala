@@ -25,6 +25,13 @@ final class Imposter private[pure] (private[pure] val connector: rift.bridge.Imp
   def addStub(stub: StubBuilder[StubPhase.Complete]): Either[RiftError, StubRef] =
     catchRiftError(new StubRef(connector.addStub(stub.build)))
 
+  /** Insert at `index` in the stub list, which is match-priority order. `index == stubs.size`
+    * appends; out of range is a `Left(RiftError.InvalidDefinition)` from the engine rather than
+    * being clamped here, so the bound is always the engine's live view of the list.
+    */
+  def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): Either[RiftError, StubRef] =
+    catchRiftError(new StubRef(connector.addStub(stub.build, index)))
+
   def addStubFirst(stub: StubBuilder[StubPhase.Complete]): Either[RiftError, StubRef] =
     catchRiftError(new StubRef(connector.addStubFirst(stub.build)))
 
