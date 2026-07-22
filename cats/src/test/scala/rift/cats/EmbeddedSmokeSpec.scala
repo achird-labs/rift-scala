@@ -41,6 +41,10 @@ class EmbeddedSmokeSpec extends CatsEffectSuite:
         _ <- rift.intercept().use { ic =>
           for
             _ <- ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
+            // All-hosts rule (#80): forces the `host.fold(connector.rule())(...)` seed down its
+            // None branch — the one path the engine-free builder tests cannot reach.
+            catchAll <- ic.rule().when(get("/anywhere")).serve(ok.json("""{"any":true}"""))
+            _ = assertEquals(catchAll.host, None)
             rules <- ic.rules
             _ = assert(rules.nonEmpty)
             pem <- ic.caPem

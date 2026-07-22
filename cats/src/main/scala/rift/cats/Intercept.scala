@@ -19,6 +19,11 @@ trait InterceptHandle[F[_]]:
   def proxyUri: URI
   def address: F[InetSocketAddress]
   def rule(host: String): InterceptRuleBuilder[F]
+
+  /** An all-hosts rule — matches every intercepted host, for a SUT proxied JVM-wide whose upstream
+    * host isn't known at authoring time. `rule(host)` scopes to one host instead.
+    */
+  def rule(): InterceptRuleBuilder[F]
   def rules: F[Vector[InterceptRule]]
   def clearRules: F[Unit]
   def caPem: F[String]
@@ -41,7 +46,9 @@ private[cats] final class InterceptHandleLive[F[_]: Async](connector: InterceptC
     extends InterceptHandle[F]:
   def proxyUri: URI = connector.proxyUri
   def address: F[InetSocketAddress] = blockingF(connector.address)
-  def rule(host: String): InterceptRuleBuilder[F] = InterceptRuleBuilderLive[F](connector, host)
+  def rule(host: String): InterceptRuleBuilder[F] =
+    InterceptRuleBuilderLive[F](connector, Some(host))
+  def rule(): InterceptRuleBuilder[F] = InterceptRuleBuilderLive[F](connector, None)
   def rules: F[Vector[InterceptRule]] = blockingF(connector.rules)
   def clearRules: F[Unit] = blockingF(connector.clearRules())
   def caPem: F[String] = blockingF(connector.caPem)
@@ -51,14 +58,18 @@ private[cats] final class InterceptHandleLive[F[_]: Async](connector: InterceptC
 
 private[cats] final case class InterceptRuleBuilderLive[F[_]: Async](
     connector: InterceptConnector,
-    host: String,
+    host: Option[String],
     matches: Vector[RequestMatch] = Vector.empty
 ) extends InterceptRuleBuilder[F]:
 
   def when(matching: RequestMatch): InterceptRuleBuilder[F] = copy(matches = matches :+ matching)
 
   private def built: rift.bridge.InterceptRuleBuilder =
-    matches.foldLeft(connector.rule(host))((builder, matching) => builder.when(matching))
+    // `h => connector.rule(h)` rather than the eta-expanded `connector.rule`: the two `rule`
+    // overloads make a bare method reference ambiguous.
+    matches.foldLeft(host.fold(connector.rule())(h => connector.rule(h)))((builder, matching) =>
+      builder.when(matching)
+    )
 
   def serve(response: ResponseBuilder): F[InterceptRule] = blockingF(built.serve(response))
 

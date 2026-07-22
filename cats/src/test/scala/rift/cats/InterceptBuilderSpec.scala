@@ -25,27 +25,46 @@ class InterceptBuilderSpec extends FunSuite:
       case live: InterceptRuleBuilderLive[?] => live.matches
       case other => fail(s"expected InterceptRuleBuilderLive, got $other")
 
+  private def hostOf(builder: InterceptRuleBuilder[IO]): Option[String] =
+    builder match
+      case live: InterceptRuleBuilderLive[?] => live.host
+      case other => fail(s"expected InterceptRuleBuilderLive, got $other")
+
   test("when accumulates every match in order — no earlier when is dropped"):
     val a = get("/a")
     val b = get("/b")
     // connector is never touched by `when` (it only copies), so a null is safe for this unit.
-    val builder = InterceptRuleBuilderLive[IO](null, "api.example.com").when(a).when(b)
+    val builder = InterceptRuleBuilderLive[IO](null, Some("api.example.com")).when(a).when(b)
     assertEquals(matchesOf(builder), Vector(a, b))
 
   test("a fresh builder starts with no matches"):
-    assert(matchesOf(InterceptRuleBuilderLive[IO](null, "api.example.com")).isEmpty)
+    assert(matchesOf(InterceptRuleBuilderLive[IO](null, Some("api.example.com"))).isEmpty)
 
   test("redirectTo rejects an ImposterHandle that isn't this engine's ImposterHandleLive"):
     // The reject arm never forces `built` and never touches the connector, so a null connector is
     // safe; any non-`ImposterHandleLive` handle drives it.
     val result =
-      InterceptRuleBuilderLive[IO](null, "api.example.com")
+      InterceptRuleBuilderLive[IO](null, Some("api.example.com"))
         .redirectTo(ForeignHandle)
         .attempt
         .unsafeRunSync()
     result match
       case Left(_: RiftError.InvalidDefinition) => ()
       case other => fail(s"expected InvalidDefinition, got $other")
+
+  // issue #80 — `rule()` is the facade's catch-all form (host left unset), `rule(host)` the scoped
+  // one. Both only construct the deferred builder, so the connector stays untouched.
+  test("rule() seeds an all-hosts builder and rule(host) seeds a host-scoped one"):
+    val handle = new InterceptHandleLive[IO](null)
+    assert(hostOf(handle.rule()).isEmpty)
+    assertEquals(hostOf(handle.rule("api.example.com")), Some("api.example.com"))
+
+  test("an all-hosts builder accumulates every match in order, like the host-scoped form"):
+    val a = get("/a")
+    val b = get("/b")
+    val builder = InterceptRuleBuilderLive[IO](null, None).when(a).when(b)
+    assertEquals(matchesOf(builder), Vector(a, b))
+    assert(hostOf(builder).isEmpty)
 
   /** A foreign `ImposterHandle[IO]` — not this engine's `ImposterHandleLive` — used only to reach
     * `redirectTo`'s reject arm. Every member dies loudly; none is exercised.

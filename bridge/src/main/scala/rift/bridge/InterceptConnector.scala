@@ -29,6 +29,13 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
   def rule(host: String): InterceptRuleBuilder =
     FacadeBoundary.run(InterceptRuleBuilder(underlying.rule().host(host)))
 
+  /** Start an all-hosts rule — the facade's catch-all form, with `host` left unset so the rule
+    * matches every intercepted host (facade `InterceptRuleBuilder.host`: `null = catch-all`). For a
+    * SUT proxied JVM-wide whose upstream host isn't known (or worth enumerating) at authoring time.
+    */
+  def rule(): InterceptRuleBuilder =
+    FacadeBoundary.run(InterceptRuleBuilder(underlying.rule()))
+
   def rules: Vector[InterceptRule] =
     FacadeBoundary.run(underlying.rules().asScala.toVector.map(InterceptRule.fromJava))
 

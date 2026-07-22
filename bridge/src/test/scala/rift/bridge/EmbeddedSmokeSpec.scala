@@ -46,6 +46,12 @@ class EmbeddedSmokeSpec extends FunSuite:
         ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
         ic.rule("legacy.example.com").forward("https://real.example.com")
         assert(ic.rules.sizeIs >= 2)
+
+        // All-hosts rule (#80): the engine stores it with no `host` key, and the terminal must hand
+        // back `host = None` rather than the facade's raw null.
+        val catchAll = ic.rule().when(get("/anywhere")).serve(ok.json("""{"any":true}"""))
+        assertEquals(catchAll.host, None)
+        assert(ic.rules.exists(_.host.isEmpty), ic.rules.toString)
         assert(ic.caPem.contains("BEGIN"))
         assert(ic.sslContext != null)
 
