@@ -13,8 +13,6 @@ import rift.model.Times
 import rift.zio.Rift
 import rift.zio.testkit.assertions.eventuallyReceived
 
-import io.github.achirdlabs.rift.Rift as JRift
-
 /** RUNNABLE SAMPLE — the "ledger pattern" (issue #7).
   *
   * This is a walkthrough, not a unit test: it narrates a real-world consumer's shape end to end so
@@ -53,10 +51,10 @@ import io.github.achirdlabs.rift.Rift as JRift
   * `Rift.embedded` acquires the embedded native engine, which is absent on a bare CI JVM (no
   * `rift-java-natives` / `--enable-native-access`). Providing `Rift.embedded` as a *suite* layer
   * would force that acquisition unconditionally and turn "skip in CI" into "fail in CI". Instead,
-  * `JRift.isEmbeddedAvailable()` is checked FIRST, and the engine layer is only built (via
-  * `ZLayer#build` inside `ZIO.scoped`, not `.provide` on a suite) once we already know it's safe to
-  * do so — see `bridge.EmbeddedSmokeSpec` / `cats.EmbeddedSmokeSpec` for the same guard shape in
-  * this repo.
+  * `rift.bridge.RiftConnector.isEmbeddedAvailable` is checked FIRST, and the engine layer is only
+  * built (via `ZLayer#build` inside `ZIO.scoped`, not `.provide` on a suite) once we already know
+  * it's safe to do so — see `bridge.EmbeddedSmokeSpec` / `cats.EmbeddedSmokeSpec` for the same
+  * guard shape in this repo.
   */
 object LedgerPatternSampleSpec extends ZIOSpecDefault:
 
@@ -131,7 +129,7 @@ object LedgerPatternSampleSpec extends ZIOSpecDefault:
       // layer is forced, so CI never pays the acquisition cost this guard exists to avoid. The
       // `logWarning` leaves a trace so a green run that never exercised the walkthrough (e.g. CI
       // without `rift-java-natives`) is distinguishable from one that actually ran it.
-      if !JRift.isEmbeddedAvailable() then
+      if !rift.bridge.RiftConnector.isEmbeddedAvailable then
         ZIO.logWarning("ledger-pattern sample skipped: no embedded engine on this JVM") *>
           ZIO.succeed(assertCompletes)
       else

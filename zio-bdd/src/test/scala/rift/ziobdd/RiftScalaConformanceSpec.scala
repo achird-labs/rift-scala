@@ -6,8 +6,6 @@ import zio.test.*
 import zio.bdd.mock.*
 import zio.bdd.mock.conformance.*
 
-import io.github.achirdlabs.rift.Rift as JRift
-
 /** Runs zio-bdd's OWN published conformance suite (`zio-bdd-mock-conformance`, zio-bdd #332)
   * against `RiftScalaBackend` — the SPI-defined compliance bar, not a hand-written stand-in. The
   * scenario catalogues program only against `MockControl`, so this is a pure backend swap: the same
@@ -26,7 +24,7 @@ object RiftScalaConformanceSpec extends ZIOSpecDefault:
       layer = RiftScalaBackend.embedded().mapError(asThrowable),
       capabilities = Capability.values.toSet,
       isolation = Isolation.PerInstance,
-      available = JRift.isEmbeddedAvailable()
+      available = rift.bridge.RiftConnector.isEmbeddedAvailable
     )
 
   private val scenarios: List[ConformanceScenario] =
@@ -39,7 +37,7 @@ object RiftScalaConformanceSpec extends ZIOSpecDefault:
 
   def spec = suite("RiftScalaBackend conformance (zio-bdd #332 suite, guarded)")(
     test("passes every published conformance scenario its capabilities cover") {
-      if !JRift.isEmbeddedAvailable() then
+      if !rift.bridge.RiftConnector.isEmbeddedAvailable then
         ZIO.logWarning("conformance skipped: no embedded engine on this JVM") *>
           ZIO.succeed(assertCompletes)
       else

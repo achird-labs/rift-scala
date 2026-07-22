@@ -6,8 +6,6 @@ import munit.CatsEffectSuite
 import rift.dsl.*
 import rift.model.Port
 
-import io.github.achirdlabs.rift.Rift as JRift
-
 /** A real end-to-end smoke over the embedded engine, proving the `Resource` + tagless wiring
   * against a live engine (mirrors the bridge's own `EmbeddedSmokeSpec`, DESIGN.md §5.6). Guarded on
   * `isEmbeddedAvailable`: skipped (not failed) wherever the native runtime is absent — including
@@ -17,7 +15,7 @@ import io.github.achirdlabs.rift.Rift as JRift
 class EmbeddedSmokeSpec extends CatsEffectSuite:
 
   test("embedded: create imposter, add a stub, verify no interactions, delete"):
-    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+    assume(Rift.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
 
     Rift.embedded[IO].use { rift =>
       for
@@ -34,7 +32,7 @@ class EmbeddedSmokeSpec extends CatsEffectSuite:
     }
 
   test("embedded: intercept rule round-trip and imposter recording session"):
-    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+    assume(Rift.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
 
     Rift.embedded[IO].use { rift =>
       for

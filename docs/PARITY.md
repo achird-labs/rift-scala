@@ -33,6 +33,7 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | `connect` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `spawn` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `container` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `isEmbeddedAvailable` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 
 ### Imposter CRUD
 

@@ -91,6 +91,13 @@ final class RiftConnector private (
 
 object RiftConnector:
 
+  /** True when the embedded engine runtime (`rift-java-embedded` plus its natives) is on the
+    * classpath — the standard gate for `assume`-guarded embedded tests. A plain `Boolean` rather
+    * than an effect: it is a deterministic classpath probe, and every call site needs it in an
+    * un-effectful position (munit `assume`, `TestAspect.when`, suite-construction guards).
+    */
+  def isEmbeddedAvailable: Boolean = FacadeBoundary.run(JRift.isEmbeddedAvailable())
+
   def embedded(config: EmbeddedConfig = EmbeddedConfig()): RiftConnector =
     FacadeBoundary.run(new RiftConnector(JRift.embedded(config.toOptions), () => ()))
 

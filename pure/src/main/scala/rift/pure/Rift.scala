@@ -63,6 +63,11 @@ final class Rift private (connector: RiftConnector) extends AutoCloseable:
 
 object Rift:
 
+  /** Re-export of [[rift.bridge.RiftConnector.isEmbeddedAvailable]] so a consumer can gate an
+    * embedded-only test without importing the Java facade directly.
+    */
+  def isEmbeddedAvailable: Boolean = RiftConnector.isEmbeddedAvailable
+
   def embedded(config: EmbeddedConfig = EmbeddedConfig()): Either[RiftError, Rift] =
     catchRiftError(new Rift(RiftConnector.embedded(config)))
 

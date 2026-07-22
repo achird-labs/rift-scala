@@ -83,6 +83,11 @@ private[zio] final case class RiftLive(connector: RiftConnector) extends Rift:
 
 object Rift:
 
+  /** Re-export of [[rift.bridge.RiftConnector.isEmbeddedAvailable]] so a consumer can gate an
+    * embedded-only test without importing the Java facade directly.
+    */
+  def isEmbeddedAvailable: Boolean = RiftConnector.isEmbeddedAvailable
+
   // ── layers (all scoped; acquire + release both run on the blocking pool, since
   //    `RiftConnector.close()` performs real blocking teardown — engine shutdown, or
   //    subprocess/testcontainer stop for spawn/container) ─────────────────────────────────────
