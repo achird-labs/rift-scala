@@ -60,9 +60,12 @@ final class InterceptRuleBuilder private[bridge] (underlying: JInterceptRuleBuil
   def when(matching: RequestMatch): InterceptRuleBuilder =
     FacadeBoundary.run(InterceptRuleBuilder(underlying.when(FacadeEncode.requestMatch(matching))))
 
-  /** Serve a canned response. Translates a plain `is` response (status/headers/body) to the
-    * facade's `IsSpec`; a response carrying `_behaviors`/`_rift`/proxy/inject/fault is rejected
-    * (`FacadeEncode.isSpec`) rather than silently degraded — use `redirectTo` for full fidelity.
+  /** Serve a canned response. Translates an `is` response — status/headers/body plus the
+    * `_behaviors`/`_rift` constructs the facade's `IsSpec` can express (waits, decorate, repeat,
+    * shellTransform, templating, latency/error/tcp faults) — to the facade's `IsSpec`. What
+    * `IsSpec` cannot express (`copy`/`lookup`, unknown behavior keys, `_rift.script`, a
+    * proxy/inject/fault response) is rejected by `FacadeEncode.isSpec` rather than silently
+    * degraded — use `redirectTo` for full stub fidelity there.
     */
   def serve(response: ResponseBuilder): InterceptRule =
     FacadeBoundary.run(InterceptRule.fromJava(underlying.serve(FacadeEncode.isSpec(response))))

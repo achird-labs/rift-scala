@@ -1,17 +1,34 @@
 package rift.bridge
 
+import java.time.Duration as JDuration
+
 import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 
 import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.json.{Json, JsonError}
-import rift.model.{FlowId, Headers, IsResponse, RecordedRequest, Response, Stub, Times}
+import rift.model.{
+  Behaviors,
+  ErrorFault,
+  FaultConfig,
+  FlowId,
+  Headers,
+  IsResponse,
+  LatencyFault,
+  RecordedRequest,
+  Response,
+  RiftResponseExt,
+  Stub,
+  TcpFaultKind,
+  Times,
+  WaitBehavior
+}
 
 import io.github.achirdlabs.rift.verify as jverify
 import io.github.achirdlabs.rift.MatchClause as JMatchClause
 import io.github.achirdlabs.rift.json.JsonValue as JJsonValue
-import io.github.achirdlabs.rift.dsl.{IsSpec as JIsSpec, RiftDsl as JRiftDsl}
+import io.github.achirdlabs.rift.dsl.{Fault as JFault, IsSpec as JIsSpec, RiftDsl as JRiftDsl}
 import io.github.achirdlabs.rift.RecordedRequest as JRecordedRequest
 import io.github.achirdlabs.rift.RecordedPage as JRecordedPage
 import io.github.achirdlabs.rift.model.{ImposterDefinition as JImposterDefinition, Stub as JStub}
@@ -106,29 +123,152 @@ private[bridge] object FacadeEncode:
 
   /** Translates a rift-scala response into the facade's `IsSpec` for an intercept `serve` rule. The
     * facade only accepts a concrete `IsSpec` (no raw-JSON overload like the stub/verify paths
-    * have), so this is a deliberate value translation — but scoped to the plain `is` core (status,
-    * headers, body incl. binary). A response carrying
-    * `_behaviors`/`_rift`(faults/script/templating)/a non-`is` variant (proxy/inject/fault) or
-    * unknown `is` keys is **rejected**, never silently degraded: the full behavior vocabulary
-    * belongs to `redirectTo(imposter)`, whose stubs go through the D2 raw-JSON seam unchanged.
+    * have), so this is a deliberate value translation — covering the plain `is` core (status,
+    * headers, body incl. binary) plus every `_behaviors`/`_rift` construct `IsSpec` can express
+    * (waits, decorate, repeat, shellTransform, templating, and latency/error/tcp faults).
+    *
+    * What `IsSpec` genuinely cannot express is still **rejected**, never silently degraded — the
+    * residual set belongs to `redirectTo(imposter)`, whose stubs go through the D2 raw-JSON seam
+    * unchanged: `copy`/`lookup` (the facade's `CopySpec`/`LookupSpec` have no JSON seam and the
+    * model holds these as raw `Json`), unknown behavior keys, `_rift.script`, a latency fault that
+    * is neither fixed nor a complete range, an error fault whose headers repeat a name or that
+    * carries headers without a body, unknown `is`/top-level keys, and non-`is` responses.
     */
   def isSpec(response: ResponseBuilder): JIsSpec =
     response.build match
       case Response.Is(is, behaviors, riftExt, extra)
-          if behaviors.isEmpty && riftExt.isEmpty && extra.isEmpty && isPlainIsExtra(is.extra) =>
-        isSpecFromIs(is)
-      case _ =>
-        throw RiftError.InvalidDefinition(
-          "intercept serve supports a plain `is` response (status, headers, body); a response " +
-            "with _behaviors/_rift/proxy/inject/fault is not translatable to the facade IsSpec — " +
-            "use redirectTo(imposter) for full stub fidelity",
-          None
+          if extra.isEmpty && isPlainIsExtra(is.extra) =>
+        val withBehaviors = applyBehaviors(behaviors, isSpecFromIs(is))
+        riftExt.fold(withBehaviors)(ext => applyRiftExt(ext, withBehaviors))
+      case Response.Is(is, _, _, extra) =>
+        val offenders =
+          (extra.map(_._1) ++ is.extra.filterNot(_ == binaryMarker).map(_._1)).distinct
+        throw invalid(
+          s"intercept serve: unknown response key(s) ${offenders.mkString(", ")} have no facade " +
+            "IsSpec equivalent — use redirectTo(imposter) for full stub fidelity"
         )
+      case _ =>
+        throw invalid(
+          "intercept serve supports an `is` response; a proxy/inject/fault response is not " +
+            "translatable to the facade IsSpec — use redirectTo(imposter) for full stub fidelity"
+        )
+
+  private def invalid(msg: String): RiftError.InvalidDefinition =
+    RiftError.InvalidDefinition(msg, None)
+
+  private def applyBehaviors(behaviors: Behaviors, spec: JIsSpec): JIsSpec =
+    if behaviors.copyEntries.nonEmpty then
+      throw invalid(
+        "intercept serve: a `copy` behavior cannot be rebuilt through the facade's CopySpec (it " +
+          "exposes no JSON seam) — use redirectTo(imposter)"
+      )
+    if behaviors.lookup.nonEmpty then
+      throw invalid(
+        "intercept serve: a `lookup` behavior cannot be rebuilt through the facade's LookupSpec " +
+          "(it exposes no JSON seam) — use redirectTo(imposter)"
+      )
+    if behaviors.unknown.nonEmpty then
+      throw invalid(
+        s"intercept serve: unknown behavior key(s) ${behaviors.unknown.map(_._1).mkString(", ")} " +
+          "have no facade IsSpec equivalent — use redirectTo(imposter)"
+      )
+    val withWait = behaviors.waitFor.fold(spec) {
+      case WaitBehavior.Fixed(millis) => spec.waitMs(millis)
+      case WaitBehavior.Range(min, max) => spec.waitBetween(min, max)
+      case WaitBehavior.Inject(script) => spec.waitInject(script)
+      case WaitBehavior.Script(source) => spec.waitScript(source)
+    }
+    val withDecorate = behaviors.decorate.fold(withWait)(js => withWait.decorate(js))
+    val withShell =
+      if behaviors.shellTransform.isEmpty then withDecorate
+      else withDecorate.shellTransform(behaviors.shellTransform*)
+    behaviors.repeat.fold(withShell)(times => withShell.repeat(times))
+
+  private def applyRiftExt(ext: RiftResponseExt, spec: JIsSpec): JIsSpec =
+    if ext.script.isDefined then
+      throw invalid(
+        "intercept serve: an embedded `_rift.script` has no facade IsSpec equivalent — use " +
+          "redirectTo(imposter)"
+      )
+    val withTemplated = if ext.templated then spec.templated() else spec
+    ext.fault.fold(withTemplated)(fault => applyFault(fault, withTemplated))
+
+  private def applyFault(fault: FaultConfig, spec: JIsSpec): JIsSpec =
+    val withLatency = fault.latency.fold(spec)(l => applyLatency(l, spec))
+    val withError = fault.error.fold(withLatency)(e => applyError(e, withLatency))
+    fault.tcp.fold(withError) { tcp =>
+      val kind = tcpFault(tcp.kind)
+      tcp.probability.fold(withError.withTcpFault(kind))(p => withError.withTcpFault(p, kind))
+    }
+
+  /** The facade models the two latency spellings as separate overloads and emits only the one it
+    * was built with, so a config naming both a fixed delay *and* a range has no faithful
+    * translation — rejected rather than silently dropping half of it.
+    */
+  private def applyLatency(latency: LatencyFault, spec: JIsSpec): JIsSpec =
+    (latency.ms, latency.minMs, latency.maxMs) match
+      case (Some(ms), None, None) =>
+        spec.withLatencyFault(latency.probability, JDuration.ofMillis(ms))
+      case (None, Some(min), Some(max)) =>
+        spec.withLatencyFault(latency.probability, JDuration.ofMillis(min), JDuration.ofMillis(max))
+      case _ =>
+        throw invalid(
+          "intercept serve: a `latency` fault must name either a fixed `ms` or both `minMs` and " +
+            "`maxMs` — the facade IsSpec cannot express any other combination"
+        )
+
+  /** The facade's only headers-carrying error-fault overload is `withErrorFault(probability,
+    * status, body, headers)`, which wraps `body` in `Optional.of` — so headers without a body is
+    * unrepresentable (a null would throw, and `""` would turn an absent body into an empty one).
+    */
+  private def applyError(error: ErrorFault, spec: JIsSpec): JIsSpec =
+    val headers = singleValuedHeaders(error)
+    (error.body, headers.isEmpty) match
+      case (None, true) => spec.withErrorFault(error.probability, error.status)
+      case (Some(body), true) => spec.withErrorFault(error.probability, error.status, body)
+      case (Some(body), false) =>
+        spec.withErrorFault(error.probability, error.status, body, headers)
+      case (None, false) =>
+        throw invalid(
+          "intercept serve: an `error` fault carrying headers must also carry a body — the " +
+            "facade's only headers-carrying overload requires one"
+        )
+
+  /** A `LinkedHashMap` rather than `.toMap`: the facade copies whatever iteration order it is
+    * handed, and an immutable `Map` of five or more entries iterates in hash order — which would
+    * emit the fault's headers in a different order than `ErrorFault.toJson` does.
+    */
+  private def singleValuedHeaders(error: ErrorFault): java.util.LinkedHashMap[String, String] =
+    val grouped = orderedHeaders(error.headers)
+    grouped.find(_._2.sizeIs > 1) match
+      case Some((name, _)) =>
+        throw invalid(
+          s"intercept serve: `error` fault header '$name' repeats — the facade takes " +
+            "single-valued headers, so collapsing it would drop a value"
+        )
+      case None =>
+        val ordered = java.util.LinkedHashMap[String, String]()
+        grouped.foreach((name, values) => ordered.put(name, values.head))
+        ordered
+
+  private def tcpFault(kind: TcpFaultKind): JFault = kind match
+    case TcpFaultKind.ConnectionResetByPeer => JFault.CONNECTION_RESET_BY_PEER
+    case TcpFaultKind.EmptyResponse => JFault.EMPTY_RESPONSE
+    case TcpFaultKind.RandomDataThenClose => JFault.RANDOM_DATA_THEN_CLOSE
+    case TcpFaultKind.MalformedResponseChunk => JFault.MALFORMED_RESPONSE_CHUNK
 
   private def isPlainIsExtra(extra: Vector[(String, Json)]): Boolean =
     extra.isEmpty || extra == Vector(binaryMarker)
 
   private def isSpecFromIs(is: IsResponse): JIsSpec =
+    // `rawStatusCode` is a *modeled* field (the non-numeric wire form, e.g. mimeo's `"404"`), so it
+    // never lands in `is.extra` and the unknown-key guard cannot see it. `RiftDsl.status` takes an
+    // Int, so translating would silently answer 200 for a response that named some other status.
+    if is.rawStatusCode.isDefined then
+      throw invalid(
+        "intercept serve: a non-numeric `statusCode` has no facade IsSpec entry point (RiftDsl." +
+          "status takes an Int) — use redirectTo(imposter) for full stub fidelity"
+      )
     val withStatus = JRiftDsl.status(is.statusCode.getOrElse(200))
     val withHeaders =
       orderedHeaders(is.headers).foldLeft(withStatus) { case (spec, (name, values)) =>
