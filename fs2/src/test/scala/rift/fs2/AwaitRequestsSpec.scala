@@ -77,6 +77,10 @@ class AwaitRequestsSpec extends CatsEffectSuite:
           }
 
         def clearRecorded: IO[Unit] = unimplemented
+
+        def clearRecorded(filters: rift.bridge.TailFilter*): IO[Unit] = unimplemented
+
+        def clearProxyResponses: IO[Unit] = unimplemented
         def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[Unit] =
           unimplemented
         def verify(matching: RequestMatch, times: Int): IO[Unit] = unimplemented

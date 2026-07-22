@@ -38,6 +38,17 @@ trait ImposterHandle:
   def recorded: IO[RiftError, Chunk[RecordedRequest]]
   def recorded(matching: RequestMatch): IO[RiftError, Chunk[RecordedRequest]]
   def clearRecorded: IO[RiftError, Unit]
+
+  /** Drop journal entries matching `filters` server-side, or the whole journal when `filters` is
+    * empty — the same reading as `recordedPage`. Shares the `TailFilter` vocabulary, so it covers
+    * header, flow, method and path.
+    */
+  def clearRecorded(filters: Chunk[TailFilter]): IO[RiftError, Unit]
+
+  /** Clears the cached proxy responses that `proxyOnce`/`proxyAlways` replay — a different store
+    * from the recorded-request journal, which this leaves untouched.
+    */
+  def clearProxyResponses: IO[RiftError, Unit]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit]
   def verify(matching: RequestMatch, times: Int): IO[RiftError, Unit] // README sugar: exact count
   def verifyNoInteractions: IO[RiftError, Unit]
@@ -111,6 +122,9 @@ private[zio] final case class ImposterHandleLive(connector: rift.bridge.Imposter
     blockingIO(Chunk.fromIterable(connector.recorded(matching)))
 
   def clearRecorded: IO[RiftError, Unit] = blockingIO(connector.clearRecorded())
+  def clearRecorded(filters: Chunk[TailFilter]): IO[RiftError, Unit] =
+    blockingIO(connector.clearRecorded(filters*))
+  def clearProxyResponses: IO[RiftError, Unit] = blockingIO(connector.clearProxyResponses())
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit] =
     blockingIO(connector.verify(matching, times))

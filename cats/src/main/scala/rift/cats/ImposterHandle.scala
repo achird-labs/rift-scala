@@ -47,6 +47,17 @@ trait ImposterHandle[F[_]]:
   def recordedSince(cursor: Long, filters: rift.bridge.TailFilter*): F[rift.bridge.RecordedPage]
 
   def clearRecorded: F[Unit]
+
+  /** Drop journal entries matching `filters` server-side, or the whole journal when `filters` is
+    * empty — the same reading as `recordedPage`. Shares the `TailFilter` vocabulary, so it covers
+    * header, flow, method and path.
+    */
+  def clearRecorded(filters: rift.bridge.TailFilter*): F[Unit]
+
+  /** Clears the cached proxy responses that `proxyOnce`/`proxyAlways` replay — a different store
+    * from the recorded-request journal, which this leaves untouched.
+    */
+  def clearProxyResponses: F[Unit]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit]
   def verify(matching: RequestMatch, times: Int): F[Unit] // README sugar: exact count
   def verifyNoInteractions: F[Unit]
@@ -101,6 +112,9 @@ private[cats] final class ImposterHandleLive[F[_]: Async](
     blockingF(connector.recordedSince(cursor, filters*))
 
   def clearRecorded: F[Unit] = blockingF(connector.clearRecorded())
+  def clearRecorded(filters: rift.bridge.TailFilter*): F[Unit] =
+    blockingF(connector.clearRecorded(filters*))
+  def clearProxyResponses: F[Unit] = blockingF(connector.clearProxyResponses())
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit] =
     blockingF(connector.verify(matching, times))

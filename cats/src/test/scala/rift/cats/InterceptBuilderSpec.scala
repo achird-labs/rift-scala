@@ -88,6 +88,8 @@ class InterceptBuilderSpec extends FunSuite:
     def recordedPage(filters: TailFilter*): IO[RecordedPage] = raise
     def recordedSince(cursor: Long, filters: TailFilter*): IO[RecordedPage] = raise
     def clearRecorded: IO[Unit] = raise
+    def clearRecorded(filters: rift.bridge.TailFilter*): IO[Unit] = raise
+    def clearProxyResponses: IO[Unit] = raise
     def verify(matching: RequestMatch, times: Times): IO[Unit] = raise
     def verify(matching: RequestMatch, times: Int): IO[Unit] = raise
     def verifyNoInteractions: IO[Unit] = raise

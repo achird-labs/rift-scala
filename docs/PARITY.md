@@ -51,6 +51,8 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | `replaceStubs` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `stubs` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `stub` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `clearRecorded (scoped)` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `clearProxyResponses` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `delete` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `enable` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `disable` | ✓ | ✓ | via cats | ✓ | parked (#11) |
