@@ -400,3 +400,32 @@ class DslSpec extends munit.FunSuite:
     val rendered = onRequest.where(body.jsonPath("$.n").is(5)).reply(ok).build.toJson.render
     assert(rendered.contains("\"equals\""), rendered)
     assert(rendered.toLowerCase.contains("jsonpath"), rendered)
+
+  // ── issue #93: shellTransform builder method ───────────────────────────────
+  // The model round-tripped `_behaviors.shellTransform` and the facade translates it, but
+  // IsResponseBuilder had no way to set it — a user had to hand-build Behaviors or raw JSON.
+  test("shellTransform emits the array wire form"):
+    val rendered = ok.shellTransform("cmd1", "cmd2").build.toJson.render
+    assert(rendered.contains("shellTransform"), rendered)
+    assert(rendered.contains("cmd1") && rendered.contains("cmd2"), rendered)
+
+  test("repeated shellTransform calls append rather than replace"):
+    val r = ok.shellTransform("a").shellTransform("b").build
+    r match
+      case Response.Is(_, behaviors, _, _) =>
+        assertEquals(behaviors.shellTransform, Vector("a", "b"))
+      case other => fail(s"expected an is-response, got $other")
+
+  // Zero args is a no-op, not an error: an empty shellTransform is omitted by `toJson`, so there
+  // is no invalid state to reject.
+  test("shellTransform with no commands emits nothing"):
+    val rendered = ok.shellTransform().build.toJson.render
+    assert(!rendered.contains("shellTransform"), rendered)
+
+  test("a shellTransform response round-trips through decode"):
+    val encoded = ok.shellTransform("tr a-z A-Z").build.toJson
+    val decoded = Response.fromJson(encoded).fold(e => fail(e.toString), identity)
+    decoded match
+      case Response.Is(_, behaviors, _, _) =>
+        assertEquals(behaviors.shellTransform, Vector("tr a-z A-Z"))
+      case other => fail(s"expected an is-response, got $other")
