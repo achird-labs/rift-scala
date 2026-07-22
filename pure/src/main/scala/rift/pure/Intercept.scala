@@ -46,8 +46,9 @@ final class Intercept private[pure] (connector: rift.bridge.InterceptConnector)
   def close(): Unit = connector.close()
 
 /** Straight delegate over `rift.bridge.InterceptRuleBuilder`: unlike the ZIO/Cats wrappers, `pure`
-  * is already blocking, so there is no accumulate-then-replay step — `when` just narrows the
-  * underlying facade builder directly, and a terminal registers the rule.
+  * is already blocking, so there is no effect-level accumulate-then-replay step — `when` goes
+  * straight to the bridge builder, which buffers the clauses and hands the facade their conjunction
+  * as a single `when` at terminal time, so no earlier `when` is dropped (issue #82).
   */
 final class InterceptRuleBuilder private[pure] (underlying: rift.bridge.InterceptRuleBuilder):
 

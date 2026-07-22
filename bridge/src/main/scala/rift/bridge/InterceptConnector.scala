@@ -7,6 +7,7 @@ import javax.net.ssl.SSLContext
 import scala.jdk.CollectionConverters.*
 
 import rift.dsl.{RequestMatch, ResponseBuilder}
+import rift.model.Predicate
 
 import io.github.achirdlabs.rift.{
   Intercept as JIntercept,
@@ -52,13 +53,38 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
 
 /** Scala mirror of rift-java's `InterceptRuleBuilder`: `host` is already set by
   * `InterceptConnector.rule`, then `.when(match)` narrows and a terminal registers the rule and
-  * returns it. The underlying facade builder is stateful/fluent — each step wraps the same
-  * instance.
+  * returns it.
+  *
+  * `when` buffers rather than calling the facade, because the facade's `when` **assigns** its
+  * predicate list instead of appending (rift-java-core 0.2.0) — replaying N matches onto it would
+  * keep only the last and silently widen the rule. Every buffered match is instead flattened into
+  * one `RequestMatch` and handed to the facade exactly once per terminal, so a chain of `when`
+  * clauses reads as their conjunction and no clause is dropped.
+  *
+  * That single `when` is issued **unconditionally**, including for an empty clause list. Forks of
+  * one builder still share the underlying facade builder, whose predicate field survives a
+  * terminal; skipping the call for a zero-`when` rule would let it inherit whatever a sibling
+  * assigned, silently narrowing a catch-all. Assigning every time makes each terminal register
+  * exactly its own builder's clauses — this correctness rests on the facade assigning, so if a
+  * future rift-java makes `when` append, this must mint a fresh facade builder per terminal (as
+  * `rift.zio`/`rift.cats` already do) rather than reset one.
   */
-final class InterceptRuleBuilder private[bridge] (underlying: JInterceptRuleBuilder):
+final class InterceptRuleBuilder private[bridge] (
+    underlying: JInterceptRuleBuilder,
+    matches: Vector[RequestMatch] = Vector.empty
+):
 
   def when(matching: RequestMatch): InterceptRuleBuilder =
-    FacadeBoundary.run(InterceptRuleBuilder(underlying.when(FacadeEncode.requestMatch(matching))))
+    new InterceptRuleBuilder(underlying, matches :+ matching)
+
+  /** The facade builder carrying every buffered clause as one combined `when`. An empty clause list
+    * is assigned too — see the class doc: skipping the call would let a zero-`when` rule inherit a
+    * sibling fork's predicates.
+    */
+  private def applied: JInterceptRuleBuilder =
+    val combined = new RequestMatch:
+      def predicates: Vector[Predicate] = matches.flatMap(_.predicates)
+    underlying.when(FacadeEncode.requestMatch(combined))
 
   /** Serve a canned response. Translates an `is` response — status/headers/body plus the
     * `_behaviors`/`_rift` constructs the facade's `IsSpec` can express (waits, decorate, repeat,
@@ -68,14 +94,14 @@ final class InterceptRuleBuilder private[bridge] (underlying: JInterceptRuleBuil
     * degraded — use `redirectTo` for full stub fidelity there.
     */
   def serve(response: ResponseBuilder): InterceptRule =
-    FacadeBoundary.run(InterceptRule.fromJava(underlying.serve(FacadeEncode.isSpec(response))))
+    FacadeBoundary.run(InterceptRule.fromJava(applied.serve(FacadeEncode.isSpec(response))))
 
   /** Transparently forward matched traffic to `target` (a base URL / host). */
   def forward(target: String): InterceptRule =
-    FacadeBoundary.run(InterceptRule.fromJava(underlying.forward(target)))
+    FacadeBoundary.run(InterceptRule.fromJava(applied.forward(target)))
 
   /** Redirect matched traffic to a local imposter — the full-fidelity path (the imposter carries
     * arbitrary stubs/behaviors), and what the datafile-hot-swap pattern (#7) uses.
     */
   def redirectTo(imposter: ImposterConnector): InterceptRule =
-    FacadeBoundary.run(InterceptRule.fromJava(underlying.redirectTo(imposter.jImposter)))
+    FacadeBoundary.run(InterceptRule.fromJava(applied.redirectTo(imposter.jImposter)))

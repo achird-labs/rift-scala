@@ -61,6 +61,23 @@ class EmbeddedSmokeSpec extends FunSuite:
           assert(java.nio.file.Files.size(truststore) > 0)
         finally java.nio.file.Files.deleteIfExists(truststore)
 
+        // Chained `.when` is a conjunction (#82). The engine ANDs a rule's predicate array —
+        // `intercept_rules.rs` routes `rule.predicates` through the same `stub_matches` as stubs,
+        // whose loop is documented "All predicates must match (implicit AND)" — so concatenating
+        // the clauses' predicates is the correct combinator. This asserts the readback carries
+        // BOTH clauses; dropping either is what #82 fixed.
+        val conjunction = ic
+          .rule("and.example.com")
+          .when(get("/admin"))
+          .when(onRequest.where(header("X-Env").is("prod")))
+          .serve(status(503))
+        assertEquals(conjunction.host, Some("and.example.com"))
+        val registered = ic.rules.filter(_.host.contains("and.example.com"))
+        assertEquals(registered.size, 1, registered.toString)
+        val wire = registered.head.raw.render
+        assert(wire.contains("/admin"), wire)
+        assert(wire.contains("X-Env"), wire)
+
         ic.clearRules()
         assertEquals(ic.rules, Vector.empty)
       finally ic.close()
