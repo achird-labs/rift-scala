@@ -21,6 +21,12 @@ trait ImposterHandle[F[_]]:
   def uri: URI
   def definition: F[ImposterDefinition]
   def addStub(stub: StubBuilder[StubPhase.Complete]): F[StubRef[F]]
+
+  /** Insert at `index` in the stub list, which is match-priority order. `index == stubs.size`
+    * appends; out of range fails with `RiftError.InvalidDefinition` from the engine rather than
+    * being clamped here, so the bound is always the engine's live view of the list.
+    */
+  def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): F[StubRef[F]]
   def addStubFirst(stub: StubBuilder[StubPhase.Complete]): F[StubRef[F]]
   def replaceStubs(stubs: Vector[Stub]): F[Unit]
   def stubs: F[Vector[Stub]]
@@ -69,6 +75,9 @@ private[cats] final class ImposterHandleLive[F[_]: Async](
 
   def addStub(stub: StubBuilder[StubPhase.Complete]): F[StubRef[F]] =
     blockingF(new StubRef[F](connector.addStub(stub.build)))
+
+  def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): F[StubRef[F]] =
+    blockingF(new StubRef[F](connector.addStub(stub.build, index)))
 
   def addStubFirst(stub: StubBuilder[StubPhase.Complete]): F[StubRef[F]] =
     blockingF(new StubRef[F](connector.addStubFirst(stub.build)))

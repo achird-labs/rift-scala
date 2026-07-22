@@ -46,6 +46,7 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | `deleteAll` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `replaceAll` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `addStub` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `addStub (indexed)` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `addStubFirst` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `replaceStubs` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `stubs` | ✓ | ✓ | via cats | ✓ | parked (#11) |

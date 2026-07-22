@@ -55,6 +55,7 @@ class FilterThreadingSpec extends CatsEffectSuite:
     def uri: URI = ???
     def definition: IO[ImposterDefinition] = unused
     def addStub(stub: StubBuilder[StubPhase.Complete]): IO[StubRef[IO]] = unused
+    def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): IO[StubRef[IO]] = unused
     def addStubFirst(stub: StubBuilder[StubPhase.Complete]): IO[StubRef[IO]] = unused
     def replaceStubs(stubs: Vector[Stub]): IO[Unit] = unused
     def stubs: IO[Vector[Stub]] = unused

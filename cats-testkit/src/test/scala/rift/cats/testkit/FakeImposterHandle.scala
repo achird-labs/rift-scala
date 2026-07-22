@@ -27,6 +27,8 @@ private[testkit] final class FakeImposterHandle(
   def definition: IO[ImposterDefinition] = IO.raiseError(new NotImplementedError)
   def addStub(stub: StubBuilder[StubPhase.Complete]): IO[StubRef[IO]] =
     IO.raiseError(new NotImplementedError)
+  def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): IO[StubRef[IO]] =
+    IO.raiseError(new NotImplementedError)
   def addStubFirst(stub: StubBuilder[StubPhase.Complete]): IO[StubRef[IO]] =
     IO.raiseError(new NotImplementedError)
   def replaceStubs(stubs: Vector[Stub]): IO[Unit] = IO.raiseError(new NotImplementedError)

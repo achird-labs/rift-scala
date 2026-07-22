@@ -78,6 +78,7 @@ class InterceptBuilderSpec extends FunSuite:
     def uri: URI = nope
     def definition: IO[ImposterDefinition] = raise
     def addStub(stub: StubBuilder[StubPhase.Complete]): IO[StubRef[IO]] = raise
+    def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): IO[StubRef[IO]] = raise
     def addStubFirst(stub: StubBuilder[StubPhase.Complete]): IO[StubRef[IO]] = raise
     def replaceStubs(stubs: Vector[Stub]): IO[Unit] = raise
     def stubs: IO[Vector[Stub]] = raise

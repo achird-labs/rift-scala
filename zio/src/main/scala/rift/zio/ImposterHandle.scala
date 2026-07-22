@@ -25,6 +25,12 @@ trait ImposterHandle:
   def uri: URI
   def definition: IO[RiftError, ImposterDefinition]
   def addStub(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef]
+
+  /** Insert at `index` in the stub list, which is match-priority order. `index == stubs.size`
+    * appends; out of range fails with `RiftError.InvalidDefinition` from the engine rather than
+    * being clamped here, so the bound is always the engine's live view of the list.
+    */
+  def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): IO[RiftError, StubRef]
   def addStubFirst(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef]
   def replaceStubs(stubs: Chunk[Stub]): IO[RiftError, Unit]
   def stubs: IO[RiftError, Chunk[Stub]]
@@ -83,6 +89,9 @@ private[zio] final case class ImposterHandleLive(connector: rift.bridge.Imposter
 
   def addStub(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef] =
     blockingIO(StubRef(connector.addStub(stub.build)))
+
+  def addStub(stub: StubBuilder[StubPhase.Complete], index: Int): IO[RiftError, StubRef] =
+    blockingIO(StubRef(connector.addStub(stub.build, index)))
 
   def addStubFirst(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef] =
     blockingIO(StubRef(connector.addStubFirst(stub.build)))
