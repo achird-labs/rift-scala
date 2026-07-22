@@ -32,6 +32,14 @@ final case class FieldSelector private[dsl] (
   def is(value: String): PredicateBuilder =
     PredicateBuilder(PredicateOp.Equals(fields(Json.Str(value))), params)
 
+  /** `equals` against a structured value. Distinct from [[deepEquals]]: the engine treats the two
+    * as different operators, so this is not a spelling of that one.
+    */
+  def is(value: Json): PredicateBuilder =
+    PredicateBuilder(PredicateOp.Equals(fields(value)), params)
+
+  def is[A](value: A)(using jb: JsonBody[A]): PredicateBuilder = is(jb.encode(value))
+
   def deepEquals(value: Json): PredicateBuilder =
     PredicateBuilder(PredicateOp.DeepEquals(fields(value)), params)
 
