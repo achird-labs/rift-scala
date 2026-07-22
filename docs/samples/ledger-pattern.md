@@ -58,6 +58,12 @@ reconcile write (`POST /accounts/42/reconcile`) — see `InterceptRuleBuilder.re
 scaladoc in `rift.bridge.InterceptConnector`, which calls this out as exactly the datafile-hot-swap
 shape issue #7 needs.
 
+Naming the host is right here, because this sample owns it. When the upstream host is *not* yours to
+name — a third-party SDK with the host compiled in, or a JVM proxied wholesale — use the no-arg
+`ic.rule()` instead: it leaves the facade's `host` unset, which the engine reads as a catch-all
+matching every intercepted host. Everything downstream of the rule (`.when`, `serve`, `forward`,
+`redirectTo`) is identical.
+
 ### 3 — the SUT's client, routed through the intercept
 
 ```scala

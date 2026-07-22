@@ -41,6 +41,10 @@ class EmbeddedSmokeSpec extends FunSuite:
         val rule = ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
         assert(rule.isRight, s"expected Right, got $rule")
         assertEquals(ic.rules.map(_.nonEmpty), Right(true))
+
+        // All-hosts rule (#80) — the no-arg form, registered end-to-end against the engine.
+        val catchAll = ic.rule().when(get("/anywhere")).serve(ok.json("""{"any":true}"""))
+        assertEquals(catchAll.map(_.host), Right(None))
         assertEquals(ic.caPem.map(_.contains("BEGIN")), Right(true))
       }
 

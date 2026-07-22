@@ -65,12 +65,24 @@ final case class InterceptConfig(
       case None => builder.generateCa()
     builder.build()
 
-/** A registered intercept rule as the engine reports it (`Intercept.rules()`): the target `host`,
-  * the routing `kind`, and the `raw` wire JSON (predicates + action) the engine stored. Decoded via
-  * the D2 raw-JSON seam rather than a field-by-field translation.
+/** A registered intercept rule as the engine reports it (`Intercept.rules()`): the target `host`
+  * (`None` for an all-hosts rule), the routing `kind`, and the `raw` wire JSON (predicates +
+  * action) the engine stored. Decoded via the D2 raw-JSON seam rather than a field-by-field
+  * translation.
   */
-final case class InterceptRule(host: String, kind: RuleKind, raw: Json)
+final case class InterceptRule(host: Option[String], kind: RuleKind, raw: Json)
 
 object InterceptRule:
+  /** The facade spells "no host" two different ways depending on which path produced the rule: a
+    * terminal (`addServeRule`/`addForwardRule`) passes the builder's unset host straight through as
+    * `null`, while the `rules()` readback (`readRule`) substitutes `""` for an absent `host` key.
+    * Both mean the same all-hosts rule, so both normalize to `None` — otherwise the same rule would
+    * report differently depending on how the caller obtained it, and a `null` would escape into a
+    * public field.
+    */
   private[bridge] def fromJava(jr: JInterceptRule): InterceptRule =
-    InterceptRule(jr.host(), RuleKind.fromJava(jr.kind()), FacadeDecode.json(jr.raw()))
+    InterceptRule(
+      Option(jr.host()).filter(_.nonEmpty),
+      RuleKind.fromJava(jr.kind()),
+      FacadeDecode.json(jr.raw())
+    )

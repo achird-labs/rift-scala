@@ -23,6 +23,11 @@ final class Intercept private[pure] (connector: rift.bridge.InterceptConnector)
   /** Start a rule for `host`: `.when(match)` then a terminal `serve/forward/redirectTo`. */
   def rule(host: String): InterceptRuleBuilder = new InterceptRuleBuilder(connector.rule(host))
 
+  /** Start an all-hosts rule — matches every intercepted host, for a SUT proxied JVM-wide whose
+    * upstream host isn't known at authoring time. `rule(host)` scopes to one host instead.
+    */
+  def rule(): InterceptRuleBuilder = new InterceptRuleBuilder(connector.rule())
+
   def rules: Either[RiftError, Vector[InterceptRule]] = catchRiftError(connector.rules)
 
   def clearRules(): Either[RiftError, Unit] = catchRiftError(connector.clearRules())

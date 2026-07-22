@@ -25,22 +25,45 @@ object InterceptBuilderSpec extends ZIOSpecDefault:
       case live: InterceptRuleBuilderLive => live.matches
       case _ => Vector.empty
 
+  private def hostOf(builder: InterceptRuleBuilder): Option[String] =
+    builder match
+      case live: InterceptRuleBuilderLive => live.host
+      case other => throw new AssertionError(s"expected InterceptRuleBuilderLive, got $other")
+
   def spec = suite("InterceptRuleBuilder (pure accumulation)")(
     test("when accumulates every match in order — no earlier when is dropped"):
       val first = get("/a")
       val second = get("/b")
       // connector is never touched by `when` (it only copies), so a null is safe for this unit.
-      val builder = InterceptRuleBuilderLive(null, "api.example.com").when(first).when(second)
+      val builder =
+        InterceptRuleBuilderLive(null, Some("api.example.com")).when(first).when(second)
       assertTrue(matchesOf(builder) == Vector(first, second))
     ,
     test("a fresh builder starts with no matches"):
-      assertTrue(matchesOf(InterceptRuleBuilderLive(null, "api.example.com")).isEmpty)
+      assertTrue(matchesOf(InterceptRuleBuilderLive(null, Some("api.example.com"))).isEmpty)
     ,
     test("redirectTo rejects an ImposterHandle that isn't this engine's ImposterHandleLive"):
       // The reject arm never forces `built` and never touches the connector, so a null connector is
       // safe; any non-`ImposterHandleLive` handle drives it.
-      for exit <- InterceptRuleBuilderLive(null, "api.example.com").redirectTo(ForeignHandle).exit
+      for exit <- InterceptRuleBuilderLive(null, Some("api.example.com"))
+          .redirectTo(ForeignHandle)
+          .exit
       yield assert(exit)(fails(isSubtype[RiftError.InvalidDefinition](anything)))
+    ,
+    // issue #80 — `rule()` is the facade's catch-all form (host left unset), `rule(host)` the
+    // scoped one. Both only construct the deferred builder, so the connector stays untouched.
+    test("rule() seeds an all-hosts builder and rule(host) seeds a host-scoped one"):
+      val handle = InterceptHandleLive(null)
+      assertTrue(
+        hostOf(handle.rule()).isEmpty,
+        hostOf(handle.rule("api.example.com")) == Some("api.example.com")
+      )
+    ,
+    test("an all-hosts builder accumulates every match in order, like the host-scoped form"):
+      val first = get("/a")
+      val second = get("/b")
+      val builder = InterceptRuleBuilderLive(null, None).when(first).when(second)
+      assertTrue(matchesOf(builder) == Vector(first, second), hostOf(builder).isEmpty)
   )
 
   /** A foreign `ImposterHandle` — not this engine's `ImposterHandleLive` — used only to reach

@@ -770,6 +770,7 @@ trait FlowStateHandle:
 trait InterceptHandle:
   def proxyUri: URI
   def rule(host: String): InterceptRuleBuilder      // .when(match).serve(resp) | .forwardTo(port) | .redirectTo(imposter)
+  def rule(): InterceptRuleBuilder                  // all-hosts (catch-all) form — matches every intercepted host
   def rules: IO[RiftError, Chunk[InterceptRule]]
   def clearRules: IO[RiftError, Unit]
   def caPem: IO[RiftError, String]
