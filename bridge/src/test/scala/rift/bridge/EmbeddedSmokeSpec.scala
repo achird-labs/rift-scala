@@ -8,8 +8,6 @@ import munit.FunSuite
 import rift.dsl.*
 import rift.model.Port
 
-import io.github.achirdlabs.rift.Rift as JRift
-
 /** AC8 — a real end-to-end smoke over the embedded engine, proving the connector wiring against a
   * live engine. Guarded on `isEmbeddedAvailable`: skipped (not failed) wherever the native runtime
   * is absent — including CI, which does not put `rift-java-natives` / `--enable-native-access` on
@@ -18,7 +16,7 @@ import io.github.achirdlabs.rift.Rift as JRift
 class EmbeddedSmokeSpec extends FunSuite:
 
   test("embedded: create imposter, add a stub, verify no interactions, delete"):
-    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+    assume(RiftConnector.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
 
     val conn = RiftConnector.embedded()
     try
@@ -36,7 +34,7 @@ class EmbeddedSmokeSpec extends FunSuite:
     finally conn.close()
 
   test("embedded: intercept — register rules, read trust material, export a truststore"):
-    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+    assume(RiftConnector.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
 
     val conn = RiftConnector.embedded()
     try
@@ -84,7 +82,7 @@ class EmbeddedSmokeSpec extends FunSuite:
     finally conn.close()
 
   test("embedded: startRecording — snapshot with no traffic, persist a file, close discards"):
-    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+    assume(RiftConnector.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
 
     val conn = RiftConnector.embedded()
     try
@@ -104,7 +102,7 @@ class EmbeddedSmokeSpec extends FunSuite:
     finally conn.close()
 
   test("embedded: startRecording — stop returns the captured stubs and ends the session"):
-    assume(JRift.isEmbeddedAvailable(), "embedded runtime not on the classpath — skipping")
+    assume(RiftConnector.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
 
     val conn = RiftConnector.embedded()
     try

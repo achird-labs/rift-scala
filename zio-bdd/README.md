@@ -68,7 +68,7 @@ Known edges (all fail with a **typed** `MockError.InvalidDefinition`, never sile
 
 - `RiftModelMappingSpec` / `RiftScalaBackendContractSpec` run engine-free on every JVM.
 - `RiftScalaBackendLiveSpec` runs the MockControl contract against a real embedded engine; it is
-  guarded on `JRift.isEmbeddedAvailable()` (the repo-standard skip) and executes on the JDK 22 CI
+  guarded on `RiftConnector.isEmbeddedAvailable` (the repo-standard skip) and executes on the JDK 22 CI
   job, where the embedded jars are wired.
 
 zio-bdd's cross-backend conformance scenario sets are not published as an artifact (they live in

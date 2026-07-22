@@ -95,6 +95,15 @@ object Inventory:
       pure = Yes,
       reflectable = true
     ),
+    Op(
+      "Provisioning / factory",
+      "isEmbeddedAvailable",
+      zio = Yes,
+      cats = Yes,
+      fs2 = ViaCats,
+      pure = Yes,
+      reflectable = true
+    ),
 
     // ── Imposter CRUD — the first 6 are declared on `Rift` itself (reflectable); the rest are
     // `ImposterHandle`/`Imposter` members. ──────────────────────────────────────────────────────

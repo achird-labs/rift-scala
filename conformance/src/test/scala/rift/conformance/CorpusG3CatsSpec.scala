@@ -8,8 +8,6 @@ import munit.CatsEffectSuite
 import rift.cats.Rift
 import rift.model.Port
 
-import io.github.achirdlabs.rift.Rift as JRift
-
 import CorpusReplay.VerifyStep
 
 /** G3 on the cats surface (issue #13) — the same corpus replay `CorpusG3Spec` (#6) runs over
@@ -17,11 +15,12 @@ import CorpusReplay.VerifyStep
   * fire mechanics with the zio spec via `CorpusReplay`; only the effect wrapping (cats-effect `IO`
   * instead of `ZIO`) and engine wiring (`Resource` instead of `ZLayer`) differ.
   *
-  * Guarded exactly like `rift.cats.EmbeddedSmokeSpec`: `JRift.isEmbeddedAvailable()` is checked
-  * BEFORE any engine `Resource` is acquired, so a bare CI JVM (no `rift-java-natives` /
-  * `--enable-native-access`) skips cleanly and this spec's only job on such a JVM is to COMPILE —
-  * UNLESS `RIFT_G3_REQUIRE=embedded` (issue #63), which turns an unavailable engine on the job that
-  * requires the embedded lane into a `fail` (red build) rather than a silent `assume`-skip.
+  * Guarded exactly like `rift.cats.EmbeddedSmokeSpec`:
+  * `rift.bridge.RiftConnector.isEmbeddedAvailable` is checked BEFORE any engine `Resource` is
+  * acquired, so a bare CI JVM (no `rift-java-natives` / `--enable-native-access`) skips cleanly and
+  * this spec's only job on such a JVM is to COMPILE — UNLESS `RIFT_G3_REQUIRE=embedded` (issue
+  * #63), which turns an unavailable engine on the job that requires the embedded lane into a `fail`
+  * (red build) rather than a silent `assume`-skip.
   */
 class CorpusG3CatsSpec extends CatsEffectSuite:
 
@@ -71,7 +70,10 @@ class CorpusG3CatsSpec extends CatsEffectSuite:
     else replayFixture(rift, fixture)
 
   test("replay every hasVerify fixture the embedded lane supports (cats surface)"):
-    G3Require.decideEmbedded(JRift.isEmbeddedAvailable(), G3Require.required) match
+    G3Require.decideEmbedded(
+      rift.bridge.RiftConnector.isEmbeddedAvailable,
+      G3Require.required
+    ) match
       case G3Require.Decision.Skip =>
         assume(false, "embedded runtime not on the classpath — skipping")
         IO.unit

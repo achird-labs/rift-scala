@@ -10,16 +10,14 @@ import zio.bdd.mock as spi
 
 import rift.zio.Rift
 
-import io.github.achirdlabs.rift.Rift as JRift
-
 /** Live behavioral gate for the adapter (issue #18) — the MockControl contract against a real
   * embedded engine.
   *
   * Guarded exactly like `bridge.EmbeddedSmokeSpec` / the conformance G3 specs:
-  * `JRift.isEmbeddedAvailable()` is checked before any layer is built, so a bare JVM (no
-  * `rift-java-embedded` on the classpath — any JDK < 22) skips, and this spec's only job there is
-  * to COMPILE. The JDK 22 CI job carries the embedded jars (wired in build.sbt), so the whole suite
-  * executes there.
+  * `rift.bridge.RiftConnector.isEmbeddedAvailable` is checked before any layer is built, so a bare
+  * JVM (no `rift-java-embedded` on the classpath — any JDK < 22) skips, and this spec's only job
+  * there is to COMPILE. The JDK 22 CI job carries the embedded jars (wired in build.sbt), so the
+  * whole suite executes there.
   */
 object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
 
@@ -519,7 +517,7 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
     ) @@ (
       // Checked BEFORE any engine layer is built — the repo-standard guard shape (see
       // LedgerPatternSampleSpec's "WHY THIS TEST IS GUARDED"): a bare JVM skips, never fails.
-      if JRift.isEmbeddedAvailable() then TestAspect.identity
+      if rift.bridge.RiftConnector.isEmbeddedAvailable then TestAspect.identity
       else TestAspect.ignore
     ) @@ TestAspect.sequential @@ TestAspect.withLiveClock,
     // Always runs (outside the ignore aspect): the #63 backstop. On the CI job that requires the
@@ -527,7 +525,10 @@ object RiftScalaBackendLiveSpec extends ZIOSpecDefault:
     // 13 tests above `ignore`-skip green — fails HERE instead. Unset / other-lane jobs pass.
     test("embedded lane actually ran when this job required it (issue #63 backstop)") {
       // Don't weaken this to always-pass without re-running the RIFT_G3_REQUIRE=embedded red-proof.
-      G3Require.decideEmbedded(JRift.isEmbeddedAvailable(), G3Require.required) match
+      G3Require.decideEmbedded(
+        rift.bridge.RiftConnector.isEmbeddedAvailable,
+        G3Require.required
+      ) match
         case G3Require.Decision.Fail(reason) => ZIO.die(new AssertionError(reason))
         case _ => ZIO.succeed(assertCompletes)
     }

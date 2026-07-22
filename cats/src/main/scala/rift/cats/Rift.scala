@@ -81,6 +81,11 @@ private[cats] final class RiftLive[F[_]: Async](connector: RiftConnector) extend
 
 object Rift:
 
+  /** Re-export of [[rift.bridge.RiftConnector.isEmbeddedAvailable]] so a consumer can gate an
+    * embedded-only test without importing the Java facade directly.
+    */
+  def isEmbeddedAvailable: Boolean = RiftConnector.isEmbeddedAvailable
+
   // ── Resource factories (both acquire and release run on the blocking pool, since
   //    `RiftConnector.close()` performs real blocking teardown — engine shutdown, or
   //    subprocess/testcontainer stop for spawn/container; `Resource.fromAutoCloseable` wraps the
