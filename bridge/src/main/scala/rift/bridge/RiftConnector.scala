@@ -10,13 +10,22 @@ import rift.json.Json
 import rift.model.{ApplyResult, EngineInfo, Port}
 
 import io.github.achirdlabs.rift.Rift as JRift
+import io.github.achirdlabs.rift.InterceptOptions as JInterceptOptions
 import io.github.achirdlabs.rift.model.ImposterDefinition as JImposterDefinition
 
 /** Blocking, throwing (`RiftError`), thread-safe. One instance per engine (DESIGN.md §5.2). All
   * effect-module connectors (`rift.zio`, `rift.cats`, ...) are thin wrappers over this and
   * `ImposterConnector`, so behavior can never diverge between backends.
   */
-final class RiftConnector private (underlying: JRift, onClose: () => Unit) extends AutoCloseable:
+final class RiftConnector private (
+    underlying: JRift,
+    onClose: () => Unit,
+    // Pre-resolved attach options for a container that already booted an intercept listener at
+    // start (`withInterceptPort`). The engine allows one listener per process, so calling
+    // `intercept`'s start path against such an engine 409s; when present, `intercept` attaches to
+    // the running listener (at the host-mapped address) instead of starting a second one.
+    attachOptions: Option[JInterceptOptions] = None
+) extends AutoCloseable:
 
   def create(definition: ImposterDefinition): ImposterConnector =
     FacadeBoundary.run(ImposterConnector(underlying.create(FacadeEncode.json(definition.toJson))))
@@ -69,7 +78,12 @@ final class RiftConnector private (underlying: JRift, onClose: () => Unit) exten
     * ephemeral CA; `Some(CaMaterial)` uses a committed PEM pair (the fixed-CA case #7 needs).
     */
   def intercept(config: InterceptConfig = InterceptConfig()): InterceptConnector =
-    FacadeBoundary.run(InterceptConnector(underlying.intercept(config.toOptions)))
+    // A container-booted listener is already running with the CA it started under, so its attach
+    // options (host + mapped port) are authoritative — `config` cannot retune a live listener, and
+    // the start path would 409. Only when no listener was pre-started do we honour `config`.
+    FacadeBoundary.run(
+      InterceptConnector(underlying.intercept(attachOptions.getOrElse(config.toOptions)))
+    )
 
   def close(): Unit =
     try FacadeBoundary.run(underlying.close())
@@ -126,7 +140,10 @@ object RiftConnector:
     // orphaned until Ryuk reaps it. The onClose hook only covers the *successful* path.
     try
       container.start()
-      new RiftConnector(container.client(), () => container.stop())
+      // If an intercept listener was booted at start, capture its attach options now (they read the
+      // started container's host + mapped port) so `intercept` attaches instead of starting a second.
+      val attach = Option.when(config.interceptPort.isDefined)(container.interceptOptions())
+      new RiftConnector(container.client(), () => container.stop(), attach)
     catch
       case t: Throwable =>
         try container.stop()
