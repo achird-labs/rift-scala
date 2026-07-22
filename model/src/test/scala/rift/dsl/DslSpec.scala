@@ -357,3 +357,46 @@ class DslSpec extends munit.FunSuite:
     val d = imposter("api").flowState(inMemoryFlowState).proxyConfig(upstream("h", 80)).build
     assert(d.rift.flatMap(_.flowState).isDefined)
     assert(d.rift.flatMap(_.proxy).flatMap(_.upstream).isDefined)
+
+  // ── issue #90: typed equals ────────────────────────────────────────────────
+  // `equals` and `deepEquals` are distinct engine operators. Until now only `deepEquals` could
+  // take a structured value; `is` was String-only, so "equals-match this JSON/number/boolean"
+  // was inexpressible.
+  test("is(Json) builds an equals predicate over a structured value, not deepEquals"):
+    val rendered =
+      onRequest
+        .where(body.is(Json.obj("a" -> Json.Num(BigDecimal(1)))))
+        .reply(ok)
+        .build
+        .toJson
+        .render
+    assert(rendered.contains("\"equals\""), rendered)
+    assert(!rendered.contains("deepEquals"), rendered)
+    assert(rendered.contains("\"a\""), rendered)
+
+  test("is[A] encodes through JsonBody — numbers and booleans stay unquoted"):
+    val n = onRequest.where(query("page").is(2)).reply(ok).build.toJson.render
+    assert(n.contains("\"equals\""), n)
+    assert(n.contains("\"page\":2"), n)
+    val b = onRequest.where(header("x-flag").is(true)).reply(ok).build.toJson.render
+    assert(b.contains("\"x-flag\":true"), b)
+
+  // Guards source compatibility: the String overload must still win for a String literal, and
+  // must render exactly as it did before the typed overloads existed.
+  test("is(String) still selects the String overload and renders unchanged"):
+    val rendered = onRequest.where(body.is("A")).reply(ok).build.toJson.render
+    assert(rendered.contains("\"equals\""), rendered)
+    assert(rendered.contains("\"body\":\"A\""), rendered)
+
+  test("is and deepEquals render different operators for the same value"):
+    val value = Json.obj("a" -> Json.Num(BigDecimal(1)))
+    val equalsRendered = onRequest.where(body.is(value)).reply(ok).build.toJson.render
+    val deepRendered = onRequest.where(body.deepEquals(value)).reply(ok).build.toJson.render
+    assert(equalsRendered.contains("\"equals\""), equalsRendered)
+    assert(!equalsRendered.contains("deepEquals"), equalsRendered)
+    assert(deepRendered.contains("deepEquals"), deepRendered)
+
+  test("the typed overload composes with jsonPath selectors"):
+    val rendered = onRequest.where(body.jsonPath("$.n").is(5)).reply(ok).build.toJson.render
+    assert(rendered.contains("\"equals\""), rendered)
+    assert(rendered.toLowerCase.contains("jsonpath"), rendered)

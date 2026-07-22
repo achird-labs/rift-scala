@@ -407,7 +407,8 @@ on(GET, "/api/users/1")
   .where(anyOf(query("v").is("1"), query("v").is("2")))
 
 // field selectors: method | path | query(name) | header(name) | body
-// operators: .is (equals) | .deepEquals | .contains | .startsWith | .endsWith
+// operators: .is (equals — String, Json, or any A with a JsonBody) | .deepEquals
+//            | .contains | .startsWith | .endsWith
 //            | .matches(regex) | .exists | .notExists
 // selectors: body.jsonPath("$.x") | body.xpath("//item", ns = Map("a" -> "urn:a"))
 // combinators: allOf | anyOf | not — nest arbitrarily
@@ -518,7 +519,7 @@ trait JsonBody[A]:
 ```
 
 Used by `ok.json(a: A)`, `RecordedRequest.bodyAs[A]`, and predicate builders
-(`body.deepEquals(a)`). Instances come from the side-car artifacts (5.5, 5.9) or are
+(`body.is(a)`, `body.deepEquals(a)`). Instances come from the side-car artifacts (5.5, 5.9) or are
 hand-written. `model` itself provides instances only for `Json`, `String`, and primitives.
 
 **Acceptance (unchanged from issue #2):** decode→encode round-trips `rift/examples/*.json`
