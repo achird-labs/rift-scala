@@ -445,6 +445,10 @@ class InterceptTranslationSpec extends FunSuite:
     assertEquals(sent.size, get("/admin").predicates.size)
     assert(sent.toString.contains("/admin"), sent.toString)
 
+  // Unlike the serve/forward cases the facade is never entered here — `redirectTo(null)` dies on
+  // the Scala side at `imposter.jImposter`. The clauses still land because Scala evaluates the
+  // receiver (`applied`) before the argument, so hoisting `imposter.jImposter` into a local above
+  // the call would break this test for a reason unrelated to what it guards.
   test("chained when reaches the facade on the redirectTo terminal too"):
     val jBuilder = facadeBuilder()
     val first = get("/admin")
@@ -455,7 +459,7 @@ class InterceptTranslationSpec extends FunSuite:
 
   // Asserting on size alone would pass vacuously here (both the leaked and the correct list hold
   // one predicate), so this checks *which* clause landed.
-  test("when is immutable — a forked builder does not leak clauses into its sibling"):
+  test("a discarded fork that never reaches a terminal leaks nothing into its sibling"):
     val jBuilder = facadeBuilder()
     val base = new InterceptRuleBuilder(jBuilder).when(get("/admin"))
     base.when(onRequest.where(header("X-Env").is("prod"))) // discarded fork

@@ -68,6 +68,11 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
   * exactly its own builder's clauses — this correctness rests on the facade assigning, so if a
   * future rift-java makes `when` append, this must mint a fresh facade builder per terminal (as
   * `rift.zio`/`rift.cats` already do) rather than reset one.
+  *
+  * That holds for terminals run from one thread. Assign-then-read is two operations on the shared
+  * facade builder, so concurrent terminals on forks of the same builder can interleave and register
+  * one rule's clauses against another's action. Fork and register from a single thread, or use
+  * `rift.zio`/`rift.cats`, whose per-terminal fresh builder makes them immune.
   */
 final class InterceptRuleBuilder private[bridge] (
     underlying: JInterceptRuleBuilder,
