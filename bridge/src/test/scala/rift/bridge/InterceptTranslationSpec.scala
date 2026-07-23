@@ -379,16 +379,12 @@ class InterceptTranslationSpec extends FunSuite:
   // cannot be subclassed or stubbed) is built reflectively over a null `InterceptImpl`: the ctor
   // only stores the reference, so `when` lands normally and the terminal NPEs afterwards at
   // `addServeRule` — which is exactly the window in which the facade's predicate list is readable.
-  private def facadeBuilder(): JInterceptRuleBuilder =
-    val ctor = classOf[JInterceptRuleBuilder]
-      .getDeclaredConstructor(Class.forName("io.github.achirdlabs.rift.InterceptImpl"))
-    ctor.setAccessible(true)
-    ctor.newInstance(null.asInstanceOf[AnyRef])
+  // Moved to InterceptGate (#101) so the zio/cats replay-fold gates share one home for the
+  // reflection instead of each re-deriving it.
+  private def facadeBuilder(): JInterceptRuleBuilder = InterceptGate.facadeBuilder()
 
   private def facadePredicates(builder: JInterceptRuleBuilder): java.util.List[?] =
-    val field = classOf[JInterceptRuleBuilder].getDeclaredField("predicates")
-    field.setAccessible(true)
-    field.get(builder).asInstanceOf[java.util.List[?]]
+    InterceptGate.facadePredicates(builder)
 
   test("a terminal carries every chained when clause to the facade — none dropped"):
     val jBuilder = facadeBuilder()
