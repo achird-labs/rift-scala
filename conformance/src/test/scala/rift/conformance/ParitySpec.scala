@@ -232,7 +232,17 @@ object Inventory:
     Op("Intercept", "proxySelector", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "caPem", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "sslContext", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
+    Op("Intercept", "sslContextWithSystemCAs", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "exportTruststore", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
+    Op(
+      "Intercept",
+      "exportTruststoreWithSystemCAs",
+      zio = Yes,
+      cats = Yes,
+      fs2 = ViaCats,
+      pure = Yes
+    ),
+    Op("Intercept", "caMaterial", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "address", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "proxyUri", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
 

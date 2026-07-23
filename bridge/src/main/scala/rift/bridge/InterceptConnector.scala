@@ -5,6 +5,7 @@ import java.nio.file.Path
 import javax.net.ssl.SSLContext
 
 import scala.jdk.CollectionConverters.*
+import scala.jdk.OptionConverters.*
 
 import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.model.Predicate
@@ -52,8 +53,39 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
 
   def sslContext: SSLContext = FacadeBoundary.run(underlying.trust().sslContext())
 
+  /** Like `sslContext`, plus the platform's own trust anchors.
+    *
+    * `sslContext` trusts the intercept CA and nothing else, so a SUT given it can reach the proxy
+    * but no genuinely-trusted host — fine when the SUT's client is configured per-call, wrong when
+    * its whole truststore is replaced. This variant covers the second case.
+    */
+  def sslContextWithSystemCAs: SSLContext =
+    FacadeBoundary.run(underlying.trust().sslContextWithSystemCAs())
+
   def exportTruststore(format: TruststoreFormat, password: String, path: Path): Unit =
     FacadeBoundary.run(underlying.trust().exportTruststore(format.toJava, password, path))
+
+  /** `exportTruststore` plus the platform's own trust anchors — the file form of
+    * `sslContextWithSystemCAs`, for a SUT that takes a truststore path rather than an `SSLContext`.
+    */
+  def exportTruststoreWithSystemCAs(format: TruststoreFormat, password: String, path: Path): Unit =
+    FacadeBoundary.run(
+      underlying.trust().exportTruststoreWithSystemCAs(format.toJava, password, path)
+    )
+
+  /** The generated CA's certificate **and private key**, for persisting a CA across runs.
+    *
+    * The pair is exactly what `CaMaterial.Pem` takes, so a readback feeds straight into the next
+    * `InterceptConfig`. `None` in two cases, both structural rather than transient:
+    *   - a caller-supplied CA, which the engine does not echo back; and
+    *   - an **attached** listener — `interceptAttach`, and `intercept` on a container transport
+    *     with a pre-booted listener. The facade only captures CA material from a start response,
+    *     and its attach constructor leaves the field null, so this is permanently empty there.
+    */
+  def caMaterial: Option[CaMaterial.Pem] =
+    FacadeBoundary.run(
+      underlying.caMaterial().toScala.map(m => CaMaterial.Pem(m.certPem(), m.keyPem()))
+    )
 
   def close(): Unit = FacadeBoundary.run(underlying.close())
 

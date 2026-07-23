@@ -8,7 +8,7 @@ import zio.*
 
 import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
-import rift.bridge.{InterceptConnector, InterceptRule, TruststoreFormat}
+import rift.bridge.{CaMaterial, InterceptConnector, InterceptRule, TruststoreFormat}
 
 /** The ZIO surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.3). Obtained from
   * `Rift.intercept` as a scoped resource — the proxy is torn down on scope release. `proxyUri` is
@@ -32,7 +32,25 @@ trait InterceptHandle:
   def clearRules: IO[RiftError, Unit]
   def caPem: IO[RiftError, String]
   def sslContext: IO[RiftError, SSLContext]
+
+  /** Like `sslContext`, plus the platform's own trust anchors — for a SUT whose whole truststore is
+    * replaced, which `sslContext` alone would leave unable to reach any genuinely-trusted host.
+    */
+  def sslContextWithSystemCAs: IO[RiftError, SSLContext]
   def exportTruststore(format: TruststoreFormat, password: String, path: Path): IO[RiftError, Unit]
+
+  /** `exportTruststore` plus the platform's own trust anchors. */
+  def exportTruststoreWithSystemCAs(
+      format: TruststoreFormat,
+      password: String,
+      path: Path
+  ): IO[RiftError, Unit]
+
+  /** The generated CA's certificate and private key, for persisting a CA across runs. `None` for a
+    * caller-supplied CA (the engine does not echo it back) and always `None` for an attached
+    * listener, whose CA material the facade never captures.
+    */
+  def caMaterial: IO[RiftError, Option[CaMaterial.Pem]]
 
 /** `.when(match)` then a terminal `serve/forward/redirectTo`. The facade builder is stateful, so
   * the ZIO wrapper stays pure by deferring every facade call to the terminal effect: `when`
@@ -70,6 +88,15 @@ private[zio] final case class InterceptHandleLive(connector: InterceptConnector)
   def clearRules: IO[RiftError, Unit] = blockingIO(connector.clearRules())
   def caPem: IO[RiftError, String] = blockingIO(connector.caPem)
   def sslContext: IO[RiftError, SSLContext] = blockingIO(connector.sslContext)
+  def sslContextWithSystemCAs: IO[RiftError, SSLContext] =
+    blockingIO(connector.sslContextWithSystemCAs)
+  def caMaterial: IO[RiftError, Option[CaMaterial.Pem]] = blockingIO(connector.caMaterial)
+  def exportTruststoreWithSystemCAs(
+      format: TruststoreFormat,
+      password: String,
+      path: Path
+  ): IO[RiftError, Unit] =
+    blockingIO(connector.exportTruststoreWithSystemCAs(format, password, path))
   def exportTruststore(
       format: TruststoreFormat,
       password: String,

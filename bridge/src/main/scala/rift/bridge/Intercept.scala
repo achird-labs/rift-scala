@@ -1,5 +1,9 @@
 package rift.bridge
 
+import java.nio.charset.StandardCharsets
+import java.nio.file.Path
+import java.security.KeyStore
+
 import rift.RiftError
 import rift.json.Json
 
@@ -41,11 +45,69 @@ enum TruststoreFormat:
     case TruststoreFormat.Pkcs12 => JTruststoreFormat.PKCS12
     case TruststoreFormat.Jks => JTruststoreFormat.JKS
 
-/** The CA certificate + private key (PEM) an intercept proxy uses to mint per-host leaf certs. A
-  * committed pair (rather than the default generated CA) lets a SUT trust one stable root across
-  * runs — the fixed-CA case the ledger sample (#7) needs.
+/** Where the intercept proxy gets the CA it mints per-host leaf certs with. A committed CA (rather
+  * than the default generated one) lets a SUT trust one stable root across runs — the fixed-CA case
+  * the ledger sample (#7) needs.
+  *
+  * One case per facade `InterceptOptions.Builder.ca` overload, so every source form is reachable
+  * and none is reinterpreted on the way through.
   */
-final case class CaMaterial(certPem: String, keyPem: String)
+enum CaMaterial:
+  /** PEM text, passed to the engine verbatim. */
+  case Pem(certPem: String, keyPem: String)
+
+  /** Paths the **engine** opens, on the engine's own host — not read here.
+    *
+    * The facade serializes these as path strings (`caCertPath`/`caKeyPath`), so for the connect,
+    * spawn and container transports the file must exist where the engine runs, which is not
+    * necessarily this JVM's filesystem. Reading them client-side and sending `Pem` would look
+    * equivalent and quietly change that.
+    */
+  case PemFiles(certPath: Path, keyPath: Path)
+
+  /** A keystore the facade extracts the PEM pair from. The extraction lives in the facade; doing it
+    * here would be a second implementation of someone else's format handling.
+    *
+    * Build this with `CaMaterial.fromKeyStore`, which copies the password so the caller can zero
+    * their own array immediately — the point of a `char[]` password, and impossible if the config
+    * held the caller's array and read it later, at intercept-start time.
+    *
+    * Note this case has reference equality, unlike its siblings: `KeyStore` does not define
+    * `equals`. `InterceptConfig` inherits that, so two configs built from equal-looking keystores
+    * do not compare equal.
+    */
+  case FromKeyStore(keyStore: KeyStore, password: IArray[Char])
+
+  /** Redacted: `caMaterial` now hands callers a real private key, and the derived rendering would
+    * print it in full in any failure message, log line or REPL echo.
+    */
+  override def toString: String = this match
+    case Pem(certPem, keyPem) =>
+      s"CaMaterial.Pem(certPem = ${certPem.length} chars, keyPem = <redacted ${keyPem.length} chars>)"
+    case PemFiles(certPath, keyPath) => s"CaMaterial.PemFiles($certPath, $keyPath)"
+    case FromKeyStore(keyStore, password) =>
+      s"CaMaterial.FromKeyStore(${keyStore.getType}, <redacted ${password.length} chars>)"
+
+object CaMaterial:
+  /** Keeps `CaMaterial(cert, key)` building the PEM case, as it did when this was a case class. */
+  def apply(certPem: String, keyPem: String): CaMaterial.Pem = CaMaterial.Pem(certPem, keyPem)
+
+  /** Copies `password`, so the caller may zero their array as soon as this returns. The config is
+    * read at intercept-start time, not here, so retaining the caller's array would mean a zeroed
+    * password fails much later with an unrecoverable-key error from the facade.
+    */
+  def fromKeyStore(keyStore: KeyStore, password: Array[Char]): CaMaterial.FromKeyStore =
+    CaMaterial.FromKeyStore(keyStore, IArray.unsafeFromArray(password.clone()))
+
+  /** The facade's `ca(byte[], byte[])` overload is `new String(bytes, UTF_8)` delegating to the
+    * `String` one — PEM bytes, never DER — so this is that conversion rather than a fourth case.
+    * `InterceptTranslationSpec` pins the two against each other.
+    */
+  def fromPemBytes(cert: IArray[Byte], key: IArray[Byte]): CaMaterial.Pem =
+    CaMaterial.Pem(
+      new String(IArray.genericWrapArray(cert).toArray, StandardCharsets.UTF_8),
+      new String(IArray.genericWrapArray(key).toArray, StandardCharsets.UTF_8)
+    )
 
 /** Scala-idiomatic mirror of rift-java's `InterceptOptions` — where the TLS-MITM intercept proxy
   * listens and which CA it uses. `ca = None` ⇒ the engine generates an ephemeral CA
@@ -61,7 +123,12 @@ final case class InterceptConfig(
     builder.host(host)
     builder.port(port)
     ca match
-      case Some(CaMaterial(certPem, keyPem)) => builder.ca(certPem, keyPem)
+      case Some(CaMaterial.Pem(certPem, keyPem)) => builder.ca(certPem, keyPem)
+      case Some(CaMaterial.PemFiles(certPath, keyPath)) => builder.ca(certPath, keyPath)
+      case Some(CaMaterial.FromKeyStore(keyStore, password)) =>
+        // A fresh array per call: the facade reads it and drops it, and handing over the config's
+        // own copy would let the facade's caller mutate what a re-used config replays next time.
+        builder.ca(keyStore, IArray.genericWrapArray(password).toArray)
       case None => builder.generateCa()
     builder.build()
 

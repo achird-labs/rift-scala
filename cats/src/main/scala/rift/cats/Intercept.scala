@@ -8,7 +8,7 @@ import _root_.cats.effect.Async
 
 import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
-import rift.bridge.{InterceptConnector, InterceptRule, TruststoreFormat}
+import rift.bridge.{CaMaterial, InterceptConnector, InterceptRule, TruststoreFormat}
 
 /** The Cats Effect surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.6). Obtained from
   * `Rift.intercept` as a `Resource[F, InterceptHandle[F]]` — the proxy is torn down on resource
@@ -33,7 +33,25 @@ trait InterceptHandle[F[_]]:
   def clearRules: F[Unit]
   def caPem: F[String]
   def sslContext: F[SSLContext]
+
+  /** Like `sslContext`, plus the platform's own trust anchors — for a SUT whose whole truststore is
+    * replaced, which `sslContext` alone would leave unable to reach any genuinely-trusted host.
+    */
+  def sslContextWithSystemCAs: F[SSLContext]
   def exportTruststore(format: TruststoreFormat, password: String, path: Path): F[Unit]
+
+  /** `exportTruststore` plus the platform's own trust anchors. */
+  def exportTruststoreWithSystemCAs(
+      format: TruststoreFormat,
+      password: String,
+      path: Path
+  ): F[Unit]
+
+  /** The generated CA's certificate and private key, for persisting a CA across runs. `None` for a
+    * caller-supplied CA (the engine does not echo it back) and always `None` for an attached
+    * listener, whose CA material the facade never captures.
+    */
+  def caMaterial: F[Option[CaMaterial.Pem]]
 
 /** `.when(match)` then a terminal `serve/forward/redirectTo`. The facade builder is stateful, so
   * the wrapper stays pure by deferring every facade call to the terminal effect: `when` accumulates
@@ -71,6 +89,14 @@ private[cats] final class InterceptHandleLive[F[_]: Async](connector: InterceptC
   def clearRules: F[Unit] = blockingF(connector.clearRules())
   def caPem: F[String] = blockingF(connector.caPem)
   def sslContext: F[SSLContext] = blockingF(connector.sslContext)
+  def sslContextWithSystemCAs: F[SSLContext] = blockingF(connector.sslContextWithSystemCAs)
+  def caMaterial: F[Option[CaMaterial.Pem]] = blockingF(connector.caMaterial)
+  def exportTruststoreWithSystemCAs(
+      format: TruststoreFormat,
+      password: String,
+      path: Path
+  ): F[Unit] =
+    blockingF(connector.exportTruststoreWithSystemCAs(format, password, path))
   def exportTruststore(format: TruststoreFormat, password: String, path: Path): F[Unit] =
     blockingF(connector.exportTruststore(format, password, path))
 
