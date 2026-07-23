@@ -27,3 +27,71 @@ jobs:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
           SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
           SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+
+  # Runs only after the artifacts are actually on Sonatype (`needs: publish`), so a failed publish
+  # never leaves an orphan GitHub Release or a README stamped to a version that was never published.
+  # Holds no Sonatype/PGP secrets — only the write token it needs to create the Release and push the
+  # stamp commit.
+  github-release:
+    name: GitHub Release and install-snippet stamp
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create the GitHub Release
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists — leaving it as-is."
+            exit 0
+          fi
+          # Prefer the annotated tag's own message (the repo's release convention: v0.1.1+ are
+          # annotated). Fall back to auto-generated PR notes for a lightweight tag.
+          gh release create "${TAG}" --verify-tag --title "${TAG}" --notes-from-tag \
+            || gh release create "${TAG}" --verify-tag --title "${TAG}" --generate-notes
+
+      - name: Stamp the install snippets to the released version
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          git fetch origin master
+          git switch -C master origin/master
+
+          # rift-scala's own version is NOT pinned in a file — it comes from the git tag via dynver
+          # — so the `rift-scala-*` coordinates and the "current release" line in the install docs
+          # are the one place a released version is written by hand, and nothing re-stamped them
+          # (scripts/bump.sh only touches the rift-java coordinates). They sat at 0.1.0 through three
+          # releases. This closes that: on every release, stamp them to the tag just published so a
+          # copy-paste snippet is never a version behind — the #115 bug class, for our own version.
+          for f in README.md docs/index.md; do
+            sed -E -i "s#(\"rift-scala-[a-z0-9-]+\" % )\"[0-9][0-9.]*\"#\1\"${VERSION}\"#g" "${f}"
+            sed -E -i "s#(release is \*\*)[0-9][0-9.]*#\1${VERSION}#g" "${f}"
+            sed -E -i "s#(release: )[0-9][0-9.]*#\1${VERSION}#g" "${f}"
+          done
+
+          if git diff --quiet -- README.md docs/index.md; then
+            echo "Install docs already at ${VERSION} — nothing to stamp."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "docs: stamp install snippets to ${VERSION} [skip ci]" \
+            -- README.md docs/index.md
+          # Fail-soft: the release itself is already done. A rejected push (master moved during the
+          # release) should warn, not turn a successful release red — the fix is a one-line manual
+          # stamp, and a red release run is a worse signal than a warning annotation.
+          if git push origin HEAD:master; then
+            echo "Stamped install snippets to ${VERSION}."
+          else
+            echo "::warning::Could not push the ${VERSION} install-snippet stamp to master" \
+                 "(it likely moved during the release). Stamp README.md and docs/index.md by hand."
+          fi
