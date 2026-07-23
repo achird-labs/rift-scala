@@ -32,7 +32,7 @@ import io.github.achirdlabs.rift.Rift as JRift
   *   - `dsl`, `verify` — NOT covered by that argument. `FacadeEncode.isSpec` is an explicitly typed
   *     value translation (the facade has no raw-JSON overload there) and its own scaladoc records a
   *     residual it cannot express. These are a deliberate scope boundary for the first cut of this
-  *     gate, not a claim of coverage — widening the regex to them is tracked by #128.
+  *     gate, not a claim of coverage — widening the regex to them is tracked by #130.
   *   - `transport`, `spawn`, `codec` — facade-internal plumbing rift-scala never calls directly.
   *
   * '''Capability keys''' are full erased signatures, `SimpleClassName#method(ParamSimpleName,...)`

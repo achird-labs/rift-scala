@@ -107,7 +107,7 @@ object FacadeCoverage:
     "the facade's Space DOES expose recordedPage/recordedSince — rift-scala's SpaceHandle "
       + "deliberately does not wrap them yet: a space-scoped cursor tail is out of scope for D6, "
       + "which needs only the imposter-level cursor. A real unwrapped capability, recorded as a "
-      + "scope decision rather than a nonexistence claim (tracked by #128)."
+      + "scope decision rather than a nonexistence claim (tracked by #129)."
 
   val entries: Vector[Coverage] = Vector(
     Coverage.Wrapped("RuleKind#SERVE", "rift.bridge.RuleKind#fromJava"),
