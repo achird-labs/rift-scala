@@ -8,6 +8,7 @@ import zio.*
 
 import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
+import rift.model.Port
 import rift.bridge.{CaMaterial, InterceptConnector, InterceptRule, TruststoreFormat}
 
 /** The ZIO surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.3). Obtained from
@@ -63,11 +64,21 @@ trait InterceptRuleBuilder:
   def when(matching: RequestMatch): InterceptRuleBuilder
   def serve(response: ResponseBuilder): IO[RiftError, InterceptRule]
 
-  /** Transparently forward matched traffic to the **port** named by `target`.
+  /** Transparently forward matched traffic to a **local imposter port**.
+    *
+    * The engine's forward action is `ForwardTarget { port: u16 }`, proxied to
+    * `http://127.0.0.1:{port}` — a port is the whole destination, so there is no cross-host
+    * forwarding to express. Composes with the port accessors: `rule(host).forward(imposter.port)`.
+    */
+  def forward(port: Port): IO[RiftError, InterceptRule]
+
+  /** Forward matched traffic to the **port** named by `target` — the facade's own signature, kept
+    * for parity. Prefer `forward(port: Port)`, which cannot express the part that gets discarded.
     *
     * `target` takes the facade's `host:port` form (e.g. `"real.example.com:443"`), but only the
-    * port survives — traffic goes to the matched host on that port, and the host component of
-    * `target` is parsed and discarded.
+    * port survives: the facade sends `{"forward":{"port":N}}` and the engine proxies to
+    * `http://127.0.0.1:{port}`, so the host component of `target` is parsed and discarded. That is
+    * deliberate upstream, not a dropped field: the engine's forward action carries no host.
     *
     * A malformed target (notably a scheme-carrying URL, `"https://real.example.com"`) is rejected
     * before any rule is registered. That rejection is a **defect**, not a `RiftError`: an
@@ -121,6 +132,9 @@ private[zio] final case class InterceptRuleBuilderLive(
 
   def serve(response: ResponseBuilder): IO[RiftError, InterceptRule] =
     blockingIO(built.serve(response))
+
+  def forward(port: Port): IO[RiftError, InterceptRule] =
+    blockingIO(built.forward(port))
 
   def forward(target: String): IO[RiftError, InterceptRule] =
     blockingIO(built.forward(target))

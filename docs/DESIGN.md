@@ -790,8 +790,12 @@ trait FlowStateHandle:
 
 trait InterceptHandle:
   def proxyUri: URI
-  def rule(host: String): InterceptRuleBuilder      // .when(match).serve(resp) | .forward("host:port") | .redirectTo(imposter)
-                                                    // forward: only the PORT is sent; traffic goes to the matched host
+  def rule(host: String): InterceptRuleBuilder      // .when(match).serve(resp) | .forward(port) | .redirectTo(imposter)
+                                                    // forward(port: Port) is the honest signature: the engine's forward
+                                                    // action is `ForwardTarget { port: u16 }`, proxied to 127.0.0.1:{port},
+                                                    // so a port is the whole destination — no cross-host forwarding exists.
+                                                    // forward(target: String) is kept for facade parity; its host component
+                                                    // is parsed and discarded upstream (deliberately, not a dropped field).
   def rule(): InterceptRuleBuilder                  // all-hosts (catch-all) form — matches every intercepted host
   // `serve` carries the _behaviors/_rift constructs IsSpec can express (waits, decorate, repeat,
   // shellTransform, templating, latency/error/tcp faults). copy/lookup/_rift.script and unknown
