@@ -107,7 +107,18 @@ final class InterceptRuleBuilder private[bridge] (
   def serve(response: ResponseBuilder): InterceptRule =
     FacadeBoundary.run(InterceptRule.fromJava(applied.serve(FacadeEncode.isSpec(response))))
 
-  /** Transparently forward matched traffic to `target` (a base URL / host). */
+  /** Transparently forward matched traffic to the **port** named by `target`.
+    *
+    * `target` takes the facade's `host:port` form (e.g. `"real.example.com:443"`), but only the
+    * port survives: the facade sends `{"forward":{"port":N}}` and the rule's own host — the one
+    * given to `rule(host)` — is what the engine matches on. The host component of `target` is
+    * parsed and discarded, so it documents intent and nothing more.
+    *
+    * The port is taken from the substring after the last `':'` and parsed as an int, so a
+    * scheme-carrying URL (`"https://real.example.com"`) is rejected with an
+    * `IllegalArgumentException` naming the target, thrown while evaluating the argument — before
+    * any rule is registered.
+    */
   def forward(target: String): InterceptRule =
     FacadeBoundary.run(InterceptRule.fromJava(applied.forward(target)))
 

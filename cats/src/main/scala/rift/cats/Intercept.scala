@@ -45,6 +45,17 @@ trait InterceptHandle[F[_]]:
 trait InterceptRuleBuilder[F[_]]:
   def when(matching: RequestMatch): InterceptRuleBuilder[F]
   def serve(response: ResponseBuilder): F[InterceptRule]
+
+  /** Transparently forward matched traffic to the **port** named by `target`.
+    *
+    * `target` takes the facade's `host:port` form (e.g. `"real.example.com:443"`), but only the
+    * port survives — traffic goes to the matched host on that port, and the host component of
+    * `target` is parsed and discarded.
+    *
+    * A malformed target (notably a scheme-carrying URL, `"https://real.example.com"`) is rejected
+    * before any rule is registered. That rejection is a **defect**, not a `RiftError`: an
+    * unparseable target is a programming error, so it never reaches the typed error channel.
+    */
   def forward(target: String): F[InterceptRule]
   def redirectTo(imposter: ImposterHandle[F]): F[InterceptRule]
 

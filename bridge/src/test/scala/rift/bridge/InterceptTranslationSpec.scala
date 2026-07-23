@@ -413,6 +413,20 @@ class InterceptTranslationSpec extends FunSuite:
     intercept[NullPointerException](builder.forward("real.example.com:443"))
     assertEquals(facadePredicates(jBuilder).size, (first.predicates ++ second.predicates).size)
 
+  // #100: the scaladoc on every `forward` promises a `host:port` target and says a scheme-carrying
+  // URL is rejected. Nothing pinned that half of the claim. The facade's `parsePort` splits on the
+  // last `':'` and parses the remainder as an int, so `"https://real.example.com"` parses
+  // `"//real.example.com"` and throws — and it throws as an ARGUMENT to `addForwardRule`, i.e.
+  // before any rule is registered. `IllegalArgumentException` (not the `NullPointerException` the
+  // sibling test expects) is what distinguishes "rejected by the facade" from "reached the engine".
+  test("forward rejects a scheme-carrying target before reaching the engine"):
+    val builder = new InterceptRuleBuilder(facadeBuilder()).when(get("/admin"))
+    val thrown = intercept[IllegalArgumentException](builder.forward("https://real.example.com"))
+    // The message pins the thrower: `parsePort` wraps the NumberFormatException in an
+    // IllegalArgumentException naming the target. Without this, a bare NumberFormatException
+    // (a subclass) or an IAE raised anywhere else in the call would satisfy the intercept.
+    assert(thrown.getMessage.contains("https://real.example.com"), thrown.getMessage)
+
   test("a terminal with no when leaves the facade predicates empty — catch-all preserved"):
     val jBuilder = facadeBuilder()
     intercept[NullPointerException](new InterceptRuleBuilder(jBuilder).serve(ok))

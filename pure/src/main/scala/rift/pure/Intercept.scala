@@ -63,6 +63,17 @@ final class InterceptRuleBuilder private[pure] (underlying: rift.bridge.Intercep
   def serve(response: ResponseBuilder): Either[RiftError, InterceptRule] =
     catchRiftError(underlying.serve(response))
 
+  /** Transparently forward matched traffic to the **port** named by `target`.
+    *
+    * `target` takes the facade's `host:port` form (e.g. `"real.example.com:443"`), but only the
+    * port survives — traffic goes to the matched host on that port, and the host component of
+    * `target` is parsed and discarded.
+    *
+    * A malformed target (notably a scheme-carrying URL, `"https://real.example.com"`) is rejected
+    * before any rule is registered. That rejection throws rather than returning a `Left`: an
+    * unparseable target is a programming error, not an engine failure, so `catchRiftError` does not
+    * map it.
+    */
   def forward(target: String): Either[RiftError, InterceptRule] =
     catchRiftError(underlying.forward(target))
 
