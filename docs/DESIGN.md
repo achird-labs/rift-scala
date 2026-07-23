@@ -35,7 +35,11 @@ high-performance Mountebank-compatible HTTP/HTTPS mock server written in Rust.
    a red build.
 
 **Non-goals:** reimplementing FFM/native loading or the admin HTTP client (rift-java owns
-those — issue #3); Scala 2 support; Scala.js/Native (revisit if the engine grows a WASM FFI).
+those — issue #3); Scala 2 support; Scala.js/Native (revisit if the engine grows a WASM FFI);
+wrapping rift-java's `RiftAsync` (`createAsync`/`deleteAllAsync`/`impostersAsync`) — each
+rift-scala effect surface (ZIO, Cats Effect, Kyo, pure) already supplies its own async semantics
+over the blocking bridge, so a facade-level `CompletableFuture` surface would be redundant
+(issue #98).
 
 ---
 
