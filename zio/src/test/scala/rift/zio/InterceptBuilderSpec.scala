@@ -9,7 +9,16 @@ import zio.test.Assertion.*
 
 import rift.RiftError
 import rift.dsl.*
-import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
+import rift.model.{
+  FlowId,
+  Port,
+  RecordedRequest,
+  Stub,
+  StubId,
+  Times,
+  VerificationResult,
+  VerifyDetail
+}
 import rift.bridge.{ImposterDefinition, InterceptGate, RecordSpec, TailEvent, TailFilter}
 
 /** Pure-logic gate for the ZIO intercept rule builder (issue #34). The facade round-trip needs a
@@ -207,6 +216,16 @@ object InterceptBuilderSpec extends ZIOSpecDefault:
     def clearProxyResponses: IO[RiftError, Unit] = die
     def verify(matching: RequestMatch, times: Times): IO[RiftError, Unit] = die
     def verify(matching: RequestMatch, times: Int): IO[RiftError, Unit] = die
+    def verifyResult(
+        matching: RequestMatch,
+        details: VerifyDetail*
+    ): IO[RiftError, VerificationResult] =
+      die
+    def verifyResult(
+        matching: RequestMatch,
+        times: Times,
+        details: VerifyDetail*
+    ): IO[RiftError, VerificationResult] = die
     def verifyNoInteractions: IO[RiftError, Unit] = die
     def requests: ZStream[Any, RiftError, RecordedRequest] = ZStream.die(new NotImplementedError)
     def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest] =

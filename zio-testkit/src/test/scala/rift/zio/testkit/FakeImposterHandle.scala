@@ -8,7 +8,16 @@ import zio.stream.ZStream
 import rift.RiftError
 import rift.bridge.{ImposterDefinition, RecordSpec, TailEvent, TailFilter}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
-import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
+import rift.model.{
+  FlowId,
+  Port,
+  RecordedRequest,
+  Stub,
+  StubId,
+  Times,
+  VerificationResult,
+  VerifyDetail
+}
 import rift.zio.{FlowStateHandle, ImposterHandle, RecordingHandle, Scenarios, SpaceHandle, StubRef}
 
 /** A hand-rolled `ImposterHandle` for the assertion gate tests (`AssertionsSpec`) — no live engine.
@@ -17,7 +26,7 @@ import rift.zio.{FlowStateHandle, ImposterHandle, RecordingHandle, Scenarios, Sp
   * misrepresent a real engine response.
   */
 private[testkit] final class FakeImposterHandle(
-    verifyResult: IO[RiftError, Unit] = ZIO.unit,
+    verifyOutcome: IO[RiftError, Unit] = ZIO.unit,
     verifyNoInteractionsResult: IO[RiftError, Unit] = ZIO.unit
 ) extends ImposterHandle:
 
@@ -43,8 +52,18 @@ private[testkit] final class FakeImposterHandle(
   def clearRecorded(filters: Chunk[TailFilter]): IO[RiftError, Unit] =
     ZIO.die(new NotImplementedError)
   def clearProxyResponses: IO[RiftError, Unit] = ZIO.die(new NotImplementedError)
-  def verify(matching: RequestMatch, times: Times): IO[RiftError, Unit] = verifyResult
-  def verify(matching: RequestMatch, times: Int): IO[RiftError, Unit] = verifyResult
+  def verify(matching: RequestMatch, times: Times): IO[RiftError, Unit] = verifyOutcome
+  def verify(matching: RequestMatch, times: Int): IO[RiftError, Unit] = verifyOutcome
+  def verifyResult(
+      matching: RequestMatch,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult] =
+    ZIO.die(new NotImplementedError)
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult] = ZIO.die(new NotImplementedError)
   def verifyNoInteractions: IO[RiftError, Unit] = verifyNoInteractionsResult
   def requests: ZStream[Any, RiftError, RecordedRequest] = ZStream.die(new NotImplementedError)
   def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest] =

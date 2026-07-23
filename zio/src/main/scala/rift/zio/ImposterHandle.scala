@@ -8,7 +8,17 @@ import zio.stream.ZStream
 
 import rift.RiftError
 import rift.json.Json
-import rift.model.{FlowId, Port, RecordedRequest, ScenarioStatus, Stub, StubId, Times}
+import rift.model.{
+  FlowId,
+  Port,
+  RecordedRequest,
+  ScenarioStatus,
+  Stub,
+  StubId,
+  Times,
+  VerificationResult,
+  VerifyDetail
+}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
 import rift.bridge.{
   ImposterDefinition,
@@ -51,6 +61,19 @@ trait ImposterHandle:
   def clearProxyResponses: IO[RiftError, Unit]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit]
   def verify(matching: RequestMatch, times: Int): IO[RiftError, Unit] // README sugar: exact count
+
+  /** `verify`'s non-throwing counterpart (issue #88): the outcome as a value — including `satisfied
+    * \= false` — rather than a `RiftError.VerificationFailed` failure.
+    */
+  def verifyResult(
+      matching: RequestMatch,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult]
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult]
   def verifyNoInteractions: IO[RiftError, Unit]
   def requests: ZStream[Any, RiftError, RecordedRequest] // 100ms poll
   def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest]
@@ -131,6 +154,19 @@ private[zio] final case class ImposterHandleLive(connector: rift.bridge.Imposter
 
   def verify(matching: RequestMatch, times: Int): IO[RiftError, Unit] =
     verify(matching, Times.Exactly(times))
+
+  def verifyResult(
+      matching: RequestMatch,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult] =
+    blockingIO(connector.verifyResult(matching, details*))
+
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult] =
+    blockingIO(connector.verifyResult(matching, times, details*))
 
   def verifyNoInteractions: IO[RiftError, Unit] = blockingIO(connector.verifyNoInteractions())
 
@@ -242,6 +278,15 @@ trait SpaceHandle:
   def stubs: IO[RiftError, Chunk[Stub]]
   def recorded: IO[RiftError, Chunk[RecordedRequest]]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit]
+  def verifyResult(
+      matching: RequestMatch,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult]
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult]
   def delete: IO[RiftError, Unit]
 
 private[zio] final case class SpaceHandleLive(underlying: rift.bridge.SpaceHandle)
@@ -261,6 +306,19 @@ private[zio] final case class SpaceHandleLive(underlying: rift.bridge.SpaceHandl
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit] =
     blockingIO(underlying.verify(matching, times))
+
+  def verifyResult(
+      matching: RequestMatch,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult] =
+    blockingIO(underlying.verifyResult(matching, details*))
+
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): IO[RiftError, VerificationResult] =
+    blockingIO(underlying.verifyResult(matching, times, details*))
 
   def delete: IO[RiftError, Unit] = blockingIO(underlying.delete())
 

@@ -6,7 +6,7 @@ import java.nio.file.Files
 import munit.FunSuite
 
 import rift.dsl.*
-import rift.model.Port
+import rift.model.{Port, Times, VerifyDetail}
 
 /** AC8 — a real end-to-end smoke over the embedded engine, proving the connector wiring against a
   * live engine. Guarded on `isEmbeddedAvailable`: runs wherever the embedded runtime is present —
@@ -45,6 +45,52 @@ class EmbeddedSmokeSpec extends FunSuite:
 
       assertEquals(imp.recorded(), Vector.empty)
       imp.verifyNoInteractions()
+
+      imp.delete()
+    finally conn.close()
+
+  test(
+    "embedded: verifyResult — satisfied with a matched count, and an unsatisfied result " +
+      "returned as a value rather than thrown"
+  ):
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
+
+    val conn = RiftConnector.embedded()
+    try
+      val imp = conn.create(imposter("verify-result").port(0).record.build)
+      imp.addStub(get("/ping").reply(ok).build)
+
+      val client = java.net.http.HttpClient.newHttpClient()
+      val request = java.net.http.HttpRequest.newBuilder(imp.uri.resolve("/ping")).GET().build()
+      client.send(request, java.net.http.HttpResponse.BodyHandlers.discarding())
+
+      val satisfied = imp.verifyResult(get("/ping"))
+      assertEquals(satisfied.satisfied, true)
+      assertEquals(satisfied.matched, 1)
+      // No VerifyDetail asked for ⇒ the engine attaches neither. Pinning the empty side is what
+      // makes the populated assertions below evidence that the flags travelled.
+      assertEquals(satisfied.requests, Vector.empty)
+      assertEquals(satisfied.closest, None)
+
+      // Times.Exactly(2) can never be satisfied by the single request just fired — verifyResult
+      // must hand that back as a value (`satisfied = false`), the exact capability the throwing
+      // `verify` cannot provide.
+      val unsatisfied =
+        imp.verifyResult(
+          get("/ping"),
+          Times.Exactly(2),
+          VerifyDetail.Requests,
+          VerifyDetail.Closest
+        )
+      assertEquals(unsatisfied.satisfied, false)
+      assertEquals(unsatisfied.matched, 1)
+      // Load-bearing: without these, dropping `FacadeEncode.verifyDetails(details)*` from the
+      // connector call would leave every test green.
+      assert(unsatisfied.requests.nonEmpty, "VerifyDetail.Requests did not reach the engine")
+      assert(
+        unsatisfied.requests.forall(_.path == "/ping"),
+        unsatisfied.requests.map(_.path).toString
+      )
 
       imp.delete()
     finally conn.close()

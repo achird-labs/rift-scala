@@ -10,18 +10,23 @@ import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.json.{Json, JsonError}
 import rift.model.{
   Behaviors,
+  ClosestMiss,
   ErrorFault,
+  FailedPredicate,
   FaultConfig,
   FlowId,
   Headers,
   IsResponse,
   LatencyFault,
+  Predicate,
   RecordedRequest,
   Response,
   RiftResponseExt,
   Stub,
   TcpFaultKind,
   Times,
+  VerificationResult,
+  VerifyDetail,
   WaitBehavior
 }
 
@@ -82,6 +87,31 @@ private[bridge] object FacadeDecode:
     case Right(j) => j
     case Left(err) => throw RiftError.DecodeFailed(err.toString, None)
 
+  /** `verifyResult`'s non-throwing counterpart to `translateReport` (`RiftError.scala`) — but
+    * unlike that best-effort, drop-on-decode-failure rendering, this is real response data: any
+    * decode failure inside `requests`/`closest` propagates as `RiftError.DecodeFailed` via
+    * `decodeOrThrow`/`json`, never a silently partial `VerificationResult`.
+    */
+  def verificationResult(jr: jverify.VerificationResult): VerificationResult =
+    VerificationResult(
+      matched = jr.matched(),
+      total = jr.total(),
+      satisfied = jr.satisfied(),
+      requests = recordedRequests(jr.requests()),
+      closest = jr.closest().toScala.map(closestMiss)
+    )
+
+  private def closestMiss(jc: jverify.ClosestMiss): ClosestMiss =
+    ClosestMiss(
+      request = recordedRequest(jc.request()),
+      failedPredicates = jc.failedPredicates().asScala.toVector.map { fp =>
+        FailedPredicate(
+          predicate = decodeOrThrow(fp.predicate().toJson(), Predicate.fromJson),
+          actual = json(fp.actual())
+        )
+      }
+    )
+
   private def decodeOrThrow[A](
       raw: String,
       decode: Json => Either[JsonError.Decode, A]
@@ -130,6 +160,15 @@ private[bridge] object FacadeEncode:
     case Times.AtLeast(n) => jverify.VerificationTimes.atLeast(n)
     case Times.AtMost(n) => jverify.VerificationTimes.atMost(n)
     case Times.Between(lo, hi) => jverify.VerificationTimes.between(lo, hi)
+
+  /** Total mapping of `VerifyDetail` onto the facade's varargs enum — `verifyResult`'s detail flags
+    * travel entirely inside this array, nothing else to encode Scala-side.
+    */
+  def verifyDetails(details: Seq[VerifyDetail]): Array[jverify.VerifyDetail] =
+    details.map {
+      case VerifyDetail.Requests => jverify.VerifyDetail.REQUESTS
+      case VerifyDetail.Closest => jverify.VerifyDetail.CLOSEST
+    }.toArray
 
   private val binaryMarker: (String, Json) = ("_mode", Json.Str("binary"))
 

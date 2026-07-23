@@ -6,7 +6,16 @@ import _root_.cats.effect.{IO, Resource}
 
 import rift.bridge.{ImposterDefinition, RecordSpec, RecordedPage, TailFilter}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
-import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
+import rift.model.{
+  FlowId,
+  Port,
+  RecordedRequest,
+  Stub,
+  StubId,
+  Times,
+  VerificationResult,
+  VerifyDetail
+}
 import rift.cats.{FlowStateHandle, ImposterHandle, RecordingHandle, Scenarios, SpaceHandle, StubRef}
 
 /** A hand-rolled `ImposterHandle[IO]` for the assertion gate tests (`AssertionsSpec`) — no live
@@ -15,7 +24,7 @@ import rift.cats.{FlowStateHandle, ImposterHandle, RecordingHandle, Scenarios, S
   * misrepresent a real engine response.
   */
 private[testkit] final class FakeImposterHandle(
-    verifyResult: IO[Unit] = IO.unit,
+    verifyOutcome: IO[Unit] = IO.unit,
     verifyNoInteractionsResult: IO[Unit] = IO.unit
 ) extends ImposterHandle[IO]:
 
@@ -44,8 +53,15 @@ private[testkit] final class FakeImposterHandle(
   def clearRecorded(filters: rift.bridge.TailFilter*): IO[Unit] =
     IO.raiseError(new NotImplementedError)
   def clearProxyResponses: IO[Unit] = IO.raiseError(new NotImplementedError)
-  def verify(matching: RequestMatch, times: Times): IO[Unit] = verifyResult
-  def verify(matching: RequestMatch, times: Int): IO[Unit] = verifyResult
+  def verify(matching: RequestMatch, times: Times): IO[Unit] = verifyOutcome
+  def verify(matching: RequestMatch, times: Int): IO[Unit] = verifyOutcome
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): IO[VerificationResult] =
+    IO.raiseError(new NotImplementedError)
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): IO[VerificationResult] = IO.raiseError(new NotImplementedError)
   def verifyNoInteractions: IO[Unit] = verifyNoInteractionsResult
   def startRecording(origin: URI, spec: RecordSpec): Resource[IO, RecordingHandle[IO]] =
     Resource.eval(IO.raiseError(new NotImplementedError))

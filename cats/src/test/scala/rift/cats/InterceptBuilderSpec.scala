@@ -10,7 +10,16 @@ import munit.FunSuite
 import rift.RiftError
 import rift.bridge.{ImposterDefinition, InterceptGate, RecordSpec, RecordedPage, TailFilter}
 import rift.dsl.*
-import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
+import rift.model.{
+  FlowId,
+  Port,
+  RecordedRequest,
+  Stub,
+  StubId,
+  Times,
+  VerificationResult,
+  VerifyDetail
+}
 
 /** Pure-logic gate for the Cats intercept rule builder (issue #45, mirrors the ZIO
   * `InterceptBuilderSpec` for #34). The facade round-trip needs a live engine (the bridge
@@ -195,6 +204,12 @@ class InterceptBuilderSpec extends FunSuite:
     def clearProxyResponses: IO[Unit] = raise
     def verify(matching: RequestMatch, times: Times): IO[Unit] = raise
     def verify(matching: RequestMatch, times: Int): IO[Unit] = raise
+    def verifyResult(matching: RequestMatch, details: VerifyDetail*): IO[VerificationResult] = raise
+    def verifyResult(
+        matching: RequestMatch,
+        times: Times,
+        details: VerifyDetail*
+    ): IO[VerificationResult] = raise
     def verifyNoInteractions: IO[Unit] = raise
     def startRecording(origin: URI, spec: RecordSpec): Resource[IO, RecordingHandle[IO]] =
       Resource.eval(raise)

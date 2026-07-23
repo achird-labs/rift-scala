@@ -14,7 +14,16 @@ import rift.cats.{FlowStateHandle, ImposterHandle, Scenarios, SpaceHandle, StubR
 import rift.dsl.*
 import rift.json.Json
 import rift.model.Method.GET
-import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
+import rift.model.{
+  FlowId,
+  Port,
+  RecordedRequest,
+  Stub,
+  StubId,
+  Times,
+  VerificationResult,
+  VerifyDetail
+}
 
 /** `awaitRequests` — the await-n-requests idiom (DESIGN.md §5.7, issue #9) — layered directly on
   * `ImposterHandle[F]`, so it is exercised here against a scripted handle rather than against
@@ -84,6 +93,13 @@ class AwaitRequestsSpec extends CatsEffectSuite:
         def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[Unit] =
           unimplemented
         def verify(matching: RequestMatch, times: Int): IO[Unit] = unimplemented
+        def verifyResult(matching: RequestMatch, details: VerifyDetail*): IO[VerificationResult] =
+          unimplemented
+        def verifyResult(
+            matching: RequestMatch,
+            times: Times,
+            details: VerifyDetail*
+        ): IO[VerificationResult] = unimplemented
         def verifyNoInteractions: IO[Unit] = unimplemented
         def scenarios: Scenarios[IO] = ???
         def space(flowId: FlowId): SpaceHandle[IO] = ???
