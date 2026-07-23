@@ -49,10 +49,16 @@ object FacadeInvocations:
   private val BridgePackage = "rift/bridge/"
   private val FacadePackage = "io/github/achirdlabs/rift/"
 
-  /** Depth is a backstop against a pathological call graph, not a tuning knob — the real bridge
-    * chains are 2-3 hops (named method → lambda → private helper → facade).
+  /** A backstop against a pathological call graph, not a tuning knob — but it has to clear the real
+    * chains with room to spare, because falling short under-approximates and an under-approximation
+    * reads as "this row is a lie".
+    *
+    * The deep case is `FacadeEncode.isSpec` reaching the `Fault` constants: every `Option.fold` on
+    * the way spends a hop on its lambda, so `isSpec → isSpecFromIs → applyRiftExt → λ → applyFault
+    * → λ → tcpFault` is already 7. At 6 the `dsl` seeding silently produced four false `Excluded`
+    * rows for constants `Facade.scala` demonstrably reads.
     */
-  private val MaxDepth = 6
+  private val MaxDepth = 16
 
   private val classCache = mutable.Map.empty[String, Option[ClassNode]]
 

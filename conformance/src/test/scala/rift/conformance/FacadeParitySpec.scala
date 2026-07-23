@@ -29,11 +29,12 @@ import io.github.achirdlabs.rift.Rift as JRift
   *   - `json`, `model`, `error` — genuinely covered: everything crosses via the D2 raw-JSON seam
   *     (`FacadeEncode`/`FacadeDecode`) and `RiftError.fromThrowable`'s total mapping, both gated by
   *     the existing translation and conformance suites.
-  *   - `dsl`, `verify` — NOT covered by that argument. `FacadeEncode.isSpec` is an explicitly typed
-  *     value translation (the facade has no raw-JSON overload there) and its own scaladoc records a
-  *     residual it cannot express. These are a deliberate scope boundary for the first cut of this
-  *     gate, not a claim of coverage — widening the regex to them is tracked by #130.
   *   - `transport`, `spawn`, `codec` — facade-internal plumbing rift-scala never calls directly.
+  *
+  * `dsl` and `verify` ARE enumerated (#130), because the D2 argument never covered them:
+  * `FacadeEncode.isSpec` is an explicitly typed value translation with a residual it refuses rather
+  * than degrades. Their rows were seeded from the bytecode by check (c2) rather than by hand — the
+  * eight mislabels that motivated (c2) came from hand-seeding this very list.
   *
   * '''Capability keys''' are full erased signatures, `SimpleClassName#method(ParamSimpleName,...)`
   * — not bare names — because the CA rows in #86 were *overload* gaps on an already-wrapped method
@@ -105,7 +106,7 @@ class FacadeParitySpec extends FunSuite:
         .entries()
         .asScala
         .map(_.getName)
-        .filter(n => n.matches("io/github/achirdlabs/rift/[^/]+\\.class"))
+        .filter(n => n.matches("io/github/achirdlabs/rift/(?:dsl/|verify/)?[^/]+\\.class"))
         .map(n => Class.forName(n.stripSuffix(".class").replace('/', '.')))
         .filter(c => Modifier.isPublic(c.getModifiers) && !c.getSimpleName.endsWith("Impl"))
         .flatMap(c => publicCapabilityMethods(c) ++ enumConstantCapabilities(c))
