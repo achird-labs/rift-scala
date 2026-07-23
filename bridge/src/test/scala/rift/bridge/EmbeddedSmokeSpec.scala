@@ -42,7 +42,7 @@ class EmbeddedSmokeSpec extends FunSuite:
       try
         assert(ic.proxyUri.toString.nonEmpty)
         ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
-        ic.rule("legacy.example.com").forward("https://real.example.com")
+        ic.rule("legacy.example.com").forward("real.example.com:443")
         assert(ic.rules.sizeIs >= 2)
 
         // All-hosts rule (#80): the engine stores it with no `host` key, and the terminal must hand
