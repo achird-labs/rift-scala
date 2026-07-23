@@ -163,8 +163,8 @@ class FacadeParitySpec extends FunSuite:
     }
 
   /** `by` is `fully.qualified.ClassName#methodName`; resolves when the class loads and declares a
-    * method of that name (any overload — decision (c) only asks the *name* still exists, since that
-    * is what proves the pointer hasn't rotted after a rename/move).
+    * method of that name (any overload — the *name* existing is what proves the pointer hasn't
+    * rotted after a rename/move; whether it does the right thing is `wrappedByInvokes` below).
     */
   private def wrappedByResolves(by: String): Boolean =
     val hash = by.indexOf('#')
@@ -175,10 +175,45 @@ class FacadeParitySpec extends FunSuite:
       catch case _: ClassNotFoundException => false
     }
 
+  /** The truth-check (#130): does the bridge member `by` names actually invoke the facade member
+    * `facade` names? Resolution alone only says the pointer parses — a plausible-but-wrong pointer
+    * passed it silently, which is how eight rows shipped mislabelled while seeding #98.
+    *
+    * Reads bytecode via `FacadeInvocations`, following `rift.bridge` callees so the
+    * `FacadeBoundary` lambdas and the private translation helpers are included.
+    */
+  private def wrappedByInvokes(facade: String, by: String): Boolean =
+    val hash = by.indexOf('#')
+    hash > 0 && FacadeInvocations
+      .reachableCapabilities(by.substring(0, hash), by.substring(hash + 1))
+      .contains(facade)
+
+  /** What `by` *does* reach — quoted in the failure message so a wrong pointer is fixed by reading
+    * the list rather than by another hand-run `javap` sweep.
+    */
+  private def reachedFrom(by: String): Vector[String] =
+    val hash = by.indexOf('#')
+    if hash <= 0 then Vector.empty
+    else
+      FacadeInvocations
+        .reachableCapabilities(by.substring(0, hash), by.substring(hash + 1))
+        .toVector
+        .sorted
+
   private def unresolvedWrapped(coverage: Vector[Coverage]): Vector[String] =
     coverage.collect {
       case Coverage.Wrapped(facade, by) if !wrappedByResolves(by) =>
         s"""Wrapped("$facade", "$by") — "$by" does not resolve to a declared method"""
+    }
+
+  private def uninvokedWrapped(coverage: Vector[Coverage]): Vector[String] =
+    coverage.collect {
+      case Coverage.Wrapped(facade, by) if wrappedByResolves(by) && !wrappedByInvokes(facade, by) =>
+        val reached = reachedFrom(by)
+        val sample =
+          if reached.isEmpty then "    (it reaches no facade member at all)"
+          else reached.map(r => s"    $r").mkString("\n")
+        s"""Wrapped("$facade", "$by") — "$by" never invokes "$facade". It reaches:\n$sample"""
     }
 
   private def blankReasons(coverage: Vector[Coverage]): Vector[String] =
@@ -219,6 +254,14 @@ class FacadeParitySpec extends FunSuite:
     val unresolved = unresolvedWrapped(FacadeCoverage.entries)
     assert(unresolved.isEmpty, s"unresolved Wrapped.by entries:\n${unresolved.mkString("\n")}")
 
+  test("(c2) every Wrapped.by actually invokes the facade capability its key names"):
+    val uninvoked = uninvokedWrapped(FacadeCoverage.entries)
+    assert(
+      uninvoked.isEmpty,
+      s"${uninvoked.size} Wrapped row(s) point at a bridge member that does not call the " +
+        s"capability they claim:\n${uninvoked.mkString("\n")}"
+    )
+
   test("(d) every Excluded/ExcludedClass reason is non-blank"):
     val blanks = blankReasons(FacadeCoverage.entries)
     assert(blanks.isEmpty, s"blank-reason FacadeCoverage entries:\n${blanks.mkString("\n")}")
@@ -249,6 +292,96 @@ class FacadeParitySpec extends FunSuite:
     assert(
       unresolvedWrapped(bad).nonEmpty,
       "a Wrapped.by naming a nonexistent class must be flagged"
+    )
+
+  // The failure mode (c2) exists for, and the one (c) alone cannot see: a pointer that resolves —
+  // real class, real method — but names a capability that method never touches. Eight rows shipped
+  // in this exact shape while seeding #98.
+  test("self-test: a Wrapped.by pointing at a real method that never calls the key fails (c2)"):
+    val bad = Vector(Coverage.Wrapped("Imposter#delete()", "rift.bridge.ImposterConnector#stubs"))
+    assert(
+      unresolvedWrapped(bad).isEmpty,
+      "precondition: the pointer must resolve, so only (c2) can catch it"
+    )
+    assert(
+      uninvokedWrapped(bad).nonEmpty,
+      "a resolving pointer whose method never invokes the keyed capability must be flagged"
+    )
+
+  // ...and the converse, so (c2) cannot be satisfied by a check that just always fails.
+  test("self-test: a truthful Wrapped.by passes (c2)"):
+    val good = Vector(Coverage.Wrapped("Imposter#stubs()", "rift.bridge.ImposterConnector#stubs"))
+    assert(uninvokedWrapped(good).isEmpty, "a pointer that does invoke its key must not be flagged")
+
+  // The lambda case specifically: `ImposterConnector.delete` is `FacadeBoundary.run(underlying
+  // .delete())`, so the facade call is inside a synthetic body. A check that read only the named
+  // method's own instructions would see nothing and fail this.
+  test("self-test: (c2) sees through a FacadeBoundary.run lambda"):
+    val throughLambda =
+      Vector(Coverage.Wrapped("Imposter#delete()", "rift.bridge.ImposterConnector#delete"))
+    assert(
+      uninvokedWrapped(throughLambda).isEmpty,
+      "the by-name FacadeBoundary.run body must be followed, or every row would fail"
+    )
+
+  // A `val`'s initializer runs in the constructor, so the accessor is a bare field read — the
+  // pointer is still honest and must pass.
+  test("self-test: (c2) sees a capability called from a val initializer"):
+    val fromInitializer =
+      Vector(Coverage.Wrapped("RiftVersion#get()", "rift.bridge.RiftVersions#riftJava"))
+    assert(
+      uninvokedWrapped(fromInitializer).isEmpty,
+      "a capability invoked in a field initializer must count for the member it initializes"
+    )
+
+  // ...and the trap that makes the rule above dangerous if applied per-class: a Scala `object`
+  // initializes EVERY val in one `<clinit>`, so pulling the whole initializer in would make its
+  // members interchangeable and let these two pointers be swapped undetected — the exact
+  // plausible-but-wrong shape (c2) exists to catch.
+  test("self-test: (c2) does not let sibling vals of one object cover each other"):
+    val swapped =
+      Vector(Coverage.Wrapped("RiftVersion#engineVersion()", "rift.bridge.RiftVersions#riftJava"))
+    assert(
+      unresolvedWrapped(swapped).isEmpty,
+      "precondition: the pointer resolves, so only (c2) can catch it"
+    )
+    assert(
+      uninvokedWrapped(swapped).nonEmpty,
+      "a sibling val's capability must NOT be reachable — initializers are attributed per field"
+    )
+
+  // Key rendering: an owner nested inside another type, and an array-of-nested parameter. The real
+  // rows catch a broken renderer too, but they present it as "170 rows are lying" rather than
+  // pointing at the renderer.
+  test("self-test: (c2) renders nested owners and array params the way the enumeration does"):
+    val nested = Vector(
+      Coverage.Wrapped(
+        "EventStreamOptions.Builder#types(EventType[])",
+        "rift.bridge.EventStreamConfig#toOptions"
+      )
+    )
+    assert(
+      uninvokedWrapped(nested).isEmpty,
+      "a nested owner with an array-of-nested param must match the enumerated key exactly"
+    )
+
+  // Enum constants are read, not called, so they need the GETSTATIC path rather than an invocation.
+  test("self-test: (c2) counts an enum constant read"):
+    val constant = Vector(Coverage.Wrapped("RuleKind#SERVE", "rift.bridge.RuleKind#toJava"))
+    assert(
+      uninvokedWrapped(constant).isEmpty,
+      "an enum constant must be covered by the GETSTATIC that reads it"
+    )
+
+  // The bridge deliberately mirrors facade type and method names, so a bridge-internal call renders
+  // byte-identically to a facade capability key. Counting those would let a bridge self-call
+  // satisfy a facade row.
+  test("self-test: (c2) does not count a bridge self-call that shadows a facade name"):
+    val shadowed = Vector(Coverage.Wrapped("RecordSpec#mode()", "rift.bridge.RecordSpec#toJava"))
+    assert(unresolvedWrapped(shadowed).isEmpty, "precondition: the pointer resolves")
+    assert(
+      uninvokedWrapped(shadowed).nonEmpty,
+      "rift.bridge.RecordSpec#mode() must not satisfy the facade's RecordSpec#mode()"
     )
 
   test("self-test: a fabricated stale key fails check (b)"):

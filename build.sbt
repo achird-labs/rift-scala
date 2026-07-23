@@ -229,7 +229,8 @@ lazy val conformance = riftModule("conformance", "conformance")
   .settings(
     publish / skip := true,
     libraryDependencies ++=
-      Dependencies.zioTestDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps,
+      Dependencies.zioTestDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps ++
+        Dependencies.asmTestDeps,
     // G3 replay runs against a live engine: embedded (in-process FFM) on JDK 22+, spawn (out-of-process
     // child) on JDK 21. The embedded jars + `--enable-native-access` are wired only on a JDK that can
     // load them; the forked test JVM inherits the runner's env, so `RIFT_G3_REQUIRE` reaches the
