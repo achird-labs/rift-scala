@@ -324,6 +324,66 @@ class FacadeParitySpec extends FunSuite:
       "the by-name FacadeBoundary.run body must be followed, or every row would fail"
     )
 
+  // A `val`'s initializer runs in the constructor, so the accessor is a bare field read — the
+  // pointer is still honest and must pass.
+  test("self-test: (c2) sees a capability called from a val initializer"):
+    val fromInitializer =
+      Vector(Coverage.Wrapped("RiftVersion#get()", "rift.bridge.RiftVersions#riftJava"))
+    assert(
+      uninvokedWrapped(fromInitializer).isEmpty,
+      "a capability invoked in a field initializer must count for the member it initializes"
+    )
+
+  // ...and the trap that makes the rule above dangerous if applied per-class: a Scala `object`
+  // initializes EVERY val in one `<clinit>`, so pulling the whole initializer in would make its
+  // members interchangeable and let these two pointers be swapped undetected — the exact
+  // plausible-but-wrong shape (c2) exists to catch.
+  test("self-test: (c2) does not let sibling vals of one object cover each other"):
+    val swapped =
+      Vector(Coverage.Wrapped("RiftVersion#engineVersion()", "rift.bridge.RiftVersions#riftJava"))
+    assert(
+      unresolvedWrapped(swapped).isEmpty,
+      "precondition: the pointer resolves, so only (c2) can catch it"
+    )
+    assert(
+      uninvokedWrapped(swapped).nonEmpty,
+      "a sibling val's capability must NOT be reachable — initializers are attributed per field"
+    )
+
+  // Key rendering: an owner nested inside another type, and an array-of-nested parameter. The real
+  // rows catch a broken renderer too, but they present it as "170 rows are lying" rather than
+  // pointing at the renderer.
+  test("self-test: (c2) renders nested owners and array params the way the enumeration does"):
+    val nested = Vector(
+      Coverage.Wrapped(
+        "EventStreamOptions.Builder#types(EventType[])",
+        "rift.bridge.EventStreamConfig#toOptions"
+      )
+    )
+    assert(
+      uninvokedWrapped(nested).isEmpty,
+      "a nested owner with an array-of-nested param must match the enumerated key exactly"
+    )
+
+  // Enum constants are read, not called, so they need the GETSTATIC path rather than an invocation.
+  test("self-test: (c2) counts an enum constant read"):
+    val constant = Vector(Coverage.Wrapped("RuleKind#SERVE", "rift.bridge.RuleKind#toJava"))
+    assert(
+      uninvokedWrapped(constant).isEmpty,
+      "an enum constant must be covered by the GETSTATIC that reads it"
+    )
+
+  // The bridge deliberately mirrors facade type and method names, so a bridge-internal call renders
+  // byte-identically to a facade capability key. Counting those would let a bridge self-call
+  // satisfy a facade row.
+  test("self-test: (c2) does not count a bridge self-call that shadows a facade name"):
+    val shadowed = Vector(Coverage.Wrapped("RecordSpec#mode()", "rift.bridge.RecordSpec#toJava"))
+    assert(unresolvedWrapped(shadowed).isEmpty, "precondition: the pointer resolves")
+    assert(
+      uninvokedWrapped(shadowed).nonEmpty,
+      "rift.bridge.RecordSpec#mode() must not satisfy the facade's RecordSpec#mode()"
+    )
+
   test("self-test: a fabricated stale key fails check (b)"):
     val realCapabilities = Set("Real#cap()")
     val bad = Vector(Coverage.Excluded("TotallyMadeUp#nope()", "fabricated for the self-test"))
