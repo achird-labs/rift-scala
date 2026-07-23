@@ -56,6 +56,7 @@ final class ImposterBuilder private[dsl] (
     private val serviceInfoValue: Option[Json] = None,
     private val recordRequestsFlag: Boolean = false,
     private val recordMatchesFlag: Boolean = false,
+    private val enabledFlag: Boolean = true,
     private val stubsValue: Vector[Stub] = Vector.empty,
     private val defaultResponseValue: Option[IsResponse] = None,
     private val defaultForwardValue: Option[String] = None,
@@ -74,6 +75,7 @@ final class ImposterBuilder private[dsl] (
       serviceInfoValue: Option[Json] = this.serviceInfoValue,
       recordRequestsFlag: Boolean = this.recordRequestsFlag,
       recordMatchesFlag: Boolean = this.recordMatchesFlag,
+      enabledFlag: Boolean = this.enabledFlag,
       stubsValue: Vector[Stub] = this.stubsValue,
       defaultResponseValue: Option[IsResponse] = this.defaultResponseValue,
       defaultForwardValue: Option[String] = this.defaultForwardValue,
@@ -83,23 +85,26 @@ final class ImposterBuilder private[dsl] (
       riftValue: Option[RiftConfig] = this.riftValue,
       extraValue: Vector[(String, Json)] = this.extraValue
   ): ImposterBuilder =
+    // Named, not positional: the constructor carries five `Boolean`s, three of them adjacent, so a
+    // positional call silently swaps flags the moment one is inserted.
     new ImposterBuilder(
-      nameValue,
-      portValue,
-      hostValue,
-      protocolValue,
-      serviceNameValue,
-      serviceInfoValue,
-      recordRequestsFlag,
-      recordMatchesFlag,
-      stubsValue,
-      defaultResponseValue,
-      defaultForwardValue,
-      allowCorsFlag,
-      strictBehaviorsFlag,
-      tlsValue,
-      riftValue,
-      extraValue
+      nameValue = nameValue,
+      portValue = portValue,
+      hostValue = hostValue,
+      protocolValue = protocolValue,
+      serviceNameValue = serviceNameValue,
+      serviceInfoValue = serviceInfoValue,
+      recordRequestsFlag = recordRequestsFlag,
+      recordMatchesFlag = recordMatchesFlag,
+      enabledFlag = enabledFlag,
+      stubsValue = stubsValue,
+      defaultResponseValue = defaultResponseValue,
+      defaultForwardValue = defaultForwardValue,
+      allowCorsFlag = allowCorsFlag,
+      strictBehaviorsFlag = strictBehaviorsFlag,
+      tlsValue = tlsValue,
+      riftValue = riftValue,
+      extraValue = extraValue
     )
 
   /** `0` requests an engine-assigned ephemeral port (an absent `Port`, the same convention as
@@ -123,6 +128,17 @@ final class ImposterBuilder private[dsl] (
     withState(defaultResponseValue = Some(response.buildIs))
 
   def defaultForward(url: String): ImposterBuilder = withState(defaultForwardValue = Some(url))
+
+  /** Provision the imposter paused (rift#818): it is created but serves nothing until the engine's
+    * runtime toggle enables it.
+    */
+  def disabled: ImposterBuilder = withState(enabledFlag = false)
+
+  /** Un-pause a builder that arrived paused. Unlike the flags that default to `false`, the
+    * constructor default cannot express this one — `imposterFromJson` on a paused document carries
+    * `enabled = false` in, and without this there is no way back out.
+    */
+  def enabled: ImposterBuilder = withState(enabledFlag = true)
 
   def allowCors: ImposterBuilder = withState(allowCorsFlag = true)
   def strictBehaviors: ImposterBuilder = withState(strictBehaviorsFlag = true)
@@ -188,6 +204,7 @@ final class ImposterBuilder private[dsl] (
       serviceInfo = serviceInfoValue,
       recordRequests = recordRequestsFlag,
       recordMatches = recordMatchesFlag,
+      enabled = enabledFlag,
       stubs = stubsValue,
       defaultResponse = defaultResponseValue,
       defaultForward = defaultForwardValue,
@@ -210,6 +227,7 @@ private def fromDefinition(definition: ImposterDefinition): ImposterBuilder =
     protocolValue = definition.protocol,
     recordRequestsFlag = definition.recordRequests,
     recordMatchesFlag = definition.recordMatches,
+    enabledFlag = definition.enabled,
     stubsValue = definition.stubs,
     defaultResponseValue = definition.defaultResponse,
     defaultForwardValue = definition.defaultForward,

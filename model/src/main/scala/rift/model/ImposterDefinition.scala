@@ -15,6 +15,11 @@ final case class ImposterDefinition(
     serviceInfo: Option[Json] = None,
     recordRequests: Boolean = false,
     recordMatches: Boolean = false,
+    /** rift#818 (engine 0.16.0): persisted config, not runtime ephemera. The engine defaults to
+      * enabled and serializes the key only when false, so documents written before the field
+      * existed stay byte-identical.
+      */
+    enabled: Boolean = true,
     stubs: Vector[Stub] = Vector.empty,
     defaultResponse: Option[IsResponse] = None,
     defaultForward: Option[String] = None,
@@ -34,6 +39,9 @@ final case class ImposterDefinition(
       serviceInfo.map(i => "serviceInfo" -> i),
       if recordRequests then Some("recordRequests" -> Json.Bool(true)) else None,
       if recordMatches then Some("recordMatches" -> Json.Bool(true)) else None,
+      // Inverted against its siblings on purpose: the engine's default is true, so `false` is the
+      // non-default worth writing.
+      if enabled then None else Some("enabled" -> Json.Bool(false)),
       if stubs.nonEmpty then Some("stubs" -> Json.Arr(stubs.map(_.toJson))) else None,
       defaultResponse.map(r => "defaultResponse" -> r.toJson),
       defaultForward.map(f => "defaultForward" -> Json.Str(f)),
@@ -57,6 +65,7 @@ object ImposterDefinition:
     "serviceInfo",
     "recordRequests",
     "recordMatches",
+    "enabled",
     "stubs",
     "defaultResponse",
     "defaultForward",
@@ -89,6 +98,7 @@ object ImposterDefinition:
       serviceInfo = fields.field("serviceInfo")
       recordRequests <- optBool(fields, "recordRequests", false)
       recordMatches <- optBool(fields, "recordMatches", false)
+      enabled <- optBool(fields, "enabled", true)
       stubs <- fields.field("stubs") match
         case Some(s) => decodeArray(s, Stub.fromJson).left.map(_.under("stubs"))
         case None => Right(Vector.empty)
@@ -115,6 +125,7 @@ object ImposterDefinition:
       serviceInfo = serviceInfo,
       recordRequests = recordRequests,
       recordMatches = recordMatches,
+      enabled = enabled,
       stubs = stubs,
       defaultResponse = defaultResponse,
       defaultForward = defaultForward,

@@ -243,10 +243,14 @@ enum Method:
 
 final case class ImposterDefinition(
   port: Option[Port]                 = None,   // None = engine assigns; explicit ports verbatim
+  host: Option[String]               = None,   // bind interface; engine defaults to 0.0.0.0
   protocol: Protocol                 = Protocol.Http,
   name: Option[String]               = None,
+  serviceName: Option[String]        = None,
+  serviceInfo: Option[Json]          = None,   // stored by the engine verbatim
   recordRequests: Boolean            = false,
   recordMatches: Boolean             = false,
+  enabled: Boolean                   = true,   // rift#818; emitted only when false
   stubs: Vector[Stub]                = Vector.empty,
   defaultResponse: Option[IsResponse]= None,
   defaultForward: Option[String]     = None,
@@ -464,6 +468,7 @@ scenario("checkout")
 imposter("users")
   .port(4545)                                   // omit → engine assigns
   .record                                       // recordRequests = true
+  .disabled                                     // provision paused; `.enabled` un-pauses
   .https(certPem, keyPem)
   .defaultResponse(notFound.text("no stub matched"))
   .strictBehaviors
