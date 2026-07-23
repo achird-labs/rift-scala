@@ -46,11 +46,9 @@ object syntax:
       * `TailFilter.Flow` is rejected with `RiftError.InvalidDefinition` — the space already scopes
       * by flow and the facade refuses a second `flowId` clause.
       *
-      * '''Not available on the embedded transport.''' That prepended clause is a server-side match
-      * filter, which the FFM transport refuses outright, so the first poll fails with
-      * `UnsupportedOperationException`. Use an HTTP-backed transport, or the space's one-shot
-      * `recorded`. (The imposter-level stream has the opposite failure mode there — it returns, but
-      * without a working cursor: upstream `rift-java#175`.)
+      * Works on every transport as of rift-java 0.2.2; under 0.2.1 the first poll failed on the
+      * embedded one, since that prepended clause is a server-side match filter it refused outright
+      * (rift-java#178).
       */
     def requestStream(
         pollEvery: FiniteDuration,
@@ -87,9 +85,8 @@ object syntax:
       * (D5), closed when the returned stream ends, fails, or is cancelled. See
       * [[EventStream.build]] for the full delivery/termination contract.
       *
-      * '''Not available on the embedded transport.''' `RiftTransport.events()`'s default throws
-      * `UnsupportedOperationException` and only the HTTP-backed transports (connect, spawn,
-      * container) implement it. Poll `recorded`/`recordedSince` there instead.
+      * Available on every transport as of rift-java 0.2.2 — `EmbeddedTransport` now delegates to
+      * the in-process admin server rather than throwing (rift-java#177).
       *
       * A quiet engine does not end this stream — it FAILS it: the facade turns an elapsed idle
       * timeout into `RiftError.EngineUnavailable`. Treat that as "reconnect", not "done".

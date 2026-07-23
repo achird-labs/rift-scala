@@ -340,28 +340,60 @@ class EmbeddedSmokeSpec extends FunSuite:
       assertEquals(ic.rules, Vector.empty, "close() left the engine-side rules in place")
     finally conn.close()
 
-  // ── issue #87: the admin SSE event stream ───────────────────────────────────────────────────
-  // There is deliberately no live event-stream walk here. Verified against the pinned
-  // rift-java-core 0.2.1 (`javap`): `RiftTransport.events()`'s interface DEFAULT throws
-  // `UnsupportedOperationException`, and only `RemoteTransport` — the HTTP-backed
-  // connect/spawn/container path — overrides it. The embedded (FFM) transport, which is the one
-  // this suite runs on, has no admin SSE stream at all.
+  // ── issue #87/#127: the admin SSE event stream, live ─────────────────────────────────────────
+  // This used to pin the *gap*: under rift-java 0.2.1 `RiftTransport.events()`'s interface default
+  // threw and only `RemoteTransport` overrode it, so the embedded transport — the one this suite
+  // runs on — had no admin stream at all. The assertion was written to go red the day upstream
+  // implemented it, which is exactly what the 0.2.2 bump did (rift-java#177). This is the walk that
+  // red was asking for.
   //
-  // So the gap itself is what gets pinned. A skipped placeholder would rot exactly the way these
-  // specs did before #99; this asserts today's behaviour instead, and turns green into red the day
-  // upstream implements the stream — which is precisely when someone should come back and write the
-  // walk. Translation and stream semantics are covered engine-free by `EventTranslationSpec`,
-  // `rift.zio.EventsSpec` and `rift.fs2.EventStreamSpec`.
-  test("embedded: events is unsupported on the FFM transport, and says so"):
+  // The poll runs on its own daemon thread with a bounded wait: `poll()` blocks, so an engine that
+  // stopped delivering would otherwise hang the suite rather than fail it.
+  test("embedded: the admin event stream delivers lifecycle events and ends on close"):
     requireEmbedded(RiftConnector.isEmbeddedAvailable)
 
     val conn = RiftConnector.embedded()
     try
-      val thrown = intercept[UnsupportedOperationException](
-        conn.events(EventStreamConfig(types = Set(EventType.Lifecycle)))
-      )
+      val events = conn.events(EventStreamConfig(types = Set(EventType.Lifecycle)))
+      val seen = new java.util.concurrent.LinkedBlockingQueue[RiftEvent]()
+      val ended = new java.util.concurrent.CountDownLatch(1)
+      val pump: Runnable = () =>
+        try
+          var open = true
+          while open do
+            events.poll() match
+              case Some(event) => seen.offer(event); ()
+              case None => open = false
+        finally ended.countDown()
+      val poller = new Thread(pump, "embedded-smoke-event-poll")
+      poller.setDaemon(true)
+      poller.start()
+
+      def nextEvent(what: String): RiftEvent =
+        Option(seen.poll(20, java.util.concurrent.TimeUnit.SECONDS))
+          .getOrElse(fail(s"no event arrived within 20s while waiting for $what"))
+
+      // The facade opens every stream with a Hello handshake carrying the engine's own version.
+      nextEvent("the Hello handshake") match
+        case hello: RiftEvent.Hello =>
+          assert(hello.engineVersion.nonEmpty, s"Hello carried no engine version: $hello")
+        case other => fail(s"expected Hello first, got $other")
+
+      val imposter = conn.create(rift.dsl.imposter("smoke-events").port(0).build)
+      nextEvent("the Created lifecycle event") match
+        case changed: RiftEvent.ImposterChanged =>
+          assertEquals(changed.action, ImposterAction.Created)
+          assertEquals(changed.port, Some(imposter.port))
+        case other => fail(s"expected an ImposterChanged(Created), got $other")
+
+      imposter.delete()
+
+      // close() must end the stream rather than leave the blocked poll hanging — the contract
+      // `EventStreamConnector`'s scaladoc states, and the one a `Resource`/`Scope` finalizer relies
+      // on. Without it a leaked consumer thread would outlive every test in this suite.
+      events.close()
       assert(
-        thrown.getMessage.contains("no admin event stream"),
-        s"unexpected message — has upstream changed this? ${thrown.getMessage}"
+        ended.await(20, java.util.concurrent.TimeUnit.SECONDS),
+        "close() did not end the stream — poll() is still blocked"
       )
     finally conn.close()

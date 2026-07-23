@@ -79,13 +79,11 @@ final class ImposterConnector private[bridge] (underlying: JImposter):
     * filtering is a tracked upstream ask (a lossy translation is refused), so consumers needing it
     * filter client-side over the unfiltered tail.
     *
-    * '''Degraded on the embedded transport.''' There the cursor does not work: `since` is ignored
-    * and `nextIndex` comes back empty, so every call returns the whole journal and a tail built on
-    * it re-delivers rather than resuming. The reads themselves never throw — unlike the
-    * space-scoped tail on `SpaceHandle` — so the only signal is that empty `nextIndex`, which the
-    * tails surface as `TailEvent.Degraded`. Treat these as one-shot reads on that lane rather than
-    * building resume/reconcile semantics on them (upstream `rift-java#175`; verified against engine
-    * v0.16.0).
+    * The cursor works on every transport as of rift-java 0.2.2. Under 0.2.1 the embedded one
+    * ignored `since` and returned an empty `nextIndex`, so every call handed back the whole journal
+    * and a tail built on it re-delivered rather than resumed — silently, the only signal being the
+    * `TailEvent.Degraded` the tails raise for an absent index. `EmbeddedTransport` now honours the
+    * cursor (rift-java#178).
     */
   def recordedPage(filters: TailFilter*): RecordedPage =
     FacadeBoundary.run(
@@ -224,14 +222,11 @@ final class ScenariosHandle private[bridge] (underlying: JScenarios):
 /** An isolated `_rift` flow-state space (correlated by `FlowId`) — its own stub set, recordings,
   * and verification, scoped away from the imposter's default space.
   *
-  * '''Not available on the embedded transport.''' The cursor tail below (`recordedPage`/
-  * `recordedSince`) throws `UnsupportedOperationException` there, and always: `SpaceImpl` scopes
-  * every read by prepending `MatchClause.flowId(...)`, and the FFM transport's inherited
-  * `RiftTransport` default refuses any non-empty `match` outright rather than answering a filtered
-  * read with an unfiltered list. The refusal is a **defect**, not a typed `RiftError`, on the same
-  * reading as `Rift.events` (#127): choosing a transport that cannot do it is a wiring decision
-  * rather than an engine failure. Use an HTTP-backed transport (connect/spawn/container), or the
-  * one-shot `recorded()` here. Verified live against engine v0.16.0.
+  * The cursor tail below (`recordedPage`/`recordedSince`) works on every transport as of rift-java
+  * 0.2.2. Under 0.2.1 it threw on the embedded one, and always: `SpaceImpl` scopes every read by
+  * prepending `MatchClause.flowId(...)`, and that transport's inherited `RiftTransport` default
+  * refused any non-empty `match` rather than answering a filtered read with an unfiltered list.
+  * `EmbeddedTransport` now implements the filtered read (rift-java#178).
   */
 final class SpaceHandle private[bridge] (val flowId: FlowId, underlying: JSpace):
   def addStub(stub: Stub): StubHandle =

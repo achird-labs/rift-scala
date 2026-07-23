@@ -267,10 +267,9 @@ private[zio] final case class ScenariosLive(underlying: rift.bridge.ScenariosHan
 
 /** An isolated `_rift` flow-state space (mirrors `rift.bridge.SpaceHandle`).
   *
-  * '''The request tail is not available on the embedded transport''' — `requests`/`requestEvents`
-  * here fail with `UnsupportedOperationException` on their first poll, always, because a space read
-  * is inherently flow-scoped and that transport refuses server-side match filters. It surfaces as a
-  * defect rather than a typed `RiftError`, on the same reading as `Rift.events` (#127). See
+  * The request tail works on every transport as of rift-java 0.2.2; under 0.2.1 `requests`/
+  * `requestEvents` here failed on their first poll, because a space read is inherently flow-scoped
+  * and that transport refused server-side match filters (rift-java#178). See
   * `rift.bridge.SpaceHandle`.
   */
 trait SpaceHandle:
