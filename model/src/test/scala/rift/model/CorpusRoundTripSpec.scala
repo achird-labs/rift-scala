@@ -4,7 +4,7 @@ import rift.json.Json
 import scala.io.Source
 import scala.util.Using
 
-/** Round-trips every `sdk-conformance-v0.15.0` corpus fixture through `ImposterDefinition`
+/** Round-trips every `sdk-conformance-v0.16.0` corpus fixture through `ImposterDefinition`
   * (`fromJson` -> `toJson` -> `semanticEquals`). Each fixture is a single imposter. This is the
   * model-layer DSL<->engine parity gate (issue #54; RFC-003 §9.2) — the corpus is engine-canonical,
   * and a fixture the model can't round-trip is a real parity gap. Fixtures vendored from the engine
