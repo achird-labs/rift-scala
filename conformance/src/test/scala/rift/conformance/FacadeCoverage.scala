@@ -99,16 +99,6 @@ object FacadeCoverage:
       "through rule(host)/rule() to build an InterceptRuleBuilder first, so only that builder's " +
       "single-target overload is ever called"
 
-  /** Shared reason: `Space` exposes no cursor-journal tail in the facade (only
-    * `recorded()`/`recorded(matching)`) — a space-scoped tail is out of scope for the request-tail
-    * feature (DESIGN.md D6), per `SpaceHandle`'s own doc comment.
-    */
-  private val spaceNoTail =
-    "the facade's Space DOES expose recordedPage/recordedSince — rift-scala's SpaceHandle "
-      + "deliberately does not wrap them yet: a space-scoped cursor tail is out of scope for D6, "
-      + "which needs only the imposter-level cursor. A real unwrapped capability, recorded as a "
-      + "scope decision rather than a nonexistence claim (tracked by #129)."
-
   val entries: Vector[Coverage] = Vector(
     Coverage.Wrapped("RuleKind#SERVE", "rift.bridge.RuleKind#fromJava"),
     Coverage.Wrapped("RuleKind#FORWARD", "rift.bridge.RuleKind#fromJava"),
@@ -543,8 +533,11 @@ object FacadeCoverage:
     ),
     Coverage.Wrapped("Space#recorded()", "rift.bridge.SpaceHandle#recorded"),
     Coverage.Wrapped("Space#recorded(RequestMatch)", "rift.bridge.SpaceHandle#recorded"),
-    Coverage.Excluded("Space#recordedPage(MatchClause[])", spaceNoTail),
-    Coverage.Excluded("Space#recordedSince(long,MatchClause[])", spaceNoTail),
+    Coverage.Wrapped("Space#recordedPage(MatchClause[])", "rift.bridge.SpaceHandle#recordedPage"),
+    Coverage.Wrapped(
+      "Space#recordedSince(long,MatchClause[])",
+      "rift.bridge.SpaceHandle#recordedSince"
+    ),
     Coverage.Wrapped("Space#stubs()", "rift.bridge.SpaceHandle#stubs"),
     Coverage.Excluded("Space#verify(RequestMatch)", defaultArityUnreachable),
     Coverage

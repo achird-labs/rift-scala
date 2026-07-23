@@ -139,7 +139,12 @@ final class Scenarios private[pure] (underlying: rift.bridge.ScenariosHandle):
     catchRiftError(underlying.setState(name, state))
   def reset(): Either[RiftError, Unit] = catchRiftError(underlying.reset())
 
-/** An isolated `_rift` flow-state space (mirrors `rift.bridge.SpaceHandle`). */
+/** An isolated `_rift` flow-state space (mirrors `rift.bridge.SpaceHandle`).
+  *
+  * No space-scoped cursor tail here either, for the same reason the imposter has none: pure has no
+  * stream or effect system to drive polling with, so `recorded()` is a one-shot snapshot. The
+  * zio/cats/fs2 surfaces carry the paging form.
+  */
 final class SpaceHandle private[pure] (underlying: rift.bridge.SpaceHandle):
   def flowId: FlowId = underlying.flowId
 

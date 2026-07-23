@@ -225,6 +225,26 @@ private[bridge] object FacadeEncode:
   def matchClauses(filters: Seq[TailFilter]): Array[JMatchClause] =
     filters.iterator.map(matchClause).toArray
 
+  /** `matchClauses` for a *space-scoped* read (#129).
+    *
+    * `SpaceImpl` prepends the space's own `flowId` clause to every read and then rejects a second
+    * one — clauses AND together, so a caller-supplied `TailFilter.Flow` either duplicates the scope
+    * or selects nothing. It raises `IllegalArgumentException` while the argument is evaluated, on
+    * *every* transport, including the HTTP-backed ones the space tail otherwise works on.
+    *
+    * Caught here so it lands as a typed `InvalidDefinition` instead of escaping as a defect — the
+    * same treatment `matchClause` above already gives an unusable clause.
+    */
+  def spaceMatchClauses(filters: Seq[TailFilter]): Array[JMatchClause] =
+    if filters.exists { case TailFilter.Flow(_) => true; case _ => false } then
+      throw RiftError.InvalidDefinition(
+        "a space read is already scoped to its own flow, so TailFilter.Flow cannot be used here — " +
+          "the clauses would AND together and select nothing. Drop it, or page the imposter-level " +
+          "tail (ImposterConnector.recordedPage) to filter by flow.",
+        None
+      )
+    else matchClauses(filters)
+
   def times(t: Times): jverify.VerificationTimes = t match
     case Times.Exactly(n) => jverify.VerificationTimes.exactly(n)
     case Times.AtLeast(n) => jverify.VerificationTimes.atLeast(n)

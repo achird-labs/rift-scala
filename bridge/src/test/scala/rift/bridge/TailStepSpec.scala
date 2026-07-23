@@ -114,3 +114,31 @@ class TailStepSpec extends FunSuite:
   // and would otherwise surface as a defect rather than a typed failure.
   test("an invalid method token is a typed InvalidDefinition, not a bare IllegalArgumentException"):
     intercept[RiftError.InvalidDefinition](FacadeEncode.matchClause(TailFilter.Method("GE T")))
+
+  // #129: a space read already carries its own flow clause, and `SpaceImpl` rejects a second one
+  // with IllegalArgumentException on EVERY transport — including the HTTP-backed ones the space
+  // tail otherwise works on. Caught Scala-side so it lands as a typed error like the case above,
+  // rather than as a defect. Engine-free: the rejection happens before any facade call.
+  test("a space read rejects TailFilter.Flow as a typed InvalidDefinition"):
+    val flow = FlowId.from("flow-1").fold(e => fail(s"bad flow id: $e"), identity)
+    val thrown = intercept[RiftError.InvalidDefinition](
+      FacadeEncode.spaceMatchClauses(Seq(TailFilter.Header("h", "v"), TailFilter.Flow(flow)))
+    )
+    assert(thrown.getMessage.contains("already scoped"), thrown.getMessage)
+
+  // The other three kinds must still reach the facade, in order — a blanket refusal would be just
+  // as wrong as letting Flow through.
+  test("a space read encodes every filter kind that is not Flow, unchanged"):
+    val out = FacadeEncode.spaceMatchClauses(
+      Seq(TailFilter.Header("h", "v"), TailFilter.Method("GET"), TailFilter.Path("/a"))
+    )
+    assertEquals(out.length, 3)
+    assertEquals(
+      out.toList.map(_.toString),
+      FacadeEncode
+        .matchClauses(
+          Seq(TailFilter.Header("h", "v"), TailFilter.Method("GET"), TailFilter.Path("/a"))
+        )
+        .toList
+        .map(_.toString)
+    )

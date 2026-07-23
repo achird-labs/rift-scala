@@ -206,12 +206,30 @@ private[cats] final class ScenariosLive[F[_]: Async](underlying: rift.bridge.Sce
   def setState(name: String, state: String): F[Unit] = blockingF(underlying.setState(name, state))
   def reset: F[Unit] = blockingF(underlying.reset())
 
-/** An isolated `_rift` flow-state space (mirrors `rift.bridge.SpaceHandle`). */
+/** An isolated `_rift` flow-state space (mirrors `rift.bridge.SpaceHandle`).
+  *
+  * '''The cursor tail is not available on the embedded transport''' — `recordedPage`/
+  * `recordedSince` throw `UnsupportedOperationException` there, always, because a space read is
+  * inherently flow-scoped and that transport refuses server-side match filters. See
+  * `rift.bridge.SpaceHandle`; the fs2 module's space `requestStream` inherits the same limit.
+  */
 trait SpaceHandle[F[_]]:
   def flowId: FlowId
   def addStub(stub: StubBuilder[StubPhase.Complete]): F[StubRef[F]]
   def stubs: F[Vector[Stub]]
   def recorded: F[Vector[RecordedRequest]]
+
+  /** Baseline read for this space's cursor tail — the imposter-level `recordedPage` scoped to one
+    * flow, and what the fs2 module's space `requestStream` pages over.
+    *
+    * `TailFilter.Flow` is rejected with `RiftError.InvalidDefinition`: the space already scopes by
+    * flow and the facade refuses a second `flowId` clause. The other filters narrow normally.
+    */
+  def recordedPage(filters: rift.bridge.TailFilter*): F[rift.bridge.RecordedPage]
+
+  /** Strictly-newer page since `cursor` within this space, optionally `filters`-narrowed. */
+  def recordedSince(cursor: Long, filters: rift.bridge.TailFilter*): F[rift.bridge.RecordedPage]
+
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit]
   def verifyResult(matching: RequestMatch, details: VerifyDetail*): F[VerificationResult]
   def verifyResult(
@@ -231,6 +249,12 @@ private[cats] final class SpaceHandleLive[F[_]: Async](underlying: rift.bridge.S
   def stubs: F[Vector[Stub]] = blockingF(underlying.stubs)
 
   def recorded: F[Vector[RecordedRequest]] = blockingF(underlying.recorded())
+
+  def recordedPage(filters: rift.bridge.TailFilter*): F[rift.bridge.RecordedPage] =
+    blockingF(underlying.recordedPage(filters*))
+
+  def recordedSince(cursor: Long, filters: rift.bridge.TailFilter*): F[rift.bridge.RecordedPage] =
+    blockingF(underlying.recordedSince(cursor, filters*))
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit] =
     blockingF(underlying.verify(matching, times))

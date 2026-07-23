@@ -784,6 +784,12 @@ trait SpaceHandle:
   def addStub(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef]
   def stubs: IO[RiftError, Chunk[Stub]]
   def recorded: IO[RiftError, Chunk[RecordedRequest]]
+  // The imposter tail scoped to one flow (#129). cats exposes recordedPage/recordedSince instead;
+  // fs2 gets space.requestStream/requestEvents; pure omits it (nothing to poll with).
+  // TailFilter.Flow is rejected — the space already scopes by flow. Throws on the embedded
+  // transport, which refuses server-side match filters.
+  def requests(pollEvery: Duration, filters: Chunk[TailFilter]): ZStream[Any, RiftError, RecordedRequest]
+  def requestEvents(pollEvery: Duration, filters: Chunk[TailFilter]): ZStream[Any, RiftError, TailEvent]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit]
   def verifyResult(matching: RequestMatch, details: VerifyDetail*): Either[RiftError, VerificationResult]  // #88
   def delete: IO[RiftError, Unit]
@@ -980,6 +986,13 @@ object syntax:
     /** Cursor-tracking poll (`recordedSince` over the stable journal index); emits each request
       * exactly once. `nextIndex` absent → hold the cursor; `truncated` → re-baseline is signalled. */
     def requestStream(pollEvery: FiniteDuration = 100.millis): Stream[F, RecordedRequest]
+
+  extension [F[_]: Temporal](space: SpaceHandle[F])
+    /** The same tail scoped to one flow space (#129). Explicit arities rather than defaults —
+      * Scala 3 rejects two overloaded extension variants with default args in one object.
+      * Unusable on the embedded transport, which refuses server-side match filters. */
+    def requestStream(pollEvery: FiniteDuration, filters: Seq[TailFilter]): Stream[F, RecordedRequest]
+    def requestEvents(pollEvery: FiniteDuration, filters: Seq[TailFilter]): Stream[F, TailEvent]
 
   extension [F[_]: Sync](rift: Rift[F])
     /** The admin SSE event stream (issue #87), built on `Rift[F].eventSource`'s `Resource`. Each
