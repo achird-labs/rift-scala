@@ -7,7 +7,7 @@ Effect-library-native: **ZIO**, **Cats Effect 3 / FS2**, **Kyo**, or no effect s
 DSL and one typed wire model underneath all of them, so the surface you import is a matter of taste
 rather than capability.
 
-**Current release: 0.1.0**, on Maven Central under `io.github.achird-labs`.
+**Current release: 0.1.3**, on Maven Central under `io.github.achird-labs`.
 
 ## Four ways to run the engine
 
@@ -66,13 +66,13 @@ and one that is not an `A` are three distinguishable failures rather than a bare
 
 ```scala
 // ZIO
-libraryDependencies += "io.github.achird-labs" %% "rift-scala-zio" % "0.1.0" % Test
+libraryDependencies += "io.github.achird-labs" %% "rift-scala-zio" % "0.1.3" % Test
 
 // Cats Effect 3
-libraryDependencies += "io.github.achird-labs" %% "rift-scala-cats" % "0.1.0" % Test
+libraryDependencies += "io.github.achird-labs" %% "rift-scala-cats" % "0.1.3" % Test
 
 // no effect system
-libraryDependencies += "io.github.achird-labs" %% "rift-scala-pure" % "0.1.0" % Test
+libraryDependencies += "io.github.achird-labs" %% "rift-scala-pure" % "0.1.3" % Test
 ```
 
 For the embedded transport, add the engine's native library:
