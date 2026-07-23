@@ -33,8 +33,9 @@ import io.github.achirdlabs.rift.dsl.IsSpec as JIsSpec
 import io.github.achirdlabs.rift.json.JsonValue as JJsonValue
 
 /** CI-safe gate for the intercept surface (issue #34). Every check here is a pure Scala↔Java
-  * translation — no live engine, so it runs in CI. The full engine round-trip is the
-  * `assume(isEmbeddedAvailable)`-gated smoke in `EmbeddedSmokeSpec` (skipped in CI).
+  * translation — no live engine, so it runs on every CI job. The full engine round-trip is the
+  * `isEmbeddedAvailable`-gated smoke in `EmbeddedSmokeSpec`, which since #99 runs on the JDK 22 job
+  * and skips on JDK 21.
   */
 class InterceptTranslationSpec extends FunSuite:
 

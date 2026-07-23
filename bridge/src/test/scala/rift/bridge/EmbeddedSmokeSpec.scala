@@ -9,14 +9,30 @@ import rift.dsl.*
 import rift.model.Port
 
 /** AC8 — a real end-to-end smoke over the embedded engine, proving the connector wiring against a
-  * live engine. Guarded on `isEmbeddedAvailable`: skipped (not failed) wherever the native runtime
-  * is absent — including CI, which does not put `rift-java-natives` / `--enable-native-access` on
-  * the test JVM. The exhaustive engine round-trip lives in the conformance corpus (#6/#13).
+  * live engine. Guarded on `isEmbeddedAvailable`: runs wherever the embedded runtime is present —
+  * including the JDK 22 CI job, for which build.sbt wires `rift-java-embedded` + natives and
+  * `--enable-native-access` under `buildJavaSpec >= 22` (#99) — and skips (not fails) elsewhere,
+  * e.g. the JDK 21 job. The exhaustive engine round-trip lives in the conformance corpus (#6/#13).
   */
 class EmbeddedSmokeSpec extends FunSuite:
 
+  /** Fails closed, on the rule issue #63 already established for the G3 lanes: a job that declares
+    * `RIFT_G3_REQUIRE=embedded` and then finds no engine is a RED build, not a green skip. Without
+    * this, the wiring regressing (natives unresolved, the JVM flag dropped, the matrix losing its
+    * JDK 22 leg) would put these tests straight back to permanently skipped — which is how they sat
+    * dead for their whole life before #99, with CI green the entire time.
+    */
+  private def requireEmbedded(available: Boolean): Unit =
+    if !available then
+      if sys.env.get("RIFT_G3_REQUIRE").map(_.trim).exists(_.equalsIgnoreCase("embedded")) then
+        fail(
+          "RIFT_G3_REQUIRE=embedded, but no embedded engine is on this JVM — the " +
+            "rift-java-embedded jars / --enable-native-access are missing (#63 backstop, #99)."
+        )
+      else assume(false, "embedded runtime not on the classpath — skipping")
+
   test("embedded: create imposter, add a stub, verify no interactions, delete"):
-    assume(RiftConnector.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
 
     val conn = RiftConnector.embedded()
     try
@@ -34,7 +50,7 @@ class EmbeddedSmokeSpec extends FunSuite:
     finally conn.close()
 
   test("embedded: intercept — register rules, read trust material, export a truststore"):
-    assume(RiftConnector.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
 
     val conn = RiftConnector.embedded()
     try
@@ -82,7 +98,7 @@ class EmbeddedSmokeSpec extends FunSuite:
     finally conn.close()
 
   test("embedded: startRecording — snapshot with no traffic, persist a file, close discards"):
-    assume(RiftConnector.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
 
     val conn = RiftConnector.embedded()
     try
@@ -102,7 +118,7 @@ class EmbeddedSmokeSpec extends FunSuite:
     finally conn.close()
 
   test("embedded: startRecording — stop returns the captured stubs and ends the session"):
-    assume(RiftConnector.isEmbeddedAvailable, "embedded runtime not on the classpath — skipping")
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
 
     val conn = RiftConnector.embedded()
     try
