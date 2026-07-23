@@ -212,7 +212,9 @@ lazy val kyo = riftModule("kyo", "kyo")
   .dependsOn(bridge)
 
 lazy val pure = riftModule("pure", "pure")
-  .dependsOn(bridge)
+  // test->test: same reason as zio/cats above — the intercept builder gate shares bridge's
+  // InterceptGate rather than re-deriving the reflective null-engine builder here (#120).
+  .dependsOn(bridge % "compile->compile;test->test")
   .settings(libraryDependencies ++= Dependencies.munitDeps)
   .settings(embeddedSmokeSettings)
 

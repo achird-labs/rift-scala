@@ -193,6 +193,16 @@ private[bridge] object FacadeEncode:
   def requestMatch(matching: RequestMatch): jverify.RequestMatch =
     jverify.RequestMatch.ofJson(json(Json.Arr(matching.predicates.map(_.toJson))))
 
+  /** The facade `forward` target for a typed port — the bare port, since that is all the wire
+    * carries.
+    *
+    * `InterceptRuleBuilder.forward(hostPort)` calls `InterceptImpl.parsePort` and hands the int to
+    * `addForwardRule`; the engine's forward action is `ForwardTarget { port: u16 }` and it proxies
+    * to `http://127.0.0.1:{port}`. A host component would be parsed and discarded, so rendering one
+    * would only imply a routing choice the engine cannot make.
+    */
+  def forwardTarget(port: Port): String = Port.value(port).toString
+
   /** Total mapping of a `TailFilter` onto the facade's `MatchClause` — the two enums mirror each
     * other case for case (`header`/`flowId`/`method`/`path`), so this can never be lossy.
     *

@@ -123,6 +123,27 @@ object InterceptBuilderSpec extends ZIOSpecDefault:
             sent.size == (first.predicates ++ second.predicates).size
           )
       ,
+      // #120: the typed overload must take the same per-terminal replay path as the string form —
+      // the fold is where a dropped clause would silently widen the rule (#82).
+      test("forward(port) replays the clauses too"):
+        val fake = new InterceptGate.BuilderRecordingIntercept
+        val handle = InterceptHandleLive(InterceptGate.connector(fake))
+        val first = get("/admin")
+        val second = onRequest.where(header("X-Env").is("prod"))
+        for exit <- handle
+            .rule("api.example.com")
+            .when(first)
+            .when(second)
+            .forward(Port.from(4545).toOption.getOrElse(sys.error("4545 is a valid port")))
+            .exit
+        yield
+          val sent = InterceptGate.facadePredicates(fake.lastBuilder)
+          assert(exit)(dies(isSubtype[NullPointerException](anything))) &&
+          assertTrue(
+            fake.ruleCalls == 1,
+            sent.size == (first.predicates ++ second.predicates).size
+          )
+      ,
       // The all-hosts seed is `host.fold(connector.rule())(...)` — its None branch is unreachable
       // from the accessor tests, and dropping it would silently scope a catch-all to a host.
       test("the all-hosts seed takes the no-host branch and still replays every clause"):

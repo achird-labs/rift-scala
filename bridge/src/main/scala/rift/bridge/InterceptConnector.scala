@@ -8,7 +8,7 @@ import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 
 import rift.dsl.{RequestMatch, ResponseBuilder}
-import rift.model.Predicate
+import rift.model.{Port, Predicate}
 
 import io.github.achirdlabs.rift.{
   Intercept as JIntercept,
@@ -139,12 +139,27 @@ final class InterceptRuleBuilder private[bridge] (
   def serve(response: ResponseBuilder): InterceptRule =
     FacadeBoundary.run(InterceptRule.fromJava(applied.serve(FacadeEncode.isSpec(response))))
 
-  /** Transparently forward matched traffic to the **port** named by `target`.
+  /** Transparently forward matched traffic to a **local imposter port**.
+    *
+    * This is the honest signature: the engine's forward action is `ForwardTarget { port: u16 }` and
+    * it proxies to `http://127.0.0.1:{port}`, so a port is the whole destination — there is no
+    * cross-host forwarding to express. Composes with the port accessors:
+    * `rule(host).forward(imposter.port)`.
+    *
+    * `redirectTo` is the richer alternative when the destination imposter is in hand.
+    */
+  def forward(port: Port): InterceptRule = forward(FacadeEncode.forwardTarget(port))
+
+  /** Forward matched traffic to the **port** named by `target` — the facade's own signature, kept
+    * for parity. Prefer `forward(port: Port)`, which cannot express the part that gets discarded.
     *
     * `target` takes the facade's `host:port` form (e.g. `"real.example.com:443"`), but only the
     * port survives: the facade sends `{"forward":{"port":N}}` and the rule's own host — the one
     * given to `rule(host)` — is what the engine matches on. The host component of `target` is
-    * parsed and discarded, so it documents intent and nothing more.
+    * parsed and discarded, so it documents intent and nothing more. That is deliberate upstream,
+    * not a dropped field: the engine's forward action is `ForwardTarget { port: u16 }`
+    * (`crates/rift-http-proxy/src/intercept_rules.rs`, engine v0.16.0) and it proxies to a URL it
+    * builds as `http://127.0.0.1:{port}` (`intercept.rs`) — there is no host to carry.
     *
     * The port is taken from the substring after the last `':'` and parsed as an int, so a
     * scheme-carrying URL (`"https://real.example.com"`) is rejected with an
