@@ -194,3 +194,128 @@ class FacadeMappingSpec extends FunSuite:
     assertEquals(VersionCheck.Fail.toJava, JVersionCheck.FAIL)
     assertEquals(VersionCheck.Warn.toJava, JVersionCheck.WARN)
     assertEquals(VersionCheck.Off.toJava, JVersionCheck.OFF)
+
+/** verifyResult (issue #88) — `FacadeDecode.verificationResult` decodes the facade's non-throwing
+  * verification record without dropping anything, unlike `RiftError.translateReport`'s best-effort,
+  * drop-on-decode-failure `VerificationReport`. Mirrors the "VerificationException maps to
+  * VerificationFailed" fixture shape above.
+  */
+class VerifyResultDecodeSpec extends FunSuite:
+  import rift.model.{Predicate, VerifyDetail}
+  import io.github.achirdlabs.rift.model.Predicate as JPredicate
+  import io.github.achirdlabs.rift.RecordedRequest as JRecordedRequest
+
+  /** Builds a facade `RecordedRequest` whose `.raw()` is the given document — `FacadeDecode`
+    * decodes exclusively off `.raw()`, so the canonical constructor's other (unused) fields are
+    * filled with harmless placeholders rather than mirrored from `rawJson`.
+    */
+  private def jreqRaw(rawJson: String): JRecordedRequest =
+    new JRecordedRequest(
+      "GET",
+      "/placeholder",
+      java.util.Map.of(),
+      java.util.Map.of(),
+      "",
+      java.util.Optional.empty(),
+      java.util.Optional.empty(),
+      java.util.Optional.empty(),
+      java.util.Map.of(),
+      JsonValue.parse(rawJson)
+    )
+
+  private def jreq(path: String): JRecordedRequest =
+    jreqRaw(s"""{"method":"GET","path":"$path","timestamp":"1970-01-01T00:00:00Z"}""")
+
+  private def expectPredicate(raw: String): Predicate =
+    Json.parse(raw).flatMap(Predicate.fromJson) match
+      case Right(p) => p
+      case Left(err) => fail(s"test setup: bad predicate fixture: $err")
+
+  test("verificationResult decodes matched/total/satisfied/requests, and closest round-trips"):
+    val jr = new jverify.VerificationResult(
+      2,
+      3,
+      false,
+      java.util.List.of(jreq("/x")),
+      java.util.Optional.of(
+        new jverify.ClosestMiss(
+          jreq("/x"),
+          java.util.List.of(
+            new jverify.FailedPredicate(
+              JPredicate.fromJson("""{"equals":{"path":"/x"}}"""),
+              JsonValue.parse("\"/y\"")
+            )
+          )
+        )
+      )
+    )
+    val result = FacadeDecode.verificationResult(jr)
+    assertEquals(result.matched, 2)
+    assertEquals(result.total, 3)
+    assertEquals(result.satisfied, false)
+    assertEquals(result.requests.map(_.path), Vector("/x"))
+    result.closest match
+      case Some(closest) =>
+        assertEquals(closest.request.path, "/x")
+        assertEquals(
+          closest.failedPredicates.map(_.predicate),
+          Vector(
+            expectPredicate(
+              """{"equals":{"path":"/x"}}"""
+            )
+          )
+        )
+        assertEquals(closest.failedPredicates.map(_.actual), Vector(Json.Str("/y")))
+      case None => fail("expected a closest miss, got None")
+
+  test("empty shape: requests decodes to Vector.empty, closest to None"):
+    val jr =
+      new jverify.VerificationResult(0, 0, true, java.util.List.of(), java.util.Optional.empty())
+    val result = FacadeDecode.verificationResult(jr)
+    assertEquals(result.matched, 0)
+    assertEquals(result.total, 0)
+    assertEquals(result.satisfied, true)
+    assertEquals(result.requests, Vector.empty)
+    assertEquals(result.closest, None)
+
+  test("a decode failure inside requests propagates as RiftError.DecodeFailed, never dropped"):
+    val badRequest = jreqRaw("""{"path":"/x"}""") // missing the required "method" field
+    val jr = new jverify.VerificationResult(
+      1,
+      1,
+      true,
+      java.util.List.of(badRequest),
+      java.util.Optional.empty()
+    )
+    intercept[RiftError.DecodeFailed](FacadeDecode.verificationResult(jr))
+
+  // `closest` is the deepest decode path and the easiest place for a future edit to reintroduce the
+  // drop-on-failure behaviour this whole type exists to avoid — the error-path `VerificationReport`
+  // does exactly that by design, so the two shapes are one careless `.toOption` apart. One case per
+  // decode call inside `closestMiss`.
+  test("a decode failure in the closest miss's own request propagates, never dropped"):
+    val jr = new jverify.VerificationResult(
+      0,
+      1,
+      false,
+      java.util.List.of(),
+      java.util.Optional.of(
+        new jverify.ClosestMiss(jreqRaw("""{"path":"/x"}"""), java.util.List.of())
+      )
+    )
+    intercept[RiftError.DecodeFailed](FacadeDecode.verificationResult(jr))
+
+  // The third decode call in `closestMiss` — `Predicate.fromJson` over `fp.predicate().toJson()` —
+  // has no negative test because no reachable input produces one: the JSON always comes from a
+  // `JPredicate` the facade already validated, and probing for a shape the facade accepts but
+  // rift-scala rejects (unknown operator, several operators, empty object, a non-integer
+  // statusCode) found none — the facade is at least as strict on every candidate. The call still
+  // goes through the same `decodeOrThrow` the two tests above exercise, so a `.toOption` added
+  // there would fail them.
+
+  test("FacadeEncode.verifyDetails is total: Requests -> REQUESTS, Closest -> CLOSEST"):
+    assertEquals(
+      FacadeEncode.verifyDetails(Seq(VerifyDetail.Requests, VerifyDetail.Closest)).toVector,
+      Vector(jverify.VerifyDetail.REQUESTS, jverify.VerifyDetail.CLOSEST)
+    )
+    assertEquals(FacadeEncode.verifyDetails(Seq.empty).toVector, Vector.empty)

@@ -62,12 +62,12 @@ object AssertionsSpec extends ZIOSpecDefault:
   def spec = suite("assertions")(
     suite("assertReceived")(
       test("verify succeeding yields a passing TestResult") {
-        val handle = new FakeImposterHandle(verifyResult = ZIO.unit)
+        val handle = new FakeImposterHandle(verifyOutcome = ZIO.unit)
         assertions.assertReceived(handle, someMatch).map(r => assertTrue(r.isSuccess))
       },
       test("VerificationFailed yields a failing TestResult, not a leaked RiftError") {
         val handle =
-          new FakeImposterHandle(verifyResult = ZIO.fail(RiftError.VerificationFailed(report)))
+          new FakeImposterHandle(verifyOutcome = ZIO.fail(RiftError.VerificationFailed(report)))
         // the return type is UIO[TestResult]: if RiftError leaked out of assertReceived, this
         // wouldn't even compile as a UIO.
         val result: UIO[TestResult] = assertions.assertReceived(handle, someMatch)
@@ -83,7 +83,9 @@ object AssertionsSpec extends ZIOSpecDefault:
       },
       test("a non-VerificationFailed RiftError still fails the assertion, not swallowed") {
         val handle =
-          new FakeImposterHandle(verifyResult = ZIO.fail(RiftError.EngineUnavailable("boom", None)))
+          new FakeImposterHandle(verifyOutcome =
+            ZIO.fail(RiftError.EngineUnavailable("boom", None))
+          )
         assertions.assertReceived(handle, someMatch).map(r => assertTrue(r.isFailure))
       }
     ),

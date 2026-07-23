@@ -598,7 +598,8 @@ object RiftConnector:
 
 `ImposterConnector` mirrors `rift.zio.ImposterHandle` (5.3) 1:1 but blocking/throwing —
 stubs CRUD (`addStub`, `addStubFirst`, `replaceStubs`, `stub(id)`), `recorded([match])`,
-`clearRecorded`, `verify(match, times)`, `verifyNoInteractions`, `scenarios`, `space(flowId)`,
+`clearRecorded`, `verify(match, times)`, `verifyResult(match[, times], details*)`,
+`verifyNoInteractions`, `scenarios`, `space(flowId)`,
 `flowState(flowId)`, `startRecording(origin, spec)`, `enable/disable/delete`. All effect
 modules and `pure` are thin wrappers over these two types, so behavior can never diverge
 between backends.
@@ -684,6 +685,10 @@ trait ImposterHandle:
   def clearRecorded: IO[RiftError, Unit]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit]
   def verify(matching: RequestMatch, times: Int): IO[RiftError, Unit]  // README sugar
+  // #88 — the non-throwing counterpart: the outcome as a value, `satisfied` included.
+  // `requests`/`closest` are populated only when the matching VerifyDetail is asked for.
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): IO[RiftError, VerificationResult]
+  def verifyResult(matching: RequestMatch, times: Times, details: VerifyDetail*): IO[RiftError, VerificationResult]
   def verifyNoInteractions: IO[RiftError, Unit]
   def requests: ZStream[Any, RiftError, RecordedRequest]               // 100ms poll
   def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest]
@@ -765,6 +770,7 @@ trait SpaceHandle:
   def stubs: IO[RiftError, Chunk[Stub]]
   def recorded: IO[RiftError, Chunk[RecordedRequest]]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit]
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): Either[RiftError, VerificationResult]  // #88
   def delete: IO[RiftError, Unit]
 
 trait FlowStateHandle:
@@ -905,6 +911,7 @@ trait Rift[F[_]]:
 trait ImposterHandle[F[_]]:
   // same surface as the ZIO handle, F[_]-shaped; startRecording returns Resource
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit]
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): F[VerificationResult]  // #88
   def startRecording(origin: URI, spec: RecordSpec = RecordSpec()): Resource[F, RecordingHandle[F]]
   // ...
 

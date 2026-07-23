@@ -254,6 +254,7 @@ object Inventory:
 
     // ── Handle ops — verification + the `scenarios`/`space`/`flowState` sub-handle namespaces. ──
     Op("Handle ops", "verify", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
+    Op("Handle ops", "verifyResult", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Handle ops", "verifyNoInteractions", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Handle ops", "recorded", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Handle ops", "clearRecorded", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),

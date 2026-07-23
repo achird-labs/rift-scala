@@ -102,6 +102,7 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | Operation | zio | cats | fs2 | pure | kyo |
 |---|---|---|---|---|---|
 | `verify` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `verifyResult` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `verifyNoInteractions` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `recorded` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `clearRecorded` | ✓ | ✓ | via cats | ✓ | parked (#11) |

@@ -5,7 +5,17 @@ import java.nio.file.Path
 
 import rift.RiftError
 import rift.json.Json
-import rift.model.{FlowId, Port, RecordedRequest, ScenarioStatus, Stub, StubId, Times}
+import rift.model.{
+  FlowId,
+  Port,
+  RecordedRequest,
+  ScenarioStatus,
+  Stub,
+  StubId,
+  Times,
+  VerificationResult,
+  VerifyDetail
+}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
 import rift.bridge.{ImposterDefinition, RecordSpec, TailFilter}
 
@@ -68,6 +78,22 @@ final class Imposter private[pure] (private[pure] val connector: rift.bridge.Imp
   def verify(matching: RequestMatch, times: Int): Either[RiftError, Unit] =
     verify(matching, Times.Exactly(times))
 
+  /** `verify`'s non-throwing counterpart (issue #88): the outcome as a value — including `satisfied
+    * \= false` — rather than a `Left(RiftError.VerificationFailed)`.
+    */
+  def verifyResult(
+      matching: RequestMatch,
+      details: VerifyDetail*
+  ): Either[RiftError, VerificationResult] =
+    catchRiftError(connector.verifyResult(matching, details*))
+
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): Either[RiftError, VerificationResult] =
+    catchRiftError(connector.verifyResult(matching, times, details*))
+
   def verifyNoInteractions(): Either[RiftError, Unit] =
     catchRiftError(connector.verifyNoInteractions())
 
@@ -127,6 +153,19 @@ final class SpaceHandle private[pure] (underlying: rift.bridge.SpaceHandle):
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): Either[RiftError, Unit] =
     catchRiftError(underlying.verify(matching, times))
+
+  def verifyResult(
+      matching: RequestMatch,
+      details: VerifyDetail*
+  ): Either[RiftError, VerificationResult] =
+    catchRiftError(underlying.verifyResult(matching, details*))
+
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): Either[RiftError, VerificationResult] =
+    catchRiftError(underlying.verifyResult(matching, times, details*))
 
   def delete(): Either[RiftError, Unit] = catchRiftError(underlying.delete())
 

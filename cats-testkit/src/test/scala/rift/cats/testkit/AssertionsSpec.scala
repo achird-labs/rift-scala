@@ -74,13 +74,13 @@ class AssertionsSpec extends CatsEffectSuite:
   }
 
   test("foldVerification: verify succeeding runs onSuccess, not onFailure") {
-    val handle = new FakeImposterHandle(verifyResult = IO.unit)
+    val handle = new FakeImposterHandle(verifyOutcome = IO.unit)
     internal.foldVerification(handle, someMatch, Times.atLeastOnce)(IO.unit)(failing)
   }
 
   test("foldVerification: VerificationFailed fails with the rendered near-miss, not swallowed") {
     val handle =
-      new FakeImposterHandle(verifyResult = IO.raiseError(RiftError.VerificationFailed(report)))
+      new FakeImposterHandle(verifyOutcome = IO.raiseError(RiftError.VerificationFailed(report)))
     internal
       .foldVerification(handle, someMatch, Times.atLeastOnce)(IO.unit)(failing)
       .attempt
@@ -94,7 +94,7 @@ class AssertionsSpec extends CatsEffectSuite:
 
   test("foldVerification: a non-VerificationFailed RiftError still fails, not swallowed") {
     val handle =
-      new FakeImposterHandle(verifyResult =
+      new FakeImposterHandle(verifyOutcome =
         IO.raiseError(RiftError.EngineUnavailable("boom", None))
       )
     internal

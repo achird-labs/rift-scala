@@ -9,7 +9,7 @@ import scala.jdk.OptionConverters.*
 import rift.RiftError
 import rift.dsl.RequestMatch
 import rift.json.Json
-import rift.model.{FlowId, Port, RecordedRequest, Stub, Times}
+import rift.model.{FlowId, Port, RecordedRequest, Stub, Times, VerificationResult, VerifyDetail}
 
 import io.github.achirdlabs.rift.Imposter as JImposter
 import io.github.achirdlabs.rift.StubRef as JStubRef
@@ -116,6 +116,28 @@ final class ImposterConnector private[bridge] (underlying: JImposter):
       underlying.verify(FacadeEncode.requestMatch(matching), FacadeEncode.times(times))
     )
 
+  /** `verify`'s non-throwing counterpart (issue #88): returns the outcome as a value — including
+    * `satisfied = false` — instead of throwing `VerificationException`. Delegates to the `times`
+    * overload with `Times.atLeastOnce`, mirroring the facade's own `atLeast(1)` default.
+    */
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): VerificationResult =
+    verifyResult(matching, Times.atLeastOnce, details*)
+
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): VerificationResult =
+    FacadeBoundary.run(
+      FacadeDecode.verificationResult(
+        underlying.verifyResult(
+          FacadeEncode.requestMatch(matching),
+          FacadeEncode.times(times),
+          FacadeEncode.verifyDetails(details)*
+        )
+      )
+    )
+
   def verifyNoInteractions(): Unit = FacadeBoundary.run(underlying.verifyNoInteractions())
 
   def scenarios: ScenariosHandle = FacadeBoundary.run(ScenariosHandle(underlying.scenarios()))
@@ -211,6 +233,22 @@ final class SpaceHandle private[bridge] (val flowId: FlowId, underlying: JSpace)
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): Unit =
     FacadeBoundary.run(
       underlying.verify(FacadeEncode.requestMatch(matching), FacadeEncode.times(times))
+    )
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): VerificationResult =
+    verifyResult(matching, Times.atLeastOnce, details*)
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): VerificationResult =
+    FacadeBoundary.run(
+      FacadeDecode.verificationResult(
+        underlying.verifyResult(
+          FacadeEncode.requestMatch(matching),
+          FacadeEncode.times(times),
+          FacadeEncode.verifyDetails(details)*
+        )
+      )
     )
   def delete(): Unit = FacadeBoundary.run(underlying.delete())
 

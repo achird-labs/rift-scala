@@ -6,7 +6,17 @@ import java.nio.file.Path
 import _root_.cats.effect.{Async, Resource}
 
 import rift.json.Json
-import rift.model.{FlowId, Port, RecordedRequest, ScenarioStatus, Stub, StubId, Times}
+import rift.model.{
+  FlowId,
+  Port,
+  RecordedRequest,
+  ScenarioStatus,
+  Stub,
+  StubId,
+  Times,
+  VerificationResult,
+  VerifyDetail
+}
 import rift.dsl.{RequestMatch, StubBuilder, StubPhase}
 import rift.bridge.{ImposterDefinition, RecordSpec, RecordingConnector}
 
@@ -60,6 +70,16 @@ trait ImposterHandle[F[_]]:
   def clearProxyResponses: F[Unit]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit]
   def verify(matching: RequestMatch, times: Int): F[Unit] // README sugar: exact count
+
+  /** `verify`'s non-throwing counterpart (issue #88): the outcome as a value — including `satisfied
+    * \= false` — rather than a raised `RiftError.VerificationFailed`.
+    */
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): F[VerificationResult]
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): F[VerificationResult]
   def verifyNoInteractions: F[Unit]
   def scenarios: Scenarios[F]
   def space(flowId: FlowId): SpaceHandle[F]
@@ -122,6 +142,16 @@ private[cats] final class ImposterHandleLive[F[_]: Async](
   def verify(matching: RequestMatch, times: Int): F[Unit] =
     verify(matching, Times.Exactly(times))
 
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): F[VerificationResult] =
+    blockingF(connector.verifyResult(matching, details*))
+
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): F[VerificationResult] =
+    blockingF(connector.verifyResult(matching, times, details*))
+
   def verifyNoInteractions: F[Unit] = blockingF(connector.verifyNoInteractions())
 
   def scenarios: Scenarios[F] = new ScenariosLive[F](connector.scenarios)
@@ -183,6 +213,12 @@ trait SpaceHandle[F[_]]:
   def stubs: F[Vector[Stub]]
   def recorded: F[Vector[RecordedRequest]]
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit]
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): F[VerificationResult]
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): F[VerificationResult]
   def delete: F[Unit]
 
 private[cats] final class SpaceHandleLive[F[_]: Async](underlying: rift.bridge.SpaceHandle)
@@ -198,6 +234,16 @@ private[cats] final class SpaceHandleLive[F[_]: Async](underlying: rift.bridge.S
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): F[Unit] =
     blockingF(underlying.verify(matching, times))
+
+  def verifyResult(matching: RequestMatch, details: VerifyDetail*): F[VerificationResult] =
+    blockingF(underlying.verifyResult(matching, details*))
+
+  def verifyResult(
+      matching: RequestMatch,
+      times: Times,
+      details: VerifyDetail*
+  ): F[VerificationResult] =
+    blockingF(underlying.verifyResult(matching, times, details*))
 
   def delete: F[Unit] = blockingF(underlying.delete())
 

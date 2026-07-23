@@ -13,7 +13,17 @@ import rift.cats.{FlowStateHandle, ImposterHandle, RecordingHandle, Scenarios, S
 import rift.dsl.*
 import rift.json.Json
 import rift.model.Method.GET
-import rift.model.{FlowId, Headers, Port, RecordedRequest, Stub, StubId, Times}
+import rift.model.{
+  FlowId,
+  Headers,
+  Port,
+  RecordedRequest,
+  Stub,
+  StubId,
+  Times,
+  VerificationResult,
+  VerifyDetail
+}
 
 /** The `filters` passed to `requestStream`/`requestEvents` (issue #37, Part 1) must reach the
   * underlying cursor reads unchanged, on **both** the baseline (`recordedPage`) and the cursor
@@ -67,6 +77,13 @@ class FilterThreadingSpec extends CatsEffectSuite:
     def clearProxyResponses: IO[Unit] = unused
     def verify(matching: RequestMatch, times: Times): IO[Unit] = unused
     def verify(matching: RequestMatch, times: Int): IO[Unit] = unused
+    def verifyResult(matching: RequestMatch, details: VerifyDetail*): IO[VerificationResult] =
+      unused
+    def verifyResult(
+        matching: RequestMatch,
+        times: Times,
+        details: VerifyDetail*
+    ): IO[VerificationResult] = unused
     def verifyNoInteractions: IO[Unit] = unused
     def startRecording(origin: URI, spec: RecordSpec): Resource[IO, RecordingHandle[IO]] =
       Resource.eval(unused)
