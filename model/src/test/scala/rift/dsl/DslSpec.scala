@@ -485,3 +485,54 @@ class DslSpec extends munit.FunSuite:
     assert(!rendered.contains("\"host\""), rendered)
     assert(!rendered.contains("serviceName"), rendered)
     assert(!rendered.contains("serviceInfo"), rendered)
+
+  // ── issue #113: the persisted `enabled` config field (rift#818, engine 0.16.0) ─────────────
+  // `enabled` was promoted from a runtime-only flag to persisted config: engine default true,
+  // serialized only when false. The bytes already survived via `extra`, but typed reads missed
+  // the field and the DSL could not author a paused imposter at all — the #91 shape exactly.
+  test("imposter.disabled emits enabled:false"):
+    val rendered = imposter("api").disabled.build.toJson.render
+    assert(rendered.contains("\"enabled\":false"), rendered)
+
+  test("an enabled imposter emits no enabled key"):
+    // The byte-identity guarantee for every document written before the field existed.
+    val rendered = imposter("api").build.toJson.render
+    assert(!rendered.contains("enabled"), rendered)
+
+  test("enabled:false decodes into the typed field and no longer lands in extra"):
+    val doc = Json.obj("name" -> Json.Str("api"), "enabled" -> Json.Bool(false))
+    val decoded = ImposterDefinition.fromJson(doc).fold(e => fail(e.toString), identity)
+    assertEquals(decoded.enabled, false)
+    assert(!decoded.extra.map(_._1).contains("enabled"), decoded.extra.toString)
+
+  test("a paused document round-trips decode -> encode -> decode"):
+    val doc = Json.obj("name" -> Json.Str("api"), "enabled" -> Json.Bool(false))
+    val once = ImposterDefinition.fromJson(doc).fold(e => fail(e.toString), identity)
+    val twice = ImposterDefinition.fromJson(once.toJson).fold(e => fail(e.toString), identity)
+    assertEquals(twice, once)
+
+  test("an explicit enabled:true decodes to true and normalizes to absent on re-encode"):
+    // Same normalization the other boolean flags already apply to an explicitly-written default.
+    // It is genuinely lossy: `semanticEquals` compares object sizes, so absent is NOT equal to an
+    // explicit `true`, and a document spelling the default out would no longer survive the corpus
+    // round-trip gate. Safe only because no fixture spells it — verified against
+    // sdk-conformance-v0.16.0 and the vendored examples, neither of which carries the key at all.
+    val doc = Json.obj("name" -> Json.Str("api"), "enabled" -> Json.Bool(true))
+    val decoded = ImposterDefinition.fromJson(doc).fold(e => fail(e.toString), identity)
+    assertEquals(decoded.enabled, true)
+    assert(!decoded.toJson.render.contains("enabled"), decoded.toJson.render)
+
+  test("imposterFromJson carries a paused imposter through the builder"):
+    // `fromDefinition` not threading the flag would silently re-enable a paused imposter on a
+    // DSL round-trip — a wrong-but-quiet result, which is worse than a decode failure.
+    val builder = imposterFromJson("""{"name":"api","enabled":false}""")
+      .fold(e => fail(e.toString), identity)
+    assertEquals(builder.build.enabled, false)
+    assert(builder.build.toJson.render.contains("\"enabled\":false"), builder.build.toJson.render)
+
+  test("a paused builder can be un-paused"):
+    val builder = imposterFromJson("""{"name":"api","enabled":false}""")
+      .fold(e => fail(e.toString), identity)
+    val resumed = builder.enabled.build
+    assertEquals(resumed.enabled, true)
+    assert(!resumed.toJson.render.contains("enabled"), resumed.toJson.render)
