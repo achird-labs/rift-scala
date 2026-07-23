@@ -14,9 +14,9 @@ import rift.model.{FlowId, Port, RecordedRequest, Stub, StubId, Times}
 
 /** Pure-logic gate for the Cats intercept rule builder (issue #45, mirrors the ZIO
   * `InterceptBuilderSpec` for #34). The facade round-trip needs a live engine (the bridge
-  * `EmbeddedSmokeSpec` covers that, skipped in CI), but the deferred builder's accumulation — and
-  * the `redirectTo` cross-engine reject — are engine-free, and are exactly where a dropped `.when`
-  * or a mis-typed handle would hide, so they get direct regression tests.
+  * `EmbeddedSmokeSpec` covers that, on the JDK 22 job since #99), but the deferred builder's
+  * accumulation — and the `redirectTo` cross-engine reject — are engine-free, and are exactly where
+  * a dropped `.when` or a mis-typed handle would hide, so they get direct regression tests.
   */
 class InterceptBuilderSpec extends FunSuite:
 

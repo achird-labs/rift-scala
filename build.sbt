@@ -65,6 +65,29 @@ lazy val buildJavaSpec: Int = {
   else parts.headOption.map(_.toInt).getOrElse(0)
 }
 
+// The embedded runtime, wired into a module's TEST classpath so its `EmbeddedSmokeSpec` becomes a
+// real execution lane on the JDK 22 CI job rather than a permanent `assume` skip (#99). One value
+// rather than three copies: these settings only work as a set — the jars without the JVM flag, or
+// either without forking, is a silent skip again.
+//   - Test scope does NOT keep these out of the published pom — `makePom` emits test-scope deps,
+//     and the natives entry carries `RiftNatives.currentClassifier`, i.e. the *publishing host's*
+//     platform. What actually keeps it out is that `release.yml` and `auto-release.yml` both pin
+//     JDK 21, so `buildJavaSpec >= 22` is false at publish time and nothing is added. That coupling
+//     is load-bearing: raising the release JDK to 22+ would start stamping the build machine's
+//     classifier into these three published poms (`zioBdd` already has this shape).
+//   - `Test / fork` is unconditional (mirroring `zioBdd`): `--enable-native-access` only reaches a
+//     forked test JVM, and a JDK-conditional fork would make the engine-free specs in these modules
+//     behave differently across JDKs too.
+//   - On JDK 21 nothing is added, `JRift.isEmbeddedAvailable()` stays false, and the specs skip
+//     exactly as they do today.
+lazy val embeddedSmokeSettings: Seq[Setting[?]] = Seq(
+  libraryDependencies ++=
+    (if (buildJavaSpec >= 22) Dependencies.riftJavaEmbeddedTestDeps else Seq.empty),
+  Test / fork := true,
+  Test / javaOptions ++=
+    (if (buildJavaSpec >= 22) Seq("--enable-native-access=ALL-UNNAMED") else Seq.empty)
+)
+
 // Enforces DESIGN.md §5.1's "zero dependencies" promise for `model`: the pure wire model is the
 // shared base for the ZIO, Cats, Kyo and pure surfaces, so a compile-scope dep here would leak into
 // all of them (the same reasoning that rejected zio-json in D1).
@@ -114,6 +137,7 @@ lazy val bridge = riftModule("bridge", "bridge")
       Seq(file)
     }.taskValue
   )
+  .settings(embeddedSmokeSettings)
 
 lazy val zio = riftModule("zio", "zio")
   .dependsOn(bridge)
@@ -157,6 +181,7 @@ lazy val cats = riftModule("cats", "cats")
     libraryDependencies ++=
       Dependencies.catsEffectDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps
   )
+  .settings(embeddedSmokeSettings)
 
 lazy val catsTestkit = riftModule("catsTestkit", "cats-testkit")
   .dependsOn(cats)
@@ -179,6 +204,7 @@ lazy val kyo = riftModule("kyo", "kyo")
 lazy val pure = riftModule("pure", "pure")
   .dependsOn(bridge)
   .settings(libraryDependencies ++= Dependencies.munitDeps)
+  .settings(embeddedSmokeSettings)
 
 // Test-only conformance corpus replay (#6, extended to the cats surface + parity table by #13):
 // proves DSL <-> engine parity against the vendored sdk-conformance corpus (README.md under its

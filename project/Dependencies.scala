@@ -30,11 +30,12 @@ object Dependencies {
     "io.github.achird-labs" % "rift-java-testcontainers" % riftJava % Optional
   )
 
-  /** Embedded transport (in-process engine via stable FFM) + its native library, both `Test`-only,
-    * for the conformance module's G3 replay (DESIGN §5.2). `rift-java-embedded` is JDK-22 bytecode,
-    * so `build.sbt` adds these ONLY on a JDK that can classload them (the JDK 22 CI job); the JDK
-    * 21 job replays G3 via `spawn` and must not carry them. `RiftNatives.currentClassifier` picks
-    * the host's native jar (the natives artifact is classifier-per-platform, no default jar).
+  /** Embedded transport (in-process engine via stable FFM) + its native library, both `Test`-only.
+    * Consumed by the conformance module's G3 replay (DESIGN §5.2), `zio-bdd`'s guarded live spec,
+    * and the `bridge`/`cats`/`pure` `EmbeddedSmokeSpec`s (#99). `rift-java-embedded` is JDK-22
+    * bytecode, so `build.sbt` adds these ONLY on a JDK that can classload them (the JDK 22 CI job);
+    * the JDK 21 job replays G3 via `spawn` and must not carry them. `RiftNatives.currentClassifier`
+    * picks the host's native jar (the natives artifact is classifier-per-platform, no default jar).
     */
   val riftJavaEmbeddedTestDeps: Seq[ModuleID] = Seq(
     "io.github.achird-labs" % "rift-java-embedded" % riftJava % Test,
