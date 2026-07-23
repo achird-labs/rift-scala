@@ -5,7 +5,7 @@ import scala.concurrent.duration.*
 import _root_.cats.effect.{Sync, Temporal}
 import _root_.fs2.Stream
 
-import rift.cats.{ImposterHandle, Rift}
+import rift.cats.{ImposterHandle, Rift, SpaceHandle}
 import rift.bridge.{EventStreamConfig, RecordedPage, RiftEvent, TailEvent, TailFilter}
 import rift.model.RecordedRequest
 
@@ -35,6 +35,53 @@ object syntax:
     ): Stream[F, TailEvent] =
       RequestStream.events(fetchPage(handle, filters), pollEvery)
 
+  // These deliberately spell out their arities instead of taking defaults like the imposter
+  // extensions above: Scala 3 rejects two overloaded variants of the same extension name in one
+  // object when both carry default arguments ("two or more overloaded variants ... have default
+  // arguments"). Explicit overloads keep `space.requestStream()` reading exactly like the imposter
+  // form for callers, and keep both on the single `rift.fs2.syntax` import.
+  extension [F[_]: Temporal](space: SpaceHandle[F])
+    /** The same cursor-tracking poll as `ImposterHandle.requestStream`, scoped to one flow space.
+      * `filters` narrow *within* the space, so this can never widen past its own flow.
+      * `TailFilter.Flow` is rejected with `RiftError.InvalidDefinition` — the space already scopes
+      * by flow and the facade refuses a second `flowId` clause.
+      *
+      * '''Not available on the embedded transport.''' That prepended clause is a server-side match
+      * filter, which the FFM transport refuses outright, so the first poll fails with
+      * `UnsupportedOperationException`. Use an HTTP-backed transport, or the space's one-shot
+      * `recorded`. (The imposter-level stream has the opposite failure mode there — it returns, but
+      * without a working cursor: upstream `rift-java#175`.)
+      */
+    def requestStream(
+        pollEvery: FiniteDuration,
+        filters: Seq[TailFilter]
+    ): Stream[F, RecordedRequest] =
+      RequestStream.build(fetchSpacePage(space, filters), pollEvery)
+
+    def requestStream(pollEvery: FiniteDuration): Stream[F, RecordedRequest] =
+      requestStream(pollEvery, Nil)
+
+    /** Filters at the default poll interval — the arity that keeps `requestStream(filters = …)`
+      * available here, since the imposter form gets it from a default argument this one cannot
+      * have.
+      */
+    def requestStream(filters: Seq[TailFilter]): Stream[F, RecordedRequest] =
+      requestStream(100.millis, filters)
+
+    def requestStream(): Stream[F, RecordedRequest] = requestStream(100.millis, Nil)
+
+    /** The signal-carrying view of this space's tail, mirroring `ImposterHandle.requestEvents`. */
+    def requestEvents(pollEvery: FiniteDuration, filters: Seq[TailFilter]): Stream[F, TailEvent] =
+      RequestStream.events(fetchSpacePage(space, filters), pollEvery)
+
+    def requestEvents(pollEvery: FiniteDuration): Stream[F, TailEvent] =
+      requestEvents(pollEvery, Nil)
+
+    def requestEvents(filters: Seq[TailFilter]): Stream[F, TailEvent] =
+      requestEvents(100.millis, filters)
+
+    def requestEvents(): Stream[F, TailEvent] = requestEvents(100.millis, Nil)
+
   extension [F[_]: Sync](rift: Rift[F])
     /** The admin SSE event stream (DESIGN.md D4, issue #87) — each call opens its own connection
       * (D5), closed when the returned stream ends, fails, or is cancelled. See
@@ -56,3 +103,10 @@ object syntax:
   ): Option[Long] => F[RecordedPage] =
     case None => handle.recordedPage(filters*)
     case Some(cursor) => handle.recordedSince(cursor, filters*)
+
+  private def fetchSpacePage[F[_]](
+      space: SpaceHandle[F],
+      filters: Seq[TailFilter]
+  ): Option[Long] => F[RecordedPage] =
+    case None => space.recordedPage(filters*)
+    case Some(cursor) => space.recordedSince(cursor, filters*)

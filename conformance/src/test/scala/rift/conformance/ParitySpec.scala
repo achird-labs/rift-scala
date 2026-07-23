@@ -274,6 +274,22 @@ object Inventory:
     Op("Streaming", "pipes.received", zio = No, cats = No, fs2 = Yes, pure = No),
     Op("Streaming", "awaitRequests", zio = No, cats = No, fs2 = Yes, pure = No),
 
+    // ── The same cursor tail, scoped to one flow space (#129). Availability mirrors the imposter
+    // rows above exactly — zio streams, cats pages, fs2 streams over cats, pure has nothing to poll
+    // with — because each is a verbatim mirror of the imposter shape. Unusable on the embedded
+    // transport (it throws): see `rift.bridge.SpaceHandle`. ────────────────────────────────────
+    Op(
+      "Space streaming",
+      "space.requests / requestStream",
+      zio = Yes,
+      cats = No,
+      fs2 = Yes,
+      pure = No
+    ),
+    Op("Space streaming", "space.requestEvents", zio = Yes, cats = No, fs2 = Yes, pure = No),
+    Op("Space streaming", "space.recordedPage", zio = No, cats = Yes, fs2 = ViaCats, pure = No),
+    Op("Space streaming", "space.recordedSince", zio = No, cats = Yes, fs2 = ViaCats, pure = No),
+
     // ── admin SSE event stream (issue #87) — declared directly on `Rift`/`Rift[F]` (reflectable),
     // but under two DIFFERENT names: zio/pure share the literal name `events`, cats names its
     // Resource-returning member `eventSource` (the cats module has no fs2 dependency, so it hands

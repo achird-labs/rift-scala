@@ -265,7 +265,14 @@ private[zio] final case class ScenariosLive(underlying: rift.bridge.ScenariosHan
     blockingIO(underlying.setState(name, state, FlowId.value(flowId)))
   def reset: IO[RiftError, Unit] = blockingIO(underlying.reset())
 
-/** An isolated `_rift` flow-state space (mirrors `rift.bridge.SpaceHandle`). */
+/** An isolated `_rift` flow-state space (mirrors `rift.bridge.SpaceHandle`).
+  *
+  * '''The request tail is not available on the embedded transport''' — `requests`/`requestEvents`
+  * here fail with `UnsupportedOperationException` on their first poll, always, because a space read
+  * is inherently flow-scoped and that transport refuses server-side match filters. It surfaces as a
+  * defect rather than a typed `RiftError`, on the same reading as `Rift.events` (#127). See
+  * `rift.bridge.SpaceHandle`.
+  */
 trait SpaceHandle:
   def flowId: FlowId
   def addStub(stub: StubBuilder[StubPhase.Complete]): IO[RiftError, StubRef]
@@ -277,6 +284,26 @@ trait SpaceHandle:
   def addStub(stub: Stub): IO[RiftError, StubRef]
   def stubs: IO[RiftError, Chunk[Stub]]
   def recorded: IO[RiftError, Chunk[RecordedRequest]]
+
+  /** This space's cursor request tail — the imposter-level `requests` scoped to one flow. Same
+    * cursor semantics and the same `filters` narrowing (applied *within* the space).
+    *
+    * `TailFilter.Flow` is rejected with `RiftError.InvalidDefinition`: the space already scopes by
+    * flow and the facade refuses a second `flowId` clause. The other filters narrow normally.
+    */
+  def requests: ZStream[Any, RiftError, RecordedRequest] // 100ms poll
+  def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest]
+  def requests(
+      pollEvery: Duration,
+      filters: Chunk[TailFilter]
+  ): ZStream[Any, RiftError, RecordedRequest]
+
+  /** The signal-carrying view of this space's tail, mirroring `ImposterHandle.requestEvents`. */
+  def requestEvents(
+      pollEvery: Duration = 100.millis,
+      filters: Chunk[TailFilter] = Chunk.empty
+  ): ZStream[Any, RiftError, TailEvent]
+
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit]
   def verifyResult(
       matching: RequestMatch,
@@ -303,6 +330,28 @@ private[zio] final case class SpaceHandleLive(underlying: rift.bridge.SpaceHandl
 
   def recorded: IO[RiftError, Chunk[RecordedRequest]] =
     blockingIO(Chunk.fromIterable(underlying.recorded()))
+
+  def requests: ZStream[Any, RiftError, RecordedRequest] = requests(100.millis)
+
+  def requests(pollEvery: Duration): ZStream[Any, RiftError, RecordedRequest] =
+    requests(pollEvery, Chunk.empty)
+
+  def requests(
+      pollEvery: Duration,
+      filters: Chunk[TailFilter]
+  ): ZStream[Any, RiftError, RecordedRequest] =
+    RequestTail.stream(fetchPage(filters), pollEvery)
+
+  def requestEvents(
+      pollEvery: Duration = 100.millis,
+      filters: Chunk[TailFilter] = Chunk.empty
+  ): ZStream[Any, RiftError, TailEvent] =
+    RequestTail.events(fetchPage(filters), pollEvery)
+
+  private def fetchPage(filters: Chunk[TailFilter]): Option[Long] => IO[RiftError, RecordedPage] = {
+    case None => blockingIO(underlying.recordedPage(filters*))
+    case Some(cursor) => blockingIO(underlying.recordedSince(cursor, filters*))
+  }
 
   def verify(matching: RequestMatch, times: Times = Times.atLeastOnce): IO[RiftError, Unit] =
     blockingIO(underlying.verify(matching, times))

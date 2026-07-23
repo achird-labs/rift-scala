@@ -123,3 +123,12 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | `awaitRequests` | ✗ | ✗ | ✓ | ✗ | parked (#11) |
 | `events` | ✓ | ✗ | ✓ | ✓ | parked (#11) |
 | `eventSource` | ✗ | ✓ | ✗ | ✗ | parked (#11) |
+
+### Space streaming
+
+| Operation | zio | cats | fs2 | pure | kyo |
+|---|---|---|---|---|---|
+| `space.requests / requestStream` | ✓ | ✗ | ✓ | ✗ | parked (#11) |
+| `space.requestEvents` | ✓ | ✗ | ✓ | ✗ | parked (#11) |
+| `space.recordedPage` | ✗ | ✓ | via cats | ✗ | parked (#11) |
+| `space.recordedSince` | ✗ | ✓ | via cats | ✗ | parked (#11) |
