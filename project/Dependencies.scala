@@ -153,4 +153,22 @@ object Dependencies {
     "org.scalameta" %% "munit" % munit % Test,
     "org.scalameta" %% "munit-scalacheck" % munitScalacheck % Test
   )
+
+  /** Test-only, `conformance` only (#130). `FacadeParitySpec`'s check (c) reads the *bytecode* of
+    * the bridge methods `FacadeCoverage` points at, to prove each pointer actually invokes the
+    * facade member its key names rather than merely naming a method that still exists.
+    *
+    * ASM rather than the alternatives: shelling out to `javap` means parsing a text format that is
+    * not a contract, and the JDK's own ClassFile API is preview and absent on the JDK 21 lane. This
+    * never reaches a published artifact — `conformance` is `publish / skip`.
+    */
+  val asm = "9.7.1"
+
+  /** `asm-tree` (the object model) as well as `asm` (the visitor core) — the check walks a method's
+    * instruction list, which lives in the tree API.
+    */
+  val asmTestDeps: Seq[ModuleID] = Seq(
+    "org.ow2.asm" % "asm" % asm % Test,
+    "org.ow2.asm" % "asm-tree" % asm % Test
+  )
 }
