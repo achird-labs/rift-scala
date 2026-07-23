@@ -81,7 +81,10 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | `proxySelector` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `caPem` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `sslContext` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `sslContextWithSystemCAs` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `exportTruststore` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `exportTruststoreWithSystemCAs` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `caMaterial` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `address` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `proxyUri` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 

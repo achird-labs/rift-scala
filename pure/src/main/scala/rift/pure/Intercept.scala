@@ -6,7 +6,7 @@ import javax.net.ssl.SSLContext
 
 import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
-import rift.bridge.{InterceptRule, TruststoreFormat}
+import rift.bridge.{CaMaterial, InterceptRule, TruststoreFormat}
 
 /** The plain-Scala surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.11) —
   * `Either[RiftError, _]`-shaped, obtained from `Rift.intercept`/`Rift.interceptUnsafe`. `close()`
@@ -41,12 +41,33 @@ final class Intercept private[pure] (connector: rift.bridge.InterceptConnector)
 
   def sslContext: Either[RiftError, SSLContext] = catchRiftError(connector.sslContext)
 
+  /** Like `sslContext`, plus the platform's own trust anchors — for a SUT whose whole truststore is
+    * replaced, which `sslContext` alone would leave unable to reach any genuinely-trusted host.
+    */
+  def sslContextWithSystemCAs: Either[RiftError, SSLContext] =
+    catchRiftError(connector.sslContextWithSystemCAs)
+
+  /** The generated CA's certificate and private key, for persisting a CA across runs. `None` for a
+    * caller-supplied CA (the engine does not echo it back) and always `None` for an attached
+    * listener, whose CA material the facade never captures.
+    */
+  def caMaterial: Either[RiftError, Option[CaMaterial.Pem]] =
+    catchRiftError(connector.caMaterial)
+
   def exportTruststore(
       format: TruststoreFormat,
       password: String,
       path: Path
   ): Either[RiftError, Unit] =
     catchRiftError(connector.exportTruststore(format, password, path))
+
+  /** `exportTruststore` plus the platform's own trust anchors. */
+  def exportTruststoreWithSystemCAs(
+      format: TruststoreFormat,
+      password: String,
+      path: Path
+  ): Either[RiftError, Unit] =
+    catchRiftError(connector.exportTruststoreWithSystemCAs(format, password, path))
 
   def close(): Unit = connector.close()
 

@@ -97,6 +97,116 @@ class EmbeddedSmokeSpec extends FunSuite:
       finally ic.close()
     finally conn.close()
 
+  // ── issue #95: trust-material parity, against a live engine ─────────────────────────────────
+  // Loads a PEM cert + PKCS#8 private key into a fresh PKCS12 keystore, so `CaMaterial.FromKeyStore`
+  // can be exercised without committing any key material (this repo's rule) — the pair comes from
+  // the engine's own generated CA at runtime.
+  private def keyStoreOf(certPem: String, keyPem: String): java.security.KeyStore =
+    val cert = java.security.cert.CertificateFactory
+      .getInstance("X.509")
+      .generateCertificate(new java.io.ByteArrayInputStream(certPem.getBytes("UTF-8")))
+    val der = java.util.Base64.getMimeDecoder.decode(
+      keyPem
+        .replaceAll("-----BEGIN (.*)-----", "")
+        .replaceAll("-----END (.*)-----", "")
+        .replaceAll("\\s", "")
+    )
+    // PKCS#8 does not name its algorithm in the PEM header, and the engine's generated CA is not
+    // necessarily RSA — try the candidates rather than hardcoding one.
+    val spec = new java.security.spec.PKCS8EncodedKeySpec(der)
+    val key = List("EC", "RSA", "Ed25519", "DSA")
+      .flatMap(alg =>
+        scala.util.Try(java.security.KeyFactory.getInstance(alg).generatePrivate(spec)).toOption
+      )
+      .headOption
+      .getOrElse(fail("could not load the engine's CA private key under any known algorithm"))
+    val ks = java.security.KeyStore.getInstance("PKCS12")
+    ks.load(null, null)
+    ks.setKeyEntry("ca", key, "changeit".toCharArray, Array(cert))
+    ks
+
+  test("embedded: caMaterial returns the generated CA and every CA source form round-trips"):
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
+
+    val conn = RiftConnector.embedded()
+    val (certPem, keyPem) =
+      try
+        val ic = conn.intercept() // generated CA ⇒ the engine returns the key
+        try
+          val material = ic.caMaterial
+          assert(material.isDefined, "a generated CA must hand back its key material")
+          val m = material.get
+          assertEquals(m.certPem, ic.caPem)
+          assert(m.keyPem.contains("BEGIN"), m.keyPem.take(40))
+          (m.certPem, m.keyPem)
+        finally ic.close()
+      finally conn.close()
+
+    // Each source form must reproduce the SAME CA — that is what "persist a CA across runs" means.
+    def caPemFrom(ca: CaMaterial): String =
+      val c = RiftConnector.embedded()
+      try
+        val ic = c.intercept(InterceptConfig(ca = Some(ca)))
+        try ic.caPem
+        finally ic.close()
+      finally c.close()
+
+    assertEquals(caPemFrom(CaMaterial.Pem(certPem, keyPem)), certPem)
+    assertEquals(
+      caPemFrom(
+        CaMaterial.fromPemBytes(
+          IArray.unsafeFromArray(certPem.getBytes("UTF-8")),
+          IArray.unsafeFromArray(keyPem.getBytes("UTF-8"))
+        )
+      ),
+      certPem
+    )
+
+    val certFile = java.nio.file.Files.createTempFile("rift-ca", ".pem")
+    val keyFile = java.nio.file.Files.createTempFile("rift-ca", ".key")
+    try
+      java.nio.file.Files.writeString(certFile, certPem)
+      java.nio.file.Files.writeString(keyFile, keyPem)
+      // The embedded engine runs in THIS process, so its filesystem is ours — the one transport
+      // where a PemFiles path is guaranteed resolvable from the test.
+      assertEquals(caPemFrom(CaMaterial.PemFiles(certFile, keyFile)), certPem)
+    finally
+      java.nio.file.Files.deleteIfExists(certFile)
+      java.nio.file.Files.deleteIfExists(keyFile)
+
+    assertEquals(
+      caPemFrom(CaMaterial.fromKeyStore(keyStoreOf(certPem, keyPem), "changeit".toCharArray)),
+      certPem
+    )
+
+  test("embedded: the system-CA trust variants carry more anchors than the intercept-only ones"):
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
+
+    val conn = RiftConnector.embedded()
+    try
+      val ic = conn.intercept()
+      try
+        assert(ic.sslContextWithSystemCAs != null)
+
+        // Entry count is the observable difference: the plain export holds the intercept CA alone,
+        // the system variant adds the platform anchors. Asserting "> 1" alone would pass on a
+        // truststore that simply duplicated the CA.
+        def entries(writeTo: (TruststoreFormat, String, java.nio.file.Path) => Unit): Int =
+          val p = java.nio.file.Files.createTempFile("rift-ts", ".p12")
+          try
+            writeTo(TruststoreFormat.Pkcs12, "changeit", p)
+            val ks = java.security.KeyStore.getInstance("PKCS12")
+            ks.load(java.nio.file.Files.newInputStream(p), "changeit".toCharArray)
+            ks.size()
+          finally java.nio.file.Files.deleteIfExists(p)
+
+        val plain = entries(ic.exportTruststore)
+        val withSystem = entries(ic.exportTruststoreWithSystemCAs)
+        assertEquals(plain, 1, "the plain truststore should hold the intercept CA and nothing else")
+        assert(withSystem > plain, s"system-CA export added no anchors: $withSystem vs $plain")
+      finally ic.close()
+    finally conn.close()
+
   test("embedded: startRecording — snapshot with no traffic, persist a file, close discards"):
     requireEmbedded(RiftConnector.isEmbeddedAvailable)
 
