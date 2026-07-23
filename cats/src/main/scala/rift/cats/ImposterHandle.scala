@@ -208,10 +208,9 @@ private[cats] final class ScenariosLive[F[_]: Async](underlying: rift.bridge.Sce
 
 /** An isolated `_rift` flow-state space (mirrors `rift.bridge.SpaceHandle`).
   *
-  * '''The cursor tail is not available on the embedded transport''' — `recordedPage`/
-  * `recordedSince` throw `UnsupportedOperationException` there, always, because a space read is
-  * inherently flow-scoped and that transport refuses server-side match filters. See
-  * `rift.bridge.SpaceHandle`; the fs2 module's space `requestStream` inherits the same limit.
+  * The cursor tail works on every transport as of rift-java 0.2.2; under 0.2.1 it threw on the
+  * embedded one, because a space read is inherently flow-scoped and that transport refused
+  * server-side match filters (rift-java#178). See `rift.bridge.SpaceHandle`.
   */
 trait SpaceHandle[F[_]]:
   def flowId: FlowId

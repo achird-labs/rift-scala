@@ -119,11 +119,10 @@ final class RiftConnector private (
     * A quiet engine does not end this stream — it FAILS it: the facade turns an elapsed idle
     * timeout into `RiftError.EngineUnavailable`. Treat that as "reconnect", not "done".
     *
-    * '''Not available on the embedded transport.''' `RiftTransport.events()`'s default throws
-    * `UnsupportedOperationException` and only the HTTP-backed transports (connect, spawn,
-    * container) implement it, so an embedded engine rejects this call — as a defect, not a typed
-    * `RiftError`, since choosing a transport that cannot do it is a wiring decision rather than an
-    * engine failure. Poll `recorded`/`recordedSince` there instead (rift-java-core 0.2.1).
+    * Available on every transport as of rift-java 0.2.2. It used to throw on the embedded one —
+    * `RiftTransport.events()`'s default did, and only `RemoteTransport` overrode it — but
+    * `EmbeddedTransport` now delegates to the in-process admin server it already starts for
+    * `replaceAllImposters` (rift-java#177). The first call there pays that server's lazy start.
     */
   def events(config: EventStreamConfig = EventStreamConfig()): EventStreamConnector =
     FacadeBoundary.run(EventStreamConnector(underlying.events(config.toOptions)))
