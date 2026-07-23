@@ -12,9 +12,14 @@ import rift.model.Port
 import rift.bridge.{CaMaterial, InterceptConnector, InterceptRule, TruststoreFormat}
 
 /** The Cats Effect surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.6). Obtained from
-  * `Rift.intercept` as a `Resource[F, InterceptHandle[F]]` — the proxy is torn down on resource
-  * release. `proxyUri` is pure (mirroring `ImposterHandle.uri`); everything that touches the
-  * running proxy is an effect.
+  * `Rift.intercept` as a `Resource[F, InterceptHandle[F]]`. Release clears the rules this handle
+  * registered; it does **not** stop the proxy, which is bound until the owning engine closes, and
+  * only one *successful* `intercept` is allowed per engine — so acquiring a second one on a shared
+  * engine fails with an `IllegalStateException` **defect**, not a typed error. See
+  * `rift.bridge.RiftConnector.intercept`.
+  *
+  * `proxyUri` is pure (mirroring `ImposterHandle.uri`); everything that touches the running proxy
+  * is an effect.
   */
 trait InterceptHandle[F[_]]:
   def proxyUri: URI

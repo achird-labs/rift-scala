@@ -588,7 +588,13 @@ final class RiftConnector private (underlying: JRift /* io.github.achirdlabs.rif
   def applyConfig(config: Json): ApplyResult
   def info(): EngineInfo
   def adminUri: URI
-  def intercept(options: InterceptConfig): InterceptConnector     // at most one per engine
+  def intercept(options: InterceptConfig): InterceptConnector     // at most one SUCCESSFUL start per
+                                                                  // engine; a later call throws
+                                                                  // IllegalStateException (a defect,
+                                                                  // not a RiftError) and close() does
+                                                                  // not lift it. close() clears the
+                                                                  // handle's rules; the proxy stays
+                                                                  // bound until the engine closes.
   def events(config: EventStreamConfig = EventStreamConfig()): EventStreamConnector  // admin SSE (#87)
   def close(): Unit
 

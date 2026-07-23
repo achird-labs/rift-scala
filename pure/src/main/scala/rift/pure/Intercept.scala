@@ -10,9 +10,16 @@ import rift.model.Port
 import rift.bridge.{CaMaterial, InterceptRule, TruststoreFormat}
 
 /** The plain-Scala surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.11) —
-  * `Either[RiftError, _]`-shaped, obtained from `Rift.intercept`/`Rift.interceptUnsafe`. `close()`
-  * tears the proxy down. `proxyUri` is pure (mirroring `Imposter.uri`); everything that touches the
-  * running proxy is blocking and wrapped in `catchRiftError`.
+  * `Either[RiftError, _]`-shaped, obtained from `Rift.intercept`/`Rift.interceptUnsafe`.
+  *
+  * `close()` clears the rules this handle registered; it does **not** stop the proxy, which is
+  * bound until the owning engine closes, and only one *successful* `intercept` is allowed per
+  * engine — so a second one on the same engine throws an `IllegalStateException` rather than
+  * returning a `Left`, since `catchRiftError` maps only `RiftError`. See
+  * `rift.bridge.RiftConnector.intercept`.
+  *
+  * `proxyUri` is pure (mirroring `Imposter.uri`); everything that touches the running proxy is
+  * blocking and wrapped in `catchRiftError`.
   */
 final class Intercept private[pure] (connector: rift.bridge.InterceptConnector)
     extends AutoCloseable:

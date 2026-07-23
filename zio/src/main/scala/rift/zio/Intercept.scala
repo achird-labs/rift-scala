@@ -12,8 +12,14 @@ import rift.model.Port
 import rift.bridge.{CaMaterial, InterceptConnector, InterceptRule, TruststoreFormat}
 
 /** The ZIO surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.3). Obtained from
-  * `Rift.intercept` as a scoped resource — the proxy is torn down on scope release. `proxyUri` is
-  * pure (mirroring `ImposterHandle.uri`); everything that touches the running proxy is an effect.
+  * `Rift.intercept` as a scoped resource. Scope release clears the rules this handle registered; it
+  * does **not** stop the proxy, which is bound until the owning engine closes, and only one
+  * *successful* `intercept` is allowed per engine — so acquiring a second one on a shared engine
+  * fails with an `IllegalStateException` **defect**, not a typed `RiftError`. See
+  * `rift.bridge.RiftConnector.intercept`.
+  *
+  * `proxyUri` is pure (mirroring `ImposterHandle.uri`); everything that touches the running proxy
+  * is an effect.
   */
 trait InterceptHandle:
   def proxyUri: URI
