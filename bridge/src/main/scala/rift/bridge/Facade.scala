@@ -18,6 +18,7 @@ import rift.model.{
   Headers,
   IsResponse,
   LatencyFault,
+  Port,
   Predicate,
   RecordedRequest,
   Response,
@@ -36,6 +37,8 @@ import io.github.achirdlabs.rift.json.JsonValue as JJsonValue
 import io.github.achirdlabs.rift.dsl.{Fault as JFault, IsSpec as JIsSpec, RiftDsl as JRiftDsl}
 import io.github.achirdlabs.rift.RecordedRequest as JRecordedRequest
 import io.github.achirdlabs.rift.RecordedPage as JRecordedPage
+import io.github.achirdlabs.rift.RiftEvent as JRiftEvent
+import io.github.achirdlabs.rift.RiftEvent.ImposterChanged.Action as JImposterAction
 import io.github.achirdlabs.rift.model.{ImposterDefinition as JImposterDefinition, Stub as JStub}
 
 /** Every rift-java facade call in this module goes through `run`: translate a recognised
@@ -86,6 +89,63 @@ private[bridge] object FacadeDecode:
   def json(jv: JJsonValue): Json = Json.parse(jv.toJson()) match
     case Right(j) => j
     case Left(err) => throw RiftError.DecodeFailed(err.toString, None)
+
+  /** Total mapping of the facade's `RiftEvent` ADT (D1/D2, issue #87). The embedded request in
+    * `RequestRecorded` goes through the same D2 raw-JSON seam as every other recorded request
+    * (`recordedRequest` above); everything else is scalar field translation, since the envelopes
+    * expose no `toJson()` to cross a raw-JSON seam with. The `case _` default is unreachable under
+    * the pinned jar (`RiftEvent` is JVM-sealed to exactly the four cases matched above) but keeps
+    * this total against a newer `rift-java-core` minor that adds a subtype — translated to
+    * `Unknown` rather than crashing the stream.
+    */
+  def riftEvent(j: JRiftEvent): RiftEvent = j match
+    case h: JRiftEvent.Hello =>
+      RiftEvent.Hello(
+        engineVersion = h.engineVersion(),
+        seqAtConnect = h.seqAtConnect(),
+        types = h.types().asScala.toVector,
+        port = h.port().toScala.map(portFrom)
+      )
+    case ic: JRiftEvent.ImposterChanged =>
+      RiftEvent.ImposterChanged(
+        seq = ic.seq().toScala,
+        action = imposterAction(ic.action()),
+        port = ic.port().toScala.map(portFrom)
+      )
+    case rr: JRiftEvent.RequestRecorded =>
+      RiftEvent.RequestRecorded(
+        seq = rr.seq().toScala,
+        port = portFrom(rr.port()),
+        index = rr.index().toScala,
+        flowId = rr.flowId().toScala.map(flowIdFrom),
+        request = recordedRequest(rr.request())
+      )
+    case lg: JRiftEvent.Lagged => RiftEvent.Lagged(lg.missed())
+    case other => RiftEvent.Unknown(s"${other.getClass.getSimpleName}: $other", other.seq().toScala)
+
+  /** An out-of-range port is real response data that failed to parse — `DecodeFailed`, not dropped
+    * (mirrors `decodeOrThrow` below; unlike `ImposterConnector.port`, this has no
+    * `CommunicationError` precedent to follow since these fields aren't sourced from a facade
+    * exception).
+    */
+  private def portFrom(value: Int): Port =
+    Port
+      .from(value)
+      .getOrElse(
+        throw RiftError.DecodeFailed(s"engine reported an out-of-range port: $value", None)
+      )
+
+  private def flowIdFrom(value: String): FlowId =
+    FlowId
+      .from(value)
+      .getOrElse(throw RiftError.DecodeFailed(s"engine reported an invalid flow id: $value", None))
+
+  private def imposterAction(a: JImposterAction): ImposterAction = a match
+    case JImposterAction.CREATED => ImposterAction.Created
+    case JImposterAction.REPLACED => ImposterAction.Replaced
+    case JImposterAction.STUBS_CHANGED => ImposterAction.StubsChanged
+    case JImposterAction.DELETED => ImposterAction.Deleted
+    case JImposterAction.ALL_DELETED => ImposterAction.AllDeleted
 
   /** `verifyResult`'s non-throwing counterpart to `translateReport` (`RiftError.scala`) — but
     * unlike that best-effort, drop-on-decode-failure rendering, this is real response data: any

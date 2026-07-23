@@ -272,7 +272,16 @@ object Inventory:
     Op("Streaming", "recordedSince", zio = No, cats = Yes, fs2 = ViaCats, pure = No),
     Op("Streaming", "pipes.matching", zio = No, cats = No, fs2 = Yes, pure = No),
     Op("Streaming", "pipes.received", zio = No, cats = No, fs2 = Yes, pure = No),
-    Op("Streaming", "awaitRequests", zio = No, cats = No, fs2 = Yes, pure = No)
+    Op("Streaming", "awaitRequests", zio = No, cats = No, fs2 = Yes, pure = No),
+
+    // ── admin SSE event stream (issue #87) — declared directly on `Rift`/`Rift[F]` (reflectable),
+    // but under two DIFFERENT names: zio/pure share the literal name `events`, cats names its
+    // Resource-returning member `eventSource` (the cats module has no fs2 dependency, so it hands
+    // back the bridge `EventSource` rather than a `Stream`). Two rows, not one, so each backend's
+    // reflection check requires exactly the name it actually declares. fs2's own `events` extension
+    // (built on cats' `eventSource`) isn't reflectable — no `rift.fs2.*` class is ever loaded here.
+    Op("Streaming", "events", zio = Yes, cats = No, fs2 = Yes, pure = Yes, reflectable = true),
+    Op("Streaming", "eventSource", zio = No, cats = Yes, fs2 = No, pure = No, reflectable = true)
   )
 
   /** Category display order — first-seen order in `operations`, so adding a new category only needs

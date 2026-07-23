@@ -3,6 +3,7 @@ package rift.ziobdd
 import java.net.URI
 
 import zio.*
+import zio.stream.ZStream
 import zio.test.*
 
 import zio.bdd.mock as spi
@@ -11,7 +12,7 @@ import rift.RiftError
 import rift.json.Json
 import rift.model.{ApplyResult, EngineInfo, Port}
 import rift.dsl.ImposterBuilder
-import rift.bridge.{ImposterDefinition, InterceptConfig}
+import rift.bridge.{EventStreamConfig, ImposterDefinition, InterceptConfig, RiftEvent}
 import rift.zio.{ImposterHandle, InterceptHandle, Rift}
 
 /** Engine-free contract gate for the adapter surface (issue #18): everything here must hold before
@@ -38,6 +39,8 @@ object RiftScalaBackendContractSpec extends ZIOSpecDefault:
     def adminUri: UIO[URI] = ZIO.die(new NotImplementedError("FailingRift"))
     def intercept(config: InterceptConfig): ZIO[Scope, RiftError, InterceptHandle] = die
     def interceptAttach(host: String, port: Int): ZIO[Scope, RiftError, InterceptHandle] = die
+    def events(config: EventStreamConfig): ZStream[Any, RiftError, RiftEvent] =
+      ZStream.die(new NotImplementedError("FailingRift"))
 
   private val layer: ULayer[spi.MockControl] =
     ZLayer.succeed[Rift](FailingRift) >>> RiftScalaBackend.fromService

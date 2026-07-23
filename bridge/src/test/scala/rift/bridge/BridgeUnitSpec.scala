@@ -115,6 +115,48 @@ class ConfigDefaultsSpec extends FunSuite:
     assertEquals(o.startupTimeout(), java.time.Duration.ofSeconds(15))
     assertEquals(o.allowInjection(), true)
 
+/** AC2 (extended) — `EventStreamConfig.toOptions` mirrors `EventStreamOptions.builder()...` with
+  * identical defaults, and every field round-trips onto the built facade options (issue #87).
+  */
+class EventStreamConfigSpec extends FunSuite:
+  import io.github.achirdlabs.rift.EventStreamOptions as JEventStreamOptions
+  import io.github.achirdlabs.rift.EventStreamOptions.EventType as JEventType
+
+  test("defaults leave the facade builder's own defaults untouched") {
+    val facadeDefault = JEventStreamOptions.builder().build()
+    val o = EventStreamConfig().toOptions
+    assertEquals(o.types(), facadeDefault.types())
+    assertEquals(o.port(), facadeDefault.port())
+    assertEquals(o.`match`(), facadeDefault.`match`())
+    // the assertion of interest: pinned against the facade's own (private) default rather than a
+    // hardcoded literal, so a future change to that default can't silently drift from this config.
+    assertEquals(o.idleTimeout(), facadeDefault.idleTimeout())
+  }
+
+  test("toOptions round-trips types/port/filters/idleTimeout onto the built options") {
+    val config = EventStreamConfig(
+      types = Set(EventType.Requests, EventType.Lifecycle),
+      port = Port.from(8080).toOption,
+      filters = Vector(TailFilter.Method("GET"), TailFilter.Header("X-Env", "prod")),
+      idleTimeout = Some(45.seconds)
+    )
+    val o = config.toOptions
+    assertEquals(o.types(), java.util.Set.of(JEventType.REQUESTS, JEventType.LIFECYCLE))
+    assertEquals(o.port(), java.util.OptionalInt.of(8080))
+    assertEquals(o.`match`().size(), 2)
+    assertEquals(o.idleTimeout(), java.time.Duration.ofSeconds(45))
+  }
+
+  test("empty types/filters do not call the facade's varargs setters at all") {
+    // `types()`/`match()` called with zero varargs would still overwrite the builder's own default
+    // (an empty set/list) rather than leaving it alone — `toOptions` must skip the call entirely.
+    val defaultTypes = JEventStreamOptions.builder().build().types()
+    val defaultMatch = JEventStreamOptions.builder().build().`match`()
+    val o = EventStreamConfig().toOptions
+    assertEquals(o.types(), defaultTypes)
+    assertEquals(o.`match`(), defaultMatch)
+  }
+
 /** AC3 — RiftVersions surfaces all three pins, read from rift-java's rift-version.properties (D9).
   */
 class RiftVersionsSpec extends FunSuite:

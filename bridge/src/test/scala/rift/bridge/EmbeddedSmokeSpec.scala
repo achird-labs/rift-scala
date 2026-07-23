@@ -5,6 +5,7 @@ import java.nio.file.Files
 
 import munit.FunSuite
 
+import rift.RiftError
 import rift.dsl.*
 import rift.model.{Port, Times, VerifyDetail}
 
@@ -282,4 +283,30 @@ class EmbeddedSmokeSpec extends FunSuite:
       val rec = imp.startRecording(URI.create("https://origin.example.test"))
       assertEquals(rec.stop(), Vector.empty) // terminal read — no proxied traffic → no stubs
       imp.delete()
+    finally conn.close()
+
+  // ── issue #87: the admin SSE event stream ───────────────────────────────────────────────────
+  // There is deliberately no live event-stream walk here. Verified against the pinned
+  // rift-java-core 0.2.1 (`javap`): `RiftTransport.events()`'s interface DEFAULT throws
+  // `UnsupportedOperationException`, and only `RemoteTransport` — the HTTP-backed
+  // connect/spawn/container path — overrides it. The embedded (FFM) transport, which is the one
+  // this suite runs on, has no admin SSE stream at all.
+  //
+  // So the gap itself is what gets pinned. A skipped placeholder would rot exactly the way these
+  // specs did before #99; this asserts today's behaviour instead, and turns green into red the day
+  // upstream implements the stream — which is precisely when someone should come back and write the
+  // walk. Translation and stream semantics are covered engine-free by `EventTranslationSpec`,
+  // `rift.zio.EventsSpec` and `rift.fs2.EventStreamSpec`.
+  test("embedded: events is unsupported on the FFM transport, and says so"):
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
+
+    val conn = RiftConnector.embedded()
+    try
+      val thrown = intercept[UnsupportedOperationException](
+        conn.events(EventStreamConfig(types = Set(EventType.Lifecycle)))
+      )
+      assert(
+        thrown.getMessage.contains("no admin event stream"),
+        s"unexpected message — has upstream changed this? ${thrown.getMessage}"
+      )
     finally conn.close()

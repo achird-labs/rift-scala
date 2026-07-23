@@ -97,6 +97,23 @@ final class RiftConnector private (
       InterceptConnector(underlying.intercept(JInterceptOptions.attach(host, port)))
     )
 
+  /** Open the engine's admin SSE `/events` stream — its own connection, independent of this
+    * `RiftConnector`'s lifetime (DESIGN.md D5, issue #87). The caller owns the returned
+    * `EventStreamConnector`: `close()` it when done, the same scoped-resource contract as
+    * `intercept`/`startRecording`.
+    *
+    * A quiet engine does not end this stream — it FAILS it: the facade turns an elapsed idle
+    * timeout into `RiftError.EngineUnavailable`. Treat that as "reconnect", not "done".
+    *
+    * '''Not available on the embedded transport.''' `RiftTransport.events()`'s default throws
+    * `UnsupportedOperationException` and only the HTTP-backed transports (connect, spawn,
+    * container) implement it, so an embedded engine rejects this call — as a defect, not a typed
+    * `RiftError`, since choosing a transport that cannot do it is a wiring decision rather than an
+    * engine failure. Poll `recorded`/`recordedSince` there instead (rift-java-core 0.2.1).
+    */
+  def events(config: EventStreamConfig = EventStreamConfig()): EventStreamConnector =
+    FacadeBoundary.run(EventStreamConnector(underlying.events(config.toOptions)))
+
   def close(): Unit =
     try FacadeBoundary.run(underlying.close())
     finally onClose()

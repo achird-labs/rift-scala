@@ -3,6 +3,7 @@ package rift.zio
 import java.net.URI
 
 import zio.*
+import zio.stream.ZStream
 
 import rift.RiftError
 import rift.json.Json
@@ -12,9 +13,11 @@ import rift.bridge.{
   ConnectConfig,
   ContainerConfig,
   EmbeddedConfig,
+  EventStreamConfig,
   ImposterDefinition,
   InterceptConfig,
   RiftConnector,
+  RiftEvent,
   SpawnConfig
 }
 
@@ -36,6 +39,21 @@ trait Rift:
     * `InterceptConfig`: the running listener already owns its CA and address.
     */
   def interceptAttach(host: String, port: Int): ZIO[Scope, RiftError, InterceptHandle]
+
+  /** The admin SSE event stream (DESIGN.md D4/D5, issue #87) — each call opens its own connection,
+    * closed when the stream ends, fails, or is interrupted. See [[Events.stream]] for the full
+    * delivery/termination contract.
+    *
+    * A quiet engine does not end this stream — it FAILS it: the facade turns an elapsed idle
+    * timeout into `RiftError.EngineUnavailable`. Treat that as "reconnect", not "done".
+    *
+    * '''Not available on the embedded transport.''' `RiftTransport.events()`'s default throws
+    * `UnsupportedOperationException` and only the HTTP-backed transports (connect, spawn,
+    * container) implement it, so an embedded engine rejects this call — as a defect, not a typed
+    * `RiftError`, since choosing a transport that cannot do it is a wiring decision rather than an
+    * engine failure. Poll `recorded`/`recordedSince` there instead (rift-java-core 0.2.1).
+    */
+  def events(config: EventStreamConfig = EventStreamConfig()): ZStream[Any, RiftError, RiftEvent]
 
 /** Runs a blocking bridge downcall on `ZIO.attemptBlocking`, recovering the `RiftError` the bridge
   * already throws for every modeled failure (DESIGN.md §5.2, D3) and letting anything else die as
@@ -92,6 +110,9 @@ private[zio] final case class RiftLive(connector: RiftConnector) extends Rift:
         ZIO.attemptBlocking(c.close()).orDie
       )
       .map(InterceptHandleLive(_))
+
+  def events(config: EventStreamConfig): ZStream[Any, RiftError, RiftEvent] =
+    Events.stream(connector.events(config))
 
 object Rift:
 
@@ -151,3 +172,5 @@ object Rift:
       config: InterceptConfig = InterceptConfig()
   ): ZIO[Rift & Scope, RiftError, InterceptHandle] =
     ZIO.serviceWithZIO[Rift](_.intercept(config))
+  def events(config: EventStreamConfig = EventStreamConfig()): ZStream[Rift, RiftError, RiftEvent] =
+    ZStream.serviceWithStream[Rift](_.events(config))
