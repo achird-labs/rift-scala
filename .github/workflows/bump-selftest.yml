@@ -1,0 +1,40 @@
+# Regression gate for scripts/bump.sh (#117).
+#
+# Its own workflow rather than a job in `CI`: the selftest needs no JDK and no sbt, so hanging it off
+# the Scala matrix would run it on every unrelated PR and pay for a JVM to execute bash. Path-gated
+# on `scripts/**`, following `pages.yml`'s precedent in this repo.
+#
+# Two runners, and the macOS one is the point. bump.sh has to work under BSD sed — that is where its
+# portability constructs (`-i.bak`, `sed -E` instead of BSD basic regex, which has no `\|`
+# alternation) actually matter, and it is the lane every other workflow here is blind to because
+# they are all ubuntu-only. GNU sed is covered by the ubuntu runner. macOS minutes are free on
+# public repos, and the path filter keeps this rare.
+#
+# Deliberately NOT a required check: a path-filtered required check never reports on the PRs it
+# skips, which leaves them un-mergeable. It gates by going red on the PRs where it does run.
+name: Bump selftest
+
+on:
+  push:
+    branches: [master]
+    paths: ['scripts/**', '.github/workflows/bump-selftest.yml']
+  pull_request:
+    paths: ['scripts/**', '.github/workflows/bump-selftest.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    name: bump.sh selftest (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: sed flavour under test
+        run: sed --version 2>/dev/null | head -n1 || echo "BSD sed (no --version)"
+      - run: scripts/bump-selftest.sh
