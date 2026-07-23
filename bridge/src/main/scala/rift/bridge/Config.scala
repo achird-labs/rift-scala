@@ -7,10 +7,14 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.jdk.DurationConverters.*
 
+import rift.model.Port
+
 import io.github.achirdlabs.rift.{ConnectOptions, EmbeddedOptions, SpawnOptions}
 import io.github.achirdlabs.rift.VersionCheck as JVersionCheck
 import io.github.achirdlabs.rift.{RecordMode as JRecordMode, RecordSpec as JRecordSpec}
 import io.github.achirdlabs.rift.dsl.RequestField as JRequestField
+import io.github.achirdlabs.rift.EventStreamOptions as JEventStreamOptions
+import io.github.achirdlabs.rift.EventStreamOptions.EventType as JEventType
 
 /** Mirrors rift-java's `VersionCheck` enum — how a mismatched engine/rift-java version is handled
   * on connect.
@@ -149,3 +153,35 @@ final case class RecordSpec(
       .addWaitBehavior(addWaitBehavior)
       .ignoreHeaders(ignoreHeaders*)
       .build()
+
+/** Mirrors rift-java's `EventStreamOptions.EventType` — which envelope categories the admin SSE
+  * stream subscribes to (`RiftConnector.events`, issue #87).
+  */
+enum EventType:
+  case Requests, Lifecycle
+
+  private[bridge] def toJava: JEventType = this match
+    case EventType.Requests => JEventType.REQUESTS
+    case EventType.Lifecycle => JEventType.LIFECYCLE
+
+/** Scala-idiomatic mirror of `EventStreamOptions` — configuring `RiftConnector.events` (DESIGN.md
+  * §9 item 2, D3, issue #87). Empty/`None` fields mean "facade default": `toOptions` calls the
+  * builder setter only when a field is set, so the facade's own defaults (notably the private
+  * `DEFAULT_IDLE_TIMEOUT`) travel untouched rather than being re-encoded here. `filters` reuses
+  * `TailFilter` through the same `FacadeEncode.matchClauses` seam the request tail's server-side
+  * filtering already goes through (Facade.scala).
+  */
+final case class EventStreamConfig(
+    types: Set[EventType] = Set.empty,
+    port: Option[Port] = None,
+    filters: Vector[TailFilter] = Vector.empty,
+    idleTimeout: Option[FiniteDuration] = None
+):
+  private[bridge] def toOptions: JEventStreamOptions =
+    val builder = JEventStreamOptions.builder()
+    if types.nonEmpty then builder.types(types.toArray.map(_.toJava)*)
+    port.foreach(p => builder.port(Port.value(p)))
+    // `match` is a Scala 3 reserved word — the facade builder's method of that name needs backticks.
+    if filters.nonEmpty then builder.`match`(FacadeEncode.matchClauses(filters)*)
+    idleTimeout.foreach(d => builder.idleTimeout(d.toJava))
+    builder.build()

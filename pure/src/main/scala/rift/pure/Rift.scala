@@ -10,6 +10,7 @@ import rift.bridge.{
   ConnectConfig,
   ContainerConfig,
   EmbeddedConfig,
+  EventStreamConfig,
   ImposterDefinition,
   InterceptConfig,
   RiftConnector,
@@ -67,6 +68,25 @@ final class Rift private (connector: RiftConnector) extends AutoCloseable:
 
   def interceptAttachUnsafe(host: String, port: Int): Intercept =
     new Intercept(connector.interceptAttach(host, port))
+
+  /** The admin SSE event stream (DESIGN.md D4, issue #87). Each call opens its own connection (D5);
+    * close the returned `Events` when done (`Using.resource`-friendly, same as `intercept`).
+    *
+    * A quiet engine does not end this stream — it FAILS it: the facade turns an elapsed idle
+    * timeout into `RiftError.EngineUnavailable`. Treat that as "reconnect", not "done".
+    *
+    * '''Not available on the embedded transport.''' `RiftTransport.events()`'s default throws
+    * `UnsupportedOperationException` and only the HTTP-backed transports (connect, spawn,
+    * container) implement it, so an embedded engine rejects this call — as a defect, not a typed
+    * `RiftError`, since choosing a transport that cannot do it is a wiring decision rather than an
+    * engine failure. Poll `recorded`/`recordedSince` there instead (rift-java-core 0.2.1).
+    */
+  def events(config: EventStreamConfig = EventStreamConfig()): Either[RiftError, Events] =
+    catchRiftError(new Events(connector.events(config)))
+
+  /** RiftError is an Exception — throw for `Using.resource`. */
+  def eventsUnsafe(config: EventStreamConfig = EventStreamConfig()): Events =
+    new Events(connector.events(config))
 
   def close(): Unit = connector.close()
 

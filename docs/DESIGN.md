@@ -585,6 +585,7 @@ final class RiftConnector private (underlying: JRift /* io.github.achirdlabs.rif
   def info(): EngineInfo
   def adminUri: URI
   def intercept(options: InterceptConfig): InterceptConnector     // at most one per engine
+  def events(config: EventStreamConfig = EventStreamConfig()): EventStreamConnector  // admin SSE (#87)
   def close(): Unit
 
 object RiftConnector:
@@ -670,6 +671,8 @@ trait Rift:
   def info: IO[RiftError, EngineInfo]
   def adminUri: UIO[URI]
   def intercept(config: InterceptConfig = InterceptConfig()): ZIO[Scope, RiftError, InterceptHandle]
+  // admin SSE event stream (issue #87) — each call opens its own connection (D5)
+  def events(config: EventStreamConfig = EventStreamConfig()): ZStream[Any, RiftError, RiftEvent]
 
 trait ImposterHandle:
   def port: Port
@@ -713,6 +716,8 @@ object Rift:
   def create(builder: ImposterBuilder): ZIO[Rift, RiftError, ImposterHandle] =
     ZIO.serviceWithZIO[Rift](_.create(builder))
   def deleteAll: ZIO[Rift, RiftError, Unit] = ZIO.serviceWithZIO[Rift](_.deleteAll)
+  def events(config: EventStreamConfig = EventStreamConfig()): ZStream[Rift, RiftError, RiftEvent] =
+    ZStream.serviceWithStream[Rift](_.events(config))
   // ... one per Rift method
 ```
 
@@ -907,6 +912,8 @@ trait Rift[F[_]]:
   def info: F[EngineInfo]
   def adminUri: F[URI]
   def intercept(config: InterceptConfig = InterceptConfig()): Resource[F, InterceptHandle[F]]
+  // admin SSE event stream (issue #87) — Resource, not Stream: this module has no fs2 dependency
+  def eventSource(config: EventStreamConfig = EventStreamConfig()): Resource[F, EventSource]
 
 trait ImposterHandle[F[_]]:
   // same surface as the ZIO handle, F[_]-shaped; startRecording returns Resource
@@ -960,6 +967,11 @@ object syntax:
       * exactly once. `nextIndex` absent → hold the cursor; `truncated` → re-baseline is signalled. */
     def requestStream(pollEvery: FiniteDuration = 100.millis): Stream[F, RecordedRequest]
 
+  extension [F[_]: Sync](rift: Rift[F])
+    /** The admin SSE event stream (issue #87), built on `Rift[F].eventSource`'s `Resource`. Each
+      * call opens its own connection (D5); `Lagged` is an ordinary element (D6). */
+    def events(config: EventStreamConfig = EventStreamConfig()): Stream[F, RiftEvent]
+
 object pipes:
   /** Keep only requests matching m (client-side matcher). */
   def matching[F[_]](m: RequestMatch): Pipe[F, RecordedRequest, RecordedRequest]
@@ -975,8 +987,8 @@ def awaitRequests[F[_]: Temporal](handle: ImposterHandle[F], matching: RequestMa
 
 Adopting the cursor is an internal swap — `requestStream` signatures stay. The engine's SSE
 `/events` stream (rift#461) is a *separate*, richer surface (imposter lifecycle + `lagged`
-events) tracked as an additive event stream, not a transparent replacement for this
-`Stream[F, RecordedRequest]`.
+events) — adopted as the additive `events`/`RiftEvent` stream above (issue #87), not a
+replacement for `requestStream`'s `Stream[F, RecordedRequest]`.
 
 ---
 
@@ -1080,6 +1092,8 @@ final class Rift private (connector: RiftConnector) extends AutoCloseable:
   def imposter(port: Port): Either[RiftError, Imposter]
   def deleteAll(): Either[RiftError, Unit]
   // ... same surface, Either-shaped; Imposter mirrors ImposterHandle
+  def events(config: EventStreamConfig = EventStreamConfig()): Either[RiftError, Events]  // #87
+  def eventsUnsafe(config: EventStreamConfig = EventStreamConfig()): Events               // throws
   def close(): Unit
 
 object Rift:
@@ -1248,18 +1262,21 @@ rift-java 0.1.1 is released — nothing in M3 is blocked anymore.
    engine's structured diff directly instead of parsing a string message
    ([rift-java#127](https://github.com/achird-labs/rift-java/issues/127)). D5's testkit
    client-side matcher stays — it renders those diffs in the model's own predicate vocabulary.
-2. **Request-tail cursor & SSE** — two *separate* engine features, both now shipped:
+2. **Request-tail cursor & SSE** — two *separate* engine features, both shipped and both adopted:
    the stable savedRequests cursor ([rift#603](https://github.com/achird-labs/rift/issues/603) —
-   `?since=<index>` + `x-rift-next-index` / `x-rift-truncated`) and the admin SSE `/events`
-   stream ([rift#461](https://github.com/achird-labs/rift/issues/461) — lifecycle + `lagged`
-   events). The bridge reaches both only through rift-java's facade (D2): the **cursor is live in
-   rift-java 0.1.2** (`Imposter.recordedPage()` / `recordedSince(long)` → `RecordedPage{requests,
-   nextIndex, truncated}`, [rift-java#130](https://github.com/achird-labs/rift-java/issues/130)),
-   so D6's cursor tail is buildable today. The **SSE client**
-   ([rift-java#131](https://github.com/achird-labs/rift-java/issues/131)) has since landed on the
-   facade — `Rift.events(EventStreamOptions)` returns an `EventStream` of the `RiftEvent` ADT,
-   including the lifecycle and `Lagged` variants — so that surface is now adoptable rather than
-   pending. (`Dependencies.scala` pins `riftJava = "0.1.3"` → engine 0.15.0.)
+   `?since=<index>` + `x-rift-next-index` / `x-rift-truncated`, D6's cursor tail) and the admin SSE
+   `/events` stream ([rift#461](https://github.com/achird-labs/rift/issues/461) — lifecycle +
+   `lagged` events). The bridge reaches both only through rift-java's facade (D2):
+   `Imposter.recordedPage()` / `recordedSince(long)` → `RecordedPage{requests, nextIndex,
+   truncated}` ([rift-java#130](https://github.com/achird-labs/rift-java/issues/130)) for the
+   cursor. The **SSE client**
+   ([rift-java#131](https://github.com/achird-labs/rift-java/issues/131)) landed on the facade as
+   `Rift.events(EventStreamOptions)` returning an `EventStream` of the `RiftEvent` ADT
+   (`Hello`/`ImposterChanged`/`RequestRecorded`/`Lagged`) and was adopted as the **additive new
+   type** D6 reserved for it — `rift.bridge.RiftEvent`, wrapped per-surface as `rift.zio.Rift.events`
+   (`ZStream`), `rift.cats.Rift[F].eventSource` (`Resource[F, EventSource]`, no fs2 dependency in
+   `cats`), `rift.fs2.syntax.events` (`Stream`), and `rift.pure.Rift.events`/`eventsUnsafe`
+   (issue #87). (`Dependencies.scala` pins `riftJava = "0.2.1"` → engine 0.16.0.)
 3. **`rift-scala-bom` / sbt natives helper** — if classifier selection proves to be a support
    burden, ship `RiftNatives.currentClassifier` as a tiny sbt plugin or documented snippet
    first (bridge README), promote to an artifact on demand.

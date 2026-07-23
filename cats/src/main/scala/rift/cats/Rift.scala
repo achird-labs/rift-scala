@@ -12,6 +12,8 @@ import rift.bridge.{
   ConnectConfig,
   ContainerConfig,
   EmbeddedConfig,
+  EventSource,
+  EventStreamConfig,
   ImposterDefinition,
   InterceptConfig,
   RiftConnector,
@@ -36,6 +38,29 @@ trait Rift[F[_]]:
     * `InterceptConfig`: the running listener already owns its CA and address.
     */
   def interceptAttach(host: String, port: Int): Resource[F, InterceptHandle[F]]
+
+  /** The admin SSE event stream as a `Resource` (DESIGN.md D4/D5, issue #87). The cats module has
+    * no fs2 dependency, so this exposes the bridge `EventSource` directly rather than a `Stream` —
+    * it already exposes bridge types (`RecordedPage`) publicly. `rift.fs2.syntax`'s `events`
+    * extension builds the `Stream[F, RiftEvent]` on top of it. Each call opens its own connection,
+    * never tied to this `Rift[F]`'s own `Resource`.
+    *
+    * A quiet engine does not end this stream — it FAILS it: the facade turns an elapsed idle
+    * timeout into `RiftError.EngineUnavailable`. Treat that as "reconnect", not "done".
+    *
+    * This is the one surface handing back the raw `EventSource`, so its `poll()` is yours to wrap:
+    * it BLOCKS until the next event, so run it under `Sync[F].interruptible`, never `delay` — a
+    * plain `delay` pins a compute thread for up to the idle timeout. `rift.fs2`'s `events`
+    * extension does exactly that and is the easier option if fs2 is available. Single consumer
+    * only: concurrent `poll()` races on the facade's iterator cursor.
+    *
+    * '''Not available on the embedded transport.''' `RiftTransport.events()`'s default throws
+    * `UnsupportedOperationException` and only the HTTP-backed transports (connect, spawn,
+    * container) implement it, so an embedded engine rejects this call — as a defect, not a typed
+    * `RiftError`, since choosing a transport that cannot do it is a wiring decision rather than an
+    * engine failure. Poll `recorded`/`recordedSince` there instead (rift-java-core 0.2.1).
+    */
+  def eventSource(config: EventStreamConfig = EventStreamConfig()): Resource[F, EventSource]
 
 /** Runs a blocking bridge downcall on `Sync[F].blocking`. Unlike ZIO's typed-error/defect split
   * (`refineToOrDie`), a cats-effect `F` has a single `Throwable` error channel, so the `RiftError`
@@ -90,6 +115,9 @@ private[cats] final class RiftLive[F[_]: Async](connector: RiftConnector) extend
       .map(
         new InterceptHandleLive[F](_)
       )
+
+  def eventSource(config: EventStreamConfig): Resource[F, EventSource] =
+    Resource.fromAutoCloseable(blockingF(connector.events(config)))
 
 object Rift:
 

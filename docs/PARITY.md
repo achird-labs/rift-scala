@@ -121,3 +121,5 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | `pipes.matching` | ✗ | ✗ | ✓ | ✗ | parked (#11) |
 | `pipes.received` | ✗ | ✗ | ✓ | ✗ | parked (#11) |
 | `awaitRequests` | ✗ | ✗ | ✓ | ✗ | parked (#11) |
+| `events` | ✓ | ✗ | ✓ | ✓ | parked (#11) |
+| `eventSource` | ✗ | ✓ | ✗ | ✗ | parked (#11) |
