@@ -119,8 +119,8 @@ class ConfigDefaultsSpec extends FunSuite:
   */
 class RiftVersionsSpec extends FunSuite:
   test("riftJava and engine come from the pinned rift-java jar"):
-    assertEquals(RiftVersions.riftJava, "0.2.0")
-    assertEquals(RiftVersions.engine, "0.15.0")
+    assertEquals(RiftVersions.riftJava, "0.2.1")
+    assertEquals(RiftVersions.engine, "0.16.0")
   test("riftScala is non-empty"):
     assert(RiftVersions.riftScala.nonEmpty)
 
