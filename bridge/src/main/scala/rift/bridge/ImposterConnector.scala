@@ -216,9 +216,10 @@ final class ScenariosHandle private[bridge] (underlying: JScenarios):
 /** An isolated `_rift` flow-state space (correlated by `FlowId`) — its own stub set, recordings,
   * and verification, scoped away from the imposter's default space.
   *
-  * No `recordedPage`/`recordedSince` here: the facade's `Space` interface exposes only
-  * `recorded()`/`recorded(matching)`, not the cursor journal — a space-scoped tail is out of scope
-  * for #4's gate (which only needs the imposter-level cursor).
+  * No `recordedPage`/`recordedSince` here — deliberately, not for want of a facade. `Space` does
+  * expose both (verified by `javap` on rift-java-core 0.2.1); a space-scoped cursor tail is simply
+  * out of scope for #4's gate, which needs only the imposter-level cursor. `FacadeParitySpec`
+  * records it as an unwrapped capability rather than pretending it does not exist.
   */
 final class SpaceHandle private[bridge] (val flowId: FlowId, underlying: JSpace):
   def addStub(stub: Stub): StubHandle =
