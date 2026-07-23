@@ -100,7 +100,9 @@ private[cats] final class RiftLive[F[_]: Async](connector: RiftConnector) extend
   def adminUri: F[URI] = blockingF(connector.adminUri)
 
   /** Both acquire and release run on the blocking pool (like `RiftLive`'s `close()`), since
-    * `InterceptConnector.close()` performs real blocking teardown.
+    * `InterceptConnector.close()` makes a real blocking call. Release clears the handle's rules
+    * rather than stopping the proxy, and only one *successful* `intercept` is allowed per engine —
+    * see `InterceptHandle`.
     */
   def intercept(config: InterceptConfig): Resource[F, InterceptHandle[F]] =
     Resource

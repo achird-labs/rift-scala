@@ -103,7 +103,10 @@ class EmbeddedSmokeSpec extends FunSuite:
     try
       val ic = conn.intercept() // generated CA, dynamic port
       try
-        assert(ic.proxyUri.toString.nonEmpty)
+        // The parts a client actually needs to connect. `toString.nonEmpty` passed for any URI at
+        // all, including one with no host or an unassigned port.
+        assert(ic.proxyUri.getHost != null, ic.proxyUri.toString)
+        assert(ic.proxyUri.getPort > 0, ic.proxyUri.toString)
         ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
         ic.rule("legacy.example.com").forward("real.example.com:443")
         assert(ic.rules.sizeIs >= 2)
@@ -114,12 +117,24 @@ class EmbeddedSmokeSpec extends FunSuite:
         assertEquals(catchAll.host, None)
         assert(ic.rules.exists(_.host.isEmpty), ic.rules.toString)
         assert(ic.caPem.contains("BEGIN"))
-        assert(ic.sslContext != null)
+        // Initialised, not merely non-null: an uninitialised SSLContext throws here, so this is
+        // what distinguishes a usable context from a placeholder.
+        assert(ic.sslContext.getSocketFactory != null)
 
         val truststore = java.nio.file.Files.createTempFile("rift-truststore", ".p12")
         try
           ic.exportTruststore(TruststoreFormat.Pkcs12, "changeit", truststore)
-          assert(java.nio.file.Files.size(truststore) > 0)
+          // A size check passed for any garbage bytes. Loading it proves the export is a real
+          // PKCS12 keystore, readable with the password given, holding the intercept CA. The
+          // stream is closed before the `finally` deletes the file — an open handle would make the
+          // delete throw on Windows and mask whatever this test actually found.
+          val ks = java.security.KeyStore.getInstance("PKCS12")
+          scala.util.Using.resource(java.nio.file.Files.newInputStream(truststore))(
+            ks.load(_, "changeit".toCharArray)
+          )
+          assertEquals(ks.size(), 1, "the plain truststore should hold exactly the intercept CA")
+          val alias = ks.aliases().nextElement()
+          assert(ks.isCertificateEntry(alias), s"$alias is not a trusted-certificate entry")
         finally java.nio.file.Files.deleteIfExists(truststore)
 
         // Chained `.when` is a conjunction (#82). The engine ANDs a rule's predicate array —
@@ -283,6 +298,46 @@ class EmbeddedSmokeSpec extends FunSuite:
       val rec = imp.startRecording(URI.create("https://origin.example.test"))
       assertEquals(rec.stop(), Vector.empty) // terminal read — no proxied traffic → no stubs
       imp.delete()
+    finally conn.close()
+
+  // ── issue #121: the one-intercept-per-engine contract, as the engine actually enforces it ────
+  // `RiftConnector.intercept`'s scaladoc claimed a second call was "an engine-side error, surfaced
+  // as a `RiftError`, not hidden". Against the live engine it is neither engine-side nor a
+  // `RiftError`: the facade's own guard raises `IllegalStateException`, which is not a
+  // `RiftException` subtype, so `FacadeBoundary` rethrows it as a defect. Nothing asserted this, so
+  // the doc drifted from the behaviour unnoticed. Both docs are corrected; this pins the truth.
+  test("embedded: a second intercept() is refused by the facade, as a defect"):
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
+
+    val conn = RiftConnector.embedded()
+    try
+      val ic = conn.intercept()
+      val whileOpen = intercept[IllegalStateException](conn.intercept())
+      assert(whileOpen.getMessage.contains("already started"), whileOpen.getMessage)
+
+      // And closing does not make the engine re-interceptable, so "at most one per engine" means
+      // once per engine, not one at a time. (A *failed* start is different — the facade resets its
+      // guard on any RuntimeException from the start path — so this is one successful start.)
+      ic.close()
+      val afterClose = intercept[IllegalStateException](conn.intercept())
+      assert(afterClose.getMessage.contains("already started"), afterClose.getMessage)
+    finally conn.close()
+
+  // The observable that lets the effect surfaces prove their finalizers do real work. Note what it
+  // is NOT: the facade's `Intercept.close()` is exactly `clearRules()`, so the listener is not torn
+  // down — it stops only with the owning engine — and the handle stays live afterwards (`caPem`
+  // still answers, a further `rule(...)` still registers). Cleared rules are the strongest signal
+  // release actually has, which is why the cats spec asserts on this and not on object death.
+  test("embedded: closing an intercept releases the rules it registered"):
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
+
+    val conn = RiftConnector.embedded()
+    try
+      val ic = conn.intercept()
+      ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
+      assert(ic.rules.nonEmpty, "precondition: the rule should be registered before close")
+      ic.close()
+      assertEquals(ic.rules, Vector.empty, "close() left the engine-side rules in place")
     finally conn.close()
 
   // ── issue #87: the admin SSE event stream ───────────────────────────────────────────────────

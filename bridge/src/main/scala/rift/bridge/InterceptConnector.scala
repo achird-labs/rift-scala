@@ -16,10 +16,20 @@ import io.github.achirdlabs.rift.{
 }
 
 /** Blocking, throwing (`RiftError`) handle on the engine's TLS-MITM intercept proxy — mirrors
-  * `rift.zio.InterceptHandle` (DESIGN.md §5.3) 1:1 but blocking. At most one per engine: a second
-  * `RiftConnector.intercept` is an engine-side error, surfaced (not hidden). `close()` tears the
-  * proxy down; the trust material (`caPem`/`sslContext`/`exportTruststore`) is what a SUT's client
-  * uses to trust the minted leaf certs.
+  * `rift.zio.InterceptHandle` (DESIGN.md §5.3) 1:1 but blocking. At most one per engine, for the
+  * engine's whole lifetime: a second `RiftConnector.intercept` is refused by the facade with
+  * `IllegalStateException`, a defect rather than a `RiftError`, and `close()` does not lift the
+  * refusal — see `RiftConnector.intercept`.
+  *
+  * `close()` clears every rule this handle registered — `rules` reads back empty — which is what
+  * `EmbeddedSmokeSpec` observes to prove the effect surfaces' finalizers do real work rather than
+  * merely running. It does **not** stop the listener: the facade's `Intercept.close()` is exactly
+  * `clearRules()` and the transport exposes no stop at all, so the proxy stays bound for the
+  * engine's lifetime and the handle stays usable — `caPem` still answers and a further `rule(...)`
+  * still registers. Closing the engine is what frees the port.
+  *
+  * The trust material (`caPem`/`sslContext`/`exportTruststore`) is what a SUT's client uses to
+  * trust the minted leaf certs.
   */
 final class InterceptConnector private[bridge] (underlying: JIntercept) extends AutoCloseable:
 

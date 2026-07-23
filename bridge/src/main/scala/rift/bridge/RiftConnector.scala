@@ -73,9 +73,23 @@ final class RiftConnector private (
 
   def adminUri: URI = FacadeBoundary.run(underlying.adminUri())
 
-  /** Start the engine's TLS-MITM intercept proxy — at most one per engine (a second call is an
-    * engine-side error, surfaced as a `RiftError`, not hidden). `config.ca = None` generates an
-    * ephemeral CA; `Some(CaMaterial)` uses a committed PEM pair (the fixed-CA case #7 needs).
+  /** Start the engine's TLS-MITM intercept proxy — at most one **successful** start per engine.
+    * Once one has succeeded, every later call is refused by the facade's own guard with
+    * `IllegalStateException("intercept already started for this engine")`, and `close()` does not
+    * lift the refusal: an intercept cannot be restarted on the same engine.
+    *
+    * A start that *fails* does not consume the quota. The facade resets its guard on any
+    * `RuntimeException` escaping the start path — and every `RiftError` is one — so a call rejected
+    * for, say, bad CA material can be retried on the same engine.
+    *
+    * That refusal is a **defect**, not a `RiftError` — `IllegalStateException` is not one of the
+    * facade's `RiftException` types, so `FacadeBoundary` rethrows it unchanged. Asking twice is a
+    * wiring mistake rather than an engine failure, so it does not reach the typed error channel.
+    * (Pinned by `EmbeddedSmokeSpec`; this doc previously claimed an engine-side 409 surfaced as a
+    * `RiftError`, which the live engine does not do — #121.)
+    *
+    * `config.ca = None` generates an ephemeral CA; `Some(CaMaterial)` uses a committed PEM pair
+    * (the fixed-CA case #7 needs).
     */
   def intercept(config: InterceptConfig = InterceptConfig()): InterceptConnector =
     // A container-booted listener is already running with the CA it started under, so its attach

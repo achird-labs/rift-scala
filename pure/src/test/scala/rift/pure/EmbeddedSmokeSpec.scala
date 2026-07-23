@@ -4,6 +4,7 @@ import scala.util.Using
 
 import munit.FunSuite
 
+import rift.RiftError
 import rift.dsl.*
 import rift.model.Port
 
@@ -58,6 +59,10 @@ class EmbeddedSmokeSpec extends FunSuite:
         // All-hosts rule (#80) — the no-arg form, registered end-to-end against the engine.
         val catchAll = ic.rule().when(get("/anywhere")).serve(ok.json("""{"any":true}"""))
         assertEquals(catchAll.map(_.host), Right(None))
+        // Re-read from the ENGINE, not the local `serve(...)` return value: #80 was a bug on the
+        // read path (engine → facade → us), so the assertion above would stay green through a
+        // regression of the half that actually broke.
+        assertEquals(ic.rules.map(_.exists(_.host.isEmpty)), Right(true), ic.rules.toString)
         assertEquals(ic.caPem.map(_.contains("BEGIN")), Right(true))
       }
 
@@ -72,4 +77,38 @@ class EmbeddedSmokeSpec extends FunSuite:
       }
 
       assertEquals(imp.delete(), Right(()))
+    }
+
+  // #121: every other assertion in this file is `.isRight` or a happy-path `Right(...)`, which
+  // leaves the module's whole distinguishing feature — the `Either`-shaped wiring — unexercised on
+  // the branch that matters. A genuine engine failure must arrive as a typed `Left`, not as a
+  // thrown defect and not as a spurious `Right`.
+  test("embedded: a real engine failure surfaces as Left(RiftError), not a throw"):
+    requireEmbedded(Rift.isEmbeddedAvailable)
+
+    Using.resource(Rift.embeddedUnsafe()) { rift =>
+      val imp = rift
+        .create(imposter("smoke-left").port(0).build)
+        .fold(e => fail(s"setup failed: $e"), identity)
+
+      assertEquals(imp.delete(), Right(()))
+      // Deleting the same imposter twice is an engine-side error on the second call.
+      imp.delete() match
+        case Left(RiftError.EngineError(_, msg)) => assert(msg.contains("not found"), msg)
+        case other => fail(s"expected Left(EngineError(_, not found)), got $other")
+    }
+
+  // The one-intercept-per-engine guard is the facade's, and it raises `IllegalStateException` —
+  // not a `RiftException` — so `catchRiftError` does not map it and it escapes as a defect rather
+  // than a `Left`. Pinning that here keeps `pure`'s "engine failures are values" contract honest
+  // about its own boundary: a wiring mistake is not an engine failure. (The bridge spec pins the
+  // same behaviour, and #121 corrected the scaladoc that claimed a `RiftError`.)
+  test("embedded: a second intercept() throws rather than returning a Left"):
+    requireEmbedded(Rift.isEmbeddedAvailable)
+
+    Using.resource(Rift.embeddedUnsafe()) { rift =>
+      Using.resource(rift.interceptUnsafe()) { _ =>
+        val thrown = intercept[IllegalStateException](rift.intercept())
+        assert(thrown.getMessage.contains("already started"), thrown.getMessage)
+      }
     }
