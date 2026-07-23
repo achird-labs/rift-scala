@@ -568,5 +568,473 @@ object FacadeCoverage:
     Coverage.Wrapped("StubRef#id()", "rift.bridge.StubHandle#id"),
     Coverage.Wrapped("StubRef#index()", "rift.bridge.StubHandle#index"),
     Coverage.Wrapped("StubRef#replace(JsonValue)", "rift.bridge.StubHandle#replace"),
-    Coverage.Excluded("StubRef#replace(StubSpec)", d2Seam)
+    Coverage.Excluded("StubRef#replace(StubSpec)", d2Seam),
+
+    // ── issue #130: the facade DSL/verify subpackages ───────────────────────────────────────
+    // Seeded from the bytecode, not by hand: check (c2) verifies every Wrapped row below
+    // actually reaches its capability, which is the whole reason the truth-check landed first.
+
+    Coverage
+      .Wrapped("ClosestMiss#failedPredicates()", "rift.bridge.FacadeDecode#verificationResult"),
+    Coverage.Wrapped("ClosestMiss#request()", "rift.bridge.FacadeDecode#verificationResult"),
+    Coverage.Wrapped("FailedPredicate#actual()", "rift.bridge.FacadeDecode#verificationResult"),
+    Coverage.Wrapped("FailedPredicate#predicate()", "rift.bridge.FacadeDecode#verificationResult"),
+    Coverage.Wrapped("Fault#CONNECTION_RESET_BY_PEER", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("Fault#EMPTY_RESPONSE", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("Fault#MALFORMED_RESPONSE_CHUNK", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("Fault#RANDOM_DATA_THEN_CLOSE", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#decorate(String)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#repeat(int)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#shellTransform(String[])", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#templated()", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#waitBetween(long,long)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#waitInject(String)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#waitMs(long)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#waitScript(String)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#withBinaryBody(byte[])", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#withErrorFault(double,int)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#withErrorFault(double,int,String)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage
+      .Wrapped("IsSpec#withErrorFault(double,int,String,Map)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#withHeader(String,String[])", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#withJsonBody(JsonValue)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#withLatencyFault(double,Duration)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped(
+      "IsSpec#withLatencyFault(double,Duration,Duration)",
+      "rift.bridge.FacadeEncode#isSpec"
+    ),
+    Coverage.Wrapped("IsSpec#withTcpFault(Fault)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#withTcpFault(double,Fault)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("IsSpec#withTextBody(String)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("RequestMatch#ofJson(JsonValue)", "rift.bridge.FacadeEncode#requestMatch"),
+    Coverage.Wrapped("RiftDsl#status(int)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Wrapped("VerificationResult#closest()", "rift.bridge.FacadeDecode#verificationResult"),
+    Coverage.Wrapped("VerificationResult#matched()", "rift.bridge.FacadeDecode#verificationResult"),
+    Coverage
+      .Wrapped("VerificationResult#requests()", "rift.bridge.FacadeDecode#verificationResult"),
+    Coverage
+      .Wrapped("VerificationResult#satisfied()", "rift.bridge.FacadeDecode#verificationResult"),
+    Coverage.Wrapped("VerificationResult#total()", "rift.bridge.FacadeDecode#verificationResult"),
+    Coverage.Wrapped("VerificationTimes#atLeast(int)", "rift.bridge.FacadeEncode#times"),
+    Coverage.Wrapped("VerificationTimes#atMost(int)", "rift.bridge.FacadeEncode#times"),
+    Coverage.Wrapped("VerificationTimes#between(int,int)", "rift.bridge.FacadeEncode#times"),
+    Coverage.Wrapped("VerificationTimes#exactly(int)", "rift.bridge.FacadeEncode#times"),
+    Coverage.Wrapped("VerifyDetail#CLOSEST", "rift.bridge.FacadeEncode#verifyDetails"),
+    Coverage.Wrapped("VerifyDetail#REQUESTS", "rift.bridge.FacadeEncode#verifyDetails"),
+    Coverage.ExcludedClass(
+      "CopySpec",
+      "the copy behavior's spec type. FacadeEncode.isSpec explicitly refuses copy/lookup rather than degrading them (its own scaladoc records the residual), and redirectTo carries full stub fidelity instead, so this is never constructed"
+    ),
+    Coverage.ExcludedClass(
+      "FaultSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "FlowStateSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "ImposterSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "InjectSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.Excluded(
+      "IsSpec#after(Duration)",
+      "the facade's absolute-time scheduling knob; rift.model.Behaviors models waits (waitMs/waitBetween) and has no `after` construct to translate"
+    ),
+    Coverage.Excluded(
+      "IsSpec#build()",
+      "the builder's terminal. FacadeEncode.isSpec hands the IsSpec itself to the facade call that consumes it, which builds internally"
+    ),
+    Coverage.Excluded(
+      "IsSpec#copy(CopySpec[])",
+      "the copy residual FacadeEncode.isSpec refuses loudly rather than degrading — use redirectTo"
+    ),
+    Coverage.Excluded(
+      "IsSpec#copyObject(CopySpec)",
+      "the copy residual FacadeEncode.isSpec refuses loudly rather than degrading — use redirectTo"
+    ),
+    Coverage.Excluded(
+      "IsSpec#lookup(LookupSpec[])",
+      "the lookup residual FacadeEncode.isSpec refuses loudly rather than degrading — use redirectTo"
+    ),
+    Coverage.Excluded(
+      "IsSpec#lookupObject(LookupSpec)",
+      "the lookup residual FacadeEncode.isSpec refuses loudly rather than degrading — use redirectTo"
+    ),
+    Coverage.Excluded(
+      "IsSpec#withBodyFromCodec(Object)",
+      "the ServiceLoader-global body codec, rejected by D7 in favour of per-call JsonBody[A] side-cars"
+    ),
+    Coverage.Excluded(
+      "IsSpec#withJsonBody(String)",
+      "the String overload; FacadeEncode.isSpec builds a JsonValue and calls withJsonBody(JsonValue) instead, so the parse happens once on our side"
+    ),
+    Coverage.ExcludedClass(
+      "LookupSpec",
+      "the lookup behavior's spec type — same residual as CopySpec: FacadeEncode.isSpec refuses it loudly rather than degrading it, and redirectTo is the full-fidelity route"
+    ),
+    Coverage.ExcludedClass(
+      "PredicateEvaluator",
+      "client-side predicate evaluation in the facade. rift-scala evaluates matches with its own rift.model.matching.RequestMatcher (gated by RequestMatcherSpec), so this is never called"
+    ),
+    Coverage.ExcludedClass(
+      "PredicateGeneratorSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "PredicateSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "ProxySpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "RequestField",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.Excluded(
+      "RequestMatch#of(List)",
+      "the typed-predicate constructors. FacadeEncode.requestMatch renders rift.model.Predicate to JSON and uses ofJson(JsonValue), the D2 seam, so the facade's Predicate type is never constructed"
+    ),
+    Coverage.Excluded(
+      "RequestMatch#of(Predicate[])",
+      "the typed-predicate constructors. FacadeEncode.requestMatch renders rift.model.Predicate to JSON and uses ofJson(JsonValue), the D2 seam, so the facade's Predicate type is never constructed"
+    ),
+    Coverage.Excluded(
+      "RequestMatch#ofJson(String)",
+      "the String overload; FacadeEncode.requestMatch already holds a JsonValue and calls ofJson(JsonValue), avoiding a re-parse"
+    ),
+    Coverage.Excluded(
+      "RequestMatch#predicates()",
+      "the read-back accessor. rift-scala only ever sends a RequestMatch to the facade and keeps its own rift.dsl.RequestMatch as the readable form"
+    ),
+    Coverage.ExcludedClass(
+      "ResponseSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#and(PredicateSpec[])",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#atLeast(int)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#atMost(int)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#between(int,int)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#body(Matcher)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#contains(JsonValue)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#contains(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#copyFrom(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#copyFromHeader(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#copyFromQuery(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#created()",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#deepEquals(JsonValue)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#deepEquals(Object)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#deepEquals(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#endsWith(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#eq(JsonValue)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#eq(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#equalTo(JsonValue)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#equalTo(Object)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#equalTo(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#exactly(int)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#exists()",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#fault(Fault)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#header(String,Matcher)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#header(String,String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#imposter(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#inMemoryFlowState()",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#inject(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#json(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#jsonPath(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#lookupKey(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#matches(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#method(Matcher)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#never()",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#noContent()",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#not(PredicateSpec)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#notExists()",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#notFound()",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#ok()",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#okJson(JsonValue)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#okJson(Object)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#okJson(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#okJsonRaw(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#on(String,String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#onDelete(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#onGet(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#onHead(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#onOptions(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#onPatch(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#onPost(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#onPut(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#onRequest()",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#or(PredicateSpec[])",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#path(Matcher)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#proxyTo(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#query(String,Matcher)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#query(String,String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#redisFlowState(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#regex(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#regex(String,boolean,boolean)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#scenario(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#script(Script)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#startsWith(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#times(int)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#useBodyCodec(RiftBodyCodec)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#xPath(String)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.Excluded(
+      "RiftDsl#xPath(String,Map)",
+      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
+    ),
+    Coverage.ExcludedClass(
+      "ScenarioSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "ScenarioSpec.RespondedTransition",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "ScenarioSpec.Transition",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "Script",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "ScriptEngine",
+      "the facade DSL's script-engine enum, reachable only from ScriptSpec, which rift-scala never builds — rift.model.ScriptEngine is the Scala-side model and travels as raw JSON"
+    ),
+    Coverage.ExcludedClass(
+      "ScriptSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "StubSpec",
+      "the facade's typed builder DSL, which rift-scala replaces wholesale: rift.dsl builds the model directly and it crosses to the engine as raw JSON (D2), so this builder is never constructed. FacadeEncode.isSpec is the one typed translation that remains, and it targets IsSpec alone"
+    ),
+    Coverage.ExcludedClass(
+      "VerificationException",
+      "the facade's throwing verification failure. RiftError.fromThrowable translates it at the boundary into RiftError.VerificationFailed; nothing else in rift-scala touches the type"
+    ),
+    Coverage.Excluded(
+      "VerificationResult#read(JsonValue,VerificationTimes)",
+      "the facade's own JSON decoder for the result. The facade returns an already-decoded VerificationResult from verifyResult, which FacadeDecode.verificationResult translates, so this entry point is never called"
+    ),
+    Coverage.Excluded(
+      "VerificationTimes#describe()",
+      "the facade's human-readable rendering; RiftError.VerificationFailed carries the decoded VerificationReport and renders Scala-side"
+    ),
+    Coverage.Excluded(
+      "VerificationTimes#matches(int)",
+      "client-side evaluation of a times constraint; rift-scala asks the engine to verify and decodes the result instead"
+    ),
+    Coverage.Excluded(
+      "VerificationTimes#never()",
+      "rift.model.Times models this as Exactly(0), which FacadeEncode.times sends through exactly(int) — one encoding path rather than two"
+    ),
+    Coverage.Excluded(
+      "VerificationTimes#times(int)",
+      "an alias for exactly(int), which FacadeEncode.times uses"
+    )
   )
