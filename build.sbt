@@ -140,11 +140,19 @@ lazy val bridge = riftModule("bridge", "bridge")
   .settings(embeddedSmokeSettings)
 
 lazy val zio = riftModule("zio", "zio")
-  .dependsOn(bridge)
+  // test->test: the intercept replay-fold gates share bridge's InterceptGate — one home for the
+  // reflective null-engine builder, rather than a `package rift.bridge` cheat-file per module (#101).
+  .dependsOn(bridge % "compile->compile;test->test")
   .settings(
     libraryDependencies ++= Dependencies.zioDeps ++ Dependencies.zioTestDeps,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
   )
+  // The test->test edge above also inherits bridge's Test-scope deps, which on JDK 22 include the
+  // embedded jars — so `isEmbeddedAvailable` becomes true here. The settings below only work as a
+  // set (see their definition), and inheriting the jars without the fork and the JVM flag is
+  // exactly the half-wired state #99 removed. zio has no smoke spec of its own; this keeps the
+  // classpath honest for any that is added.
+  .settings(embeddedSmokeSettings)
 
 lazy val zioTestkit = riftModule("zioTestkit", "zio-testkit")
   .dependsOn(zio)
@@ -176,7 +184,9 @@ lazy val zioBdd = riftModule("zioBdd", "zio-bdd")
   )
 
 lazy val cats = riftModule("cats", "cats")
-  .dependsOn(bridge)
+  // test->test: the intercept replay-fold gates share bridge's InterceptGate — one home for the
+  // reflective null-engine builder, rather than a `package rift.bridge` cheat-file per module (#101).
+  .dependsOn(bridge % "compile->compile;test->test")
   .settings(
     libraryDependencies ++=
       Dependencies.catsEffectDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps
