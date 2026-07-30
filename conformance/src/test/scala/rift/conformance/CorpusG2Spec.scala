@@ -423,7 +423,7 @@ object CorpusG2Spec extends ZIOSpecDefault:
     "13-js-config-decorate" -> "requires injection — Mountebank `config =>` / Rhai decorate conventions.",
     "14-verify-annotations" -> "purpose-built to exercise the `_verify` annotation surface itself, not DSL authoring.",
     "16-behaviors-advanced" -> "requires injection — advanced behaviors (issue #254 §D3) beyond the typed DSL surface.",
-    "20-mimeo-solo-compat" -> "requires injection + proxy — Mountebank migration-tool compat forms beyond the typed DSL."
+    "20-migration-compat" -> "requires injection + proxy — Mountebank migration-tool compat forms beyond the typed DSL."
   )
 
   def spec = suite("G2 — DSL expressibility (issue #6, engine-free)")(

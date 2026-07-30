@@ -402,7 +402,7 @@ private[bridge] object FacadeEncode:
     extra.isEmpty || extra == Vector(binaryMarker)
 
   private def isSpecFromIs(is: IsResponse): JIsSpec =
-    // `rawStatusCode` is a *modeled* field (the non-numeric wire form, e.g. mimeo's `"404"`), so it
+    // `rawStatusCode` is a *modeled* field (the non-numeric wire form, e.g. a migrated mock's `"404"`), so it
     // never lands in `is.extra` and the unknown-key guard cannot see it. `RiftDsl.status` takes an
     // Int, so translating would silently answer 200 for a response that named some other status.
     if is.rawStatusCode.isDefined then
