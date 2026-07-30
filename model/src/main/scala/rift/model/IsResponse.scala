@@ -9,9 +9,9 @@ final case class IsResponse(
     headers: Headers = Headers.empty,
     body: Option[Json] = None,
     extra: Vector[(String, Json)] = Vector.empty,
-    /** `statusCode` verbatim, for the rare wire form that isn't a JSON number (e.g. mimeo's string
-      * `"200"`). Mutually exclusive with `statusCode` — `semanticEquals` is strict, so a string
-      * can't be coerced to a number and re-emitted faithfully any other way.
+    /** `statusCode` verbatim, for the rare wire form that isn't a JSON number (e.g. a migrated
+      * mock's string `"200"`). Mutually exclusive with `statusCode` — `semanticEquals` is strict,
+      * so a string can't be coerced to a number and re-emitted faithfully any other way.
       */
     rawStatusCode: Option[Json] = None
 ):

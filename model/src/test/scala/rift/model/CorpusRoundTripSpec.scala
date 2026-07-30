@@ -27,7 +27,7 @@ class CorpusRoundTripSpec extends munit.FunSuite:
     "15-predicate-modifiers",
     "16-behaviors-advanced",
     "17-faults-and-binary",
-    "20-mimeo-solo-compat"
+    "20-migration-compat"
   )
 
   private def load(name: String): Json =
