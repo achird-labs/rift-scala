@@ -1,7 +1,7 @@
 # Corpus fixtures — provenance
 
 These 15 imposter fixtures are vendored verbatim from the Rift engine's published SDK conformance
-corpus: **`sdk-conformance-v0.16.0.tar.gz`** (GitHub release asset for engine `v0.16.0`), under
+corpus: **`sdk-conformance-v0.17.0.tar.gz`** (GitHub release asset for engine `v0.17.0`), under
 `corpus/imposters/`. The corpus is the engine-canonical single source of truth for DSL↔engine
 parity (RFC-003 §9.2); `CorpusRoundTripSpec` round-trips each through the model.
 

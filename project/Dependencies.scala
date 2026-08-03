@@ -7,8 +7,8 @@ import sbt.*
   */
 object Dependencies {
 
-  /** Pins the engine (0.16.0) and the conformance corpus transitively. */
-  val riftJava = "0.2.2"
+  /** Pins the engine (0.17.0) and the conformance corpus transitively. */
+  val riftJava = "0.2.3"
 
   /** `bridge` compile scope (D2): the JDK-17+ facade
     * (`Rift`/`Imposter`/`RiftException`/`JsonValue`/ `RiftVersion`) is all the bridge links against
