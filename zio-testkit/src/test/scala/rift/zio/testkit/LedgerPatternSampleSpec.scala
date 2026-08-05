@@ -11,6 +11,8 @@ import rift.bridge.{CaMaterial, InterceptConfig}
 import rift.dsl.*
 import rift.model.Times
 import rift.zio.Rift
+// Renamed: `ZIOSpec` inherits its own `aspects` member, which outranks an import of this object.
+import rift.zio.testkit.aspects as riftAspects
 import rift.zio.testkit.assertions.eventuallyReceived
 
 /** RUNNABLE SAMPLE — the "ledger pattern" (issue #7).
@@ -125,109 +127,104 @@ object LedgerPatternSampleSpec extends ZIOSpecDefault:
     test(
       "fixed-port TLS intercept + CA, datafile hot-swap, revision-bump poll, recorded-request verification"
     ) {
-      // Skip (never FAIL) when the embedded native engine isn't on this JVM — checked BEFORE any
-      // layer is forced, so CI never pays the acquisition cost this guard exists to avoid. The
-      // `logWarning` leaves a trace so a green run that never exercised the walkthrough (e.g. CI
-      // without `rift-java-natives`) is distinguishable from one that actually ran it.
-      if !rift.bridge.RiftConnector.isEmbeddedAvailable then
-        ZIO.logWarning("ledger-pattern sample skipped: no embedded engine on this JVM") *>
-          ZIO.succeed(assertCompletes)
-      else
-        ZIO.scoped {
-          for
-            // `ZLayer#build` (not `.provide` on the suite) so the embedded engine is only acquired
-            // inside this already-guarded branch; `env.get[Rift]` unwraps the built environment.
-            env <- Rift.embedded.build
-            rift = env.get[Rift]
+      // The embedded-engine guard is `riftAspects.embeddedOnly` on the suite below (#145): it reports
+      // *ignored* where the hand-rolled version reported a green test that asserted nothing, and
+      // it still short-circuits before any layer is forced, so no acquisition cost is paid.
+      ZIO.scoped {
+        for
+          // `ZLayer#build` (not `.provide` on the suite) so the embedded engine is only acquired
+          // inside this already-guarded branch; `env.get[Rift]` unwraps the built environment.
+          env <- Rift.embedded.build
+          rift = env.get[Rift]
 
-            // ── Step 1 — mock the ledger: scenario A, a healthy account. ────────────────────────
-            // `.record` keeps every request the imposter sees so `recorded`/`verify` can look back.
-            // No `.port(...)`: the engine assigns an ephemeral port (an absent port means "engine
-            // picks one"; passing 0 is rejected). The imposter is reached via the intercept's
-            // `redirectTo`, so its actual port never matters here.
-            // NOTE: `rift.create` is not scope-wrapped — the enclosing `Rift.embedded` scope tears the
-            // whole engine (and this imposter) down on close. A consumer pointing this pattern at a
-            // shared, long-lived engine (`RiftTestKit.fromEnv`) should instead acquire the imposter via
-            // `RiftTestKit.imposter(...)` so it is deleted on scope exit rather than leaked.
-            ledgerImposter <- rift.create(
-              imposter("ledger").record
-                .stub(
-                  get("/accounts/42")
-                    .reply(ok.json("""{"accountId":"42","balance":100,"status":"active"}"""))
-                )
-            )
-
-            // ── Step 2 — fixed-port TLS intercept, default generated CA. ────────────────────────
-            // No `.when(...)` on the rule: an unqualified `.rule(host)` redirects EVERY request for
-            // that host, so both the balance read and the later reconcile write share one rule —
-            // the shape this pattern needs (see `InterceptRuleBuilder.redirectTo`'s own scaladoc).
-            ic <- rift.intercept(InterceptConfig(port = FixedInterceptPort))
-            _ <- ic.rule(LedgerHost).redirectTo(ledgerImposter)
-
-            sslCtx <- ic.sslContext
-            proxyAddr <- ic.address
-            client = sutHttpClient(sslCtx, proxyAddr)
-
-            // ── Step 3 — prove the read path: scenario A comes back through the intercept. ──────
-            scenarioARead <- sutGet(client, URI.create(s"https://$LedgerHost/accounts/42"))
-
-            // ── Step 4 — datafile hot-swap. ──────────────────────────────────────────────────────
-            // Same imposter, same intercept rule, same SUT config — only the stub set changes. This
-            // is the whole point of `replaceStubs`: a consumer swaps scenarios between test phases
-            // without tearing down or re-registering anything the SUT depends on.
-            _ <- ledgerImposter.replaceStubs(
-              Chunk(
+          // ── Step 1 — mock the ledger: scenario A, a healthy account. ────────────────────────
+          // `.record` keeps every request the imposter sees so `recorded`/`verify` can look back.
+          // No `.port(...)`: the engine assigns an ephemeral port (an absent port means "engine
+          // picks one"; passing 0 is rejected). The imposter is reached via the intercept's
+          // `redirectTo`, so its actual port never matters here.
+          // NOTE: `rift.create` is not scope-wrapped — the enclosing `Rift.embedded` scope tears the
+          // whole engine (and this imposter) down on close. A consumer pointing this pattern at a
+          // shared, long-lived engine (`RiftTestKit.fromEnv`) should instead acquire the imposter via
+          // `RiftTestKit.imposter(...)` so it is deleted on scope exit rather than leaked.
+          ledgerImposter <- rift.create(
+            imposter("ledger").record
+              .stub(
                 get("/accounts/42")
-                  .reply(ok.json("""{"accountId":"42","balance":0,"status":"frozen"}"""))
-                  .build
+                  .reply(ok.json("""{"accountId":"42","balance":100,"status":"active"}"""))
               )
-            )
-            scenarioBRead <- sutGet(client, URI.create(s"https://$LedgerHost/accounts/42"))
-
-            // ── Step 5 — revision-bump poll. ─────────────────────────────────────────────────────
-            // Add a stub for the write path too (the reconcile call needs somewhere to land), then
-            // fire it in the background — standing in for an async SUT call whose completion this
-            // test doesn't control. `eventuallyReceived` polls the imposter's request log until the
-            // reconcile shows up (or the timeout elapses), rather than assuming it lands
-            // synchronously with the call that triggered it.
-            _ <- ledgerImposter.replaceStubs(
-              Chunk(
-                get("/accounts/42")
-                  .reply(ok.json("""{"accountId":"42","balance":0,"status":"frozen"}"""))
-                  .build,
-                post("/accounts/42/reconcile").reply(accepted).build
-              )
-            )
-            // `.fork` and never join: this stands in for an async SUT write whose completion the test
-            // doesn't await. The fiber is safe to leave dangling — the enclosing `ZIO.scoped`
-            // interrupts it on exit — and a genuine failure still surfaces: `sutPost` only produces
-            // defects (`orDie`), and if the reconcile never lands `eventuallyReceived` times out and
-            // `reconcileSeen` reds the test rather than passing silently. Do NOT add `.join` here — it
-            // would defeat the poll-don't-assume-synchronous point of the pattern.
-            _ <- sutPost(client, URI.create(s"https://$LedgerHost/accounts/42/reconcile")).fork
-            reconcileSeen <- eventuallyReceived(
-              ledgerImposter,
-              post("/accounts/42/reconcile"),
-              timeout = 5.seconds
-            )
-
-            // ── Step 6 — verification. ───────────────────────────────────────────────────────────
-            // `verify` fails fast with a typed `RiftError.VerificationFailed` when the expectation
-            // isn't met; its `VerificationReport` renders a near-miss diff (closest recorded request
-            // + which predicate failed) rather than a bare "not found" — see
-            // `assertions.renderVerificationFailure` (D5) for the rendering this sample relies on
-            // when a `verify`/`eventuallyReceived` call in a real suite fails and needs debugging.
-            // `recorded` is the read-only complement: pull the matching requests back out directly.
-            _ <- ledgerImposter.verify(get("/accounts/42"), Times.AtLeast(2))
-            recordedGets <- ledgerImposter.recorded(get("/accounts/42"))
-          // `reconcileSeen` (a TestResult from `eventuallyReceived`) is combined in with `&&` rather
-          // than collapsed to `.isSuccess`, so on failure it carries `eventuallyReceived`'s near-miss
-          // diff (the closest recorded request + which predicate missed) instead of a bare boolean.
-          yield reconcileSeen && assertTrue(
-            scenarioARead.body().contains("100"),
-            scenarioBRead.body().contains("frozen"),
-            recordedGets.size >= 2
           )
-        }
+
+          // ── Step 2 — fixed-port TLS intercept, default generated CA. ────────────────────────
+          // No `.when(...)` on the rule: an unqualified `.rule(host)` redirects EVERY request for
+          // that host, so both the balance read and the later reconcile write share one rule —
+          // the shape this pattern needs (see `InterceptRuleBuilder.redirectTo`'s own scaladoc).
+          ic <- rift.intercept(InterceptConfig(port = FixedInterceptPort))
+          _ <- ic.rule(LedgerHost).redirectTo(ledgerImposter)
+
+          sslCtx <- ic.sslContext
+          proxyAddr <- ic.address
+          client = sutHttpClient(sslCtx, proxyAddr)
+
+          // ── Step 3 — prove the read path: scenario A comes back through the intercept. ──────
+          scenarioARead <- sutGet(client, URI.create(s"https://$LedgerHost/accounts/42"))
+
+          // ── Step 4 — datafile hot-swap. ──────────────────────────────────────────────────────
+          // Same imposter, same intercept rule, same SUT config — only the stub set changes. This
+          // is the whole point of `replaceStubs`: a consumer swaps scenarios between test phases
+          // without tearing down or re-registering anything the SUT depends on.
+          _ <- ledgerImposter.replaceStubs(
+            Chunk(
+              get("/accounts/42")
+                .reply(ok.json("""{"accountId":"42","balance":0,"status":"frozen"}"""))
+                .build
+            )
+          )
+          scenarioBRead <- sutGet(client, URI.create(s"https://$LedgerHost/accounts/42"))
+
+          // ── Step 5 — revision-bump poll. ─────────────────────────────────────────────────────
+          // Add a stub for the write path too (the reconcile call needs somewhere to land), then
+          // fire it in the background — standing in for an async SUT call whose completion this
+          // test doesn't control. `eventuallyReceived` polls the imposter's request log until the
+          // reconcile shows up (or the timeout elapses), rather than assuming it lands
+          // synchronously with the call that triggered it.
+          _ <- ledgerImposter.replaceStubs(
+            Chunk(
+              get("/accounts/42")
+                .reply(ok.json("""{"accountId":"42","balance":0,"status":"frozen"}"""))
+                .build,
+              post("/accounts/42/reconcile").reply(accepted).build
+            )
+          )
+          // `.fork` and never join: this stands in for an async SUT write whose completion the test
+          // doesn't await. The fiber is safe to leave dangling — the enclosing `ZIO.scoped`
+          // interrupts it on exit — and a genuine failure still surfaces: `sutPost` only produces
+          // defects (`orDie`), and if the reconcile never lands `eventuallyReceived` times out and
+          // `reconcileSeen` reds the test rather than passing silently. Do NOT add `.join` here — it
+          // would defeat the poll-don't-assume-synchronous point of the pattern.
+          _ <- sutPost(client, URI.create(s"https://$LedgerHost/accounts/42/reconcile")).fork
+          reconcileSeen <- eventuallyReceived(
+            ledgerImposter,
+            post("/accounts/42/reconcile"),
+            timeout = 5.seconds
+          )
+
+          // ── Step 6 — verification. ───────────────────────────────────────────────────────────
+          // `verify` fails fast with a typed `RiftError.VerificationFailed` when the expectation
+          // isn't met; its `VerificationReport` renders a near-miss diff (closest recorded request
+          // + which predicate failed) rather than a bare "not found" — see
+          // `assertions.renderVerificationFailure` (D5) for the rendering this sample relies on
+          // when a `verify`/`eventuallyReceived` call in a real suite fails and needs debugging.
+          // `recorded` is the read-only complement: pull the matching requests back out directly.
+          _ <- ledgerImposter.verify(get("/accounts/42"), Times.AtLeast(2))
+          recordedGets <- ledgerImposter.recorded(get("/accounts/42"))
+        // `reconcileSeen` (a TestResult from `eventuallyReceived`) is combined in with `&&` rather
+        // than collapsed to `.isSuccess`, so on failure it carries `eventuallyReceived`'s near-miss
+        // diff (the closest recorded request + which predicate missed) instead of a bare boolean.
+        yield reconcileSeen && assertTrue(
+          scenarioARead.body().contains("100"),
+          scenarioBRead.body().contains("frozen"),
+          recordedGets.size >= 2
+        )
+      }
     }
-  )
+  ) @@ riftAspects.embeddedOnly

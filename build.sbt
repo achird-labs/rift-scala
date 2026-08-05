@@ -74,7 +74,8 @@ lazy val buildJavaSpec: Int = {
 //     platform. What actually keeps it out is that `release.yml` and `auto-release.yml` both pin
 //     JDK 21, so `buildJavaSpec >= 22` is false at publish time and nothing is added. That coupling
 //     is load-bearing: raising the release JDK to 22+ would start stamping the build machine's
-//     classifier into these three published poms (`zioBdd` already has this shape).
+//     classifier into every published pom that applies these settings — currently `bridge`, `zio`,
+//     `zioTestkit`, `cats` and `pure` (`zioBdd` already has this shape).
 //   - `Test / fork` is unconditional (mirroring `zioBdd`): `--enable-native-access` only reaches a
 //     forked test JVM, and a JDK-conditional fork would make the engine-free specs in these modules
 //     behave differently across JDKs too.
@@ -166,6 +167,18 @@ lazy val zioTestkit = riftModule("zioTestkit", "zio-testkit")
     ),
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
   )
+  // `dependsOn(zio)` is compile->compile, so none of zio's Test-scope embedded jars reach here —
+  // which is why this module's own live-engine specs could only ever skip. `intercept.tlsIntercept`
+  // is a fixture *for* a live engine, so its E2E gate needs the same jars + fork + native-access
+  // set the other engine-touching modules get (#145).
+  .settings(embeddedSmokeSettings)
+  .settings(
+    // Load-bearing, and pinned rather than inherited: the intercept fixtures install process-wide
+    // proxy/TLS defaults, so two specs running concurrently in this one forked JVM would observe
+    // each other's globals. `@@ sequential` only orders tests *within* a spec. This is already
+    // sbt's default — stated explicitly so flipping it cannot silently start racing them.
+    Test / testForkedParallel := false
+  )
 
 // MockControl adapter over the published zio-bdd SPI (#18, DESIGN §5.12). The guarded live spec
 // needs a real engine, so it borrows the conformance module's JDK-gated embedded recipe — on the
@@ -250,6 +263,22 @@ lazy val conformance = riftModule("conformance", "conformance")
     testFrameworks += new TestFramework("munit.Framework")
   )
 
+// The build-side half of the TLS-MITM fixtures (#145). Deliberately NOT a `riftModule`: an sbt 1.x
+// plugin is a Scala 2.12 artifact, so it shares none of `commonSettings`' Scala 3 toolchain. It has
+// no dependency on the rest of the build — its only coupling to `rift-scala-zio-testkit` is the
+// `rift.ca.p12` property names, which `RiftTlsPluginSpec` pins from this side.
+lazy val sbtRift = Project("sbtRift", file("sbt-rift"))
+  .enablePlugins(SbtPlugin)
+  .settings(
+    name := "sbt-rift",
+    moduleName := "sbt-rift",
+    scalaVersion := "2.12.20",
+    scalacOptions ++= Seq("-deprecation", "-feature", "-unchecked"),
+    libraryDependencies += "org.scalameta" %% "munit" % Dependencies.munit % Test,
+    scriptedLaunchOpts ++= Seq("-Xmx1024M", s"-Dplugin.version=${version.value}"),
+    scriptedBufferLog := false
+  )
+
 lazy val root = project
   .in(file("."))
   .aggregate(
@@ -265,7 +294,8 @@ lazy val root = project
     fs2,
     kyo,
     pure,
-    conformance
+    conformance,
+    sbtRift
   )
   .settings(
     name := "rift-scala",

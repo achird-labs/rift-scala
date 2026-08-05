@@ -154,3 +154,47 @@ checks `Rift.isEmbeddedAvailable` **before** building any layer, and
 only calls `Rift.embedded.build` (inside `ZIO.scoped`) once that check has already passed — so CI
 skips the test instead of failing it, without ever paying the acquisition cost. The same guard shape
 is used by `bridge.EmbeddedSmokeSpec` and `cats.EmbeddedSmokeSpec` elsewhere in this repo.
+
+On the ZIO surface this guard now has a name — `rift.zio.testkit.aspects.embeddedOnly` — which
+reports the suite as *ignored* rather than as a green test that asserted nothing:
+
+```scala
+import rift.zio.testkit.aspects as riftAspects   // `ZIOSpec` already inherits an `aspects` member
+
+def spec = suite("…")(…) @@ riftAspects.embeddedOnly
+```
+
+Import it under another name: an inherited definition binds tighter than an import, so inside a
+`ZIOSpecDefault` the bare `aspects` resolves to zio-test's own member instead.
+
+## When the SUT builds its own HTTP client
+
+The sample above hands `ic.sslContext` to the client it constructs. A system under test that builds
+its client inside a vendor SDK gives you no such seam — it reads `SSLContext.getDefault`, or
+`javax.net.ssl.trustStore`, and nothing you pass it afterwards matters.
+`rift.zio.testkit.intercept` wires that process-global state for the duration of a `Scope` and
+restores it after, so a test never leaks its fixture into the next one:
+
+```scala
+ZIO.scoped {
+  for
+    env   <- intercept
+               .tlsIntercept(InterceptTestConfig(proxySelector = true, sslContext = true))
+               .build
+    handle = env.get[InterceptHandle]
+    _     <- handle.rule().serve(ok.json(datafile))
+    // A stock `HttpClient.newHttpClient()` — no proxy, no SSLContext of its own — now resolves
+    // through the intercept, because that is what the JVM defaults point at.
+    body  <- fetchWithTheSdk()
+  yield body
+}
+```
+
+For a client that reads its truststore once at boot, the CA has to exist before the JVM forks —
+`enablePlugins(RiftTlsPlugin)` (the `sbt-rift` plugin) generates it and sets `rift.ca.p12`, which
+`intercept.caFromBuildProps` reads back so both halves agree on one CA. See the README's trust-tier
+table.
+
+Note the fixture serves responses, including failures like `status(401)`; TCP-level faults are an
+imposter capability, since an intercept `serve` rule carries only an `is` response and the engine
+rejects a `fault` one outright.

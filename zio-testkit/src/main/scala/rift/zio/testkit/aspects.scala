@@ -11,12 +11,36 @@ import rift.zio.{ImposterHandle, Rift}
 /** zio-test aspects over a shared `Rift` engine (DESIGN.md §5.4): provisioning fixtures, chaos
   * injection, and shared-imposter hygiene between tests.
   *
+  * '''Import this under another name.''' `ZIOSpec` — and so every `ZIOSpecDefault` — inherits a
+  * member of its own called `aspects`, and an inherited definition binds tighter than an import, so
+  * inside a spec the bare name resolves to zio-test's `Chunk` of default aspects and never to this
+  * object. Rename it at the import site:
+  *
+  * {{{
+  * import rift.zio.testkit.aspects as riftAspects
+  *
+  * object MySpec extends ZIOSpecDefault:
+  *   def spec = suite("…")(…) @@ riftAspects.embeddedOnly
+  * }}}
+  *
   * `TestAspectAtLeastR[Rift] = TestAspect[Nothing, Rift, Nothing, Any]` fixes the error channel to
   * `Nothing` — a provisioning failure here is a broken test fixture, not something a test author
   * can meaningfully recover from, so every fallible step is `.orDie`'d rather than faked into a
   * typed error the alias has no room for.
   */
 object aspects:
+
+  /** Ignores the annotated test or suite unless the embedded engine can be loaded on this JVM.
+    *
+    * The embedded transport needs JDK 22+ and the platform natives on the test classpath; where
+    * either is missing, `Rift.isEmbeddedAvailable` is false and a spec that requires a live
+    * in-process engine can only fail for reasons that say nothing about the code under test. This
+    * replaces the hand-rolled `if !isEmbeddedAvailable then <stub suite> else <real suite>` guard
+    * with something that reads as an aspect and reports as *ignored* rather than as a green test
+    * that silently asserted nothing.
+    */
+  val embeddedOnly: TestAspectPoly =
+    if Rift.isEmbeddedAvailable then TestAspect.identity else TestAspect.ignore
 
   /** `FiberRef` rather than a service/layer: the aspect wraps arbitrary specs the way zio-test's
     * own fixture tags do, and a `FiberRef` is what lets `RiftTest.imposter` read back a value set
