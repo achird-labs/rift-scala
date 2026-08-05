@@ -87,6 +87,59 @@ SDK itself targets **JDK 21+**.
 One DSL, every effect system — full feature surface on each, including stateful scenarios,
 fault injection, spaces/flow-state, proxy record/replay and TLS-MITM intercept.
 
+### Testing a client you cannot configure
+
+Handing a test's own HTTP client `handle.sslContext` covers the easy case. The hard one is a
+system under test that builds its client deep inside a vendor SDK, where the only reachable seam
+is process-global. `rift-scala-zio-testkit` wires those seams and puts them back afterwards:
+
+| Tier | The SUT's client reads | Fixture |
+|---|---|---|
+| 1. injectable | whatever you pass its builder | `handle.sslContext` / `handle.proxySelector` — no fixture needed |
+| 2. runtime defaults | `SSLContext.getDefault`, `ProxySelector.getDefault` (a stock `java.net.http.HttpClient` does) | `intercept.systemSslContext`, `intercept.systemProxySelector` |
+| 3. boot-time properties | `javax.net.ssl.trustStore` once at first TLS init, `https.proxyHost` (Apache HttpClient, and most SDKs on it) | `intercept.systemProxyProps` + the `sbt-rift` plugin |
+
+```scala
+import rift.dsl.*
+import rift.zio.InterceptHandle
+import rift.zio.testkit.{InterceptTestConfig, intercept}
+import rift.zio.testkit.aspects as riftAspects   // `ZIOSpec` already has an `aspects` member
+
+object DatafileFaultSpec extends ZIOSpecDefault:
+  def spec = suite("datafile fetch")(
+    test("a rejected key degrades instead of failing") {
+      for
+        handle <- ZIO.service[InterceptHandle]
+        _      <- handle.clearRules
+        _      <- handle.rule().serve(status(401))
+        …
+      yield assertCompletes
+    }
+  ).provideShared(
+    intercept.tlsIntercept(InterceptTestConfig(proxySelector = true, sslContext = true))
+  ) @@ TestAspect.sequential @@ riftAspects.embeddedOnly
+```
+
+`tlsIntercept` installs only what you ask for, restores it when the scope closes — including on
+failure and interruption — and `embeddedOnly` marks the suite *ignored*, not failed, on a JVM that
+cannot load the embedded engine. Because the state it touches is process-wide, such a suite must be
+`sequential`.
+
+Tier 3 additionally needs a CA in a truststore on disk *before* the JVM forks, which no library can
+arrange from inside that JVM. The `sbt-rift` plugin generates one and points the fork at it:
+
+```scala
+// project/plugins.sbt — sbt-rift is new in 0.1.5; the library artifacts above ship at 0.1.4
+addSbtPlugin("io.github.achird-labs" % "sbt-rift" % "0.1.5")
+
+// build.sbt
+lazy val myTests = (project in file("my-tests")).enablePlugins(RiftTlsPlugin)
+```
+
+That sets `rift.ca.p12`, which `intercept.caFromBuildProps` reads back — so the proxy mints its leaf
+certificates from the very CA the forked JVM already trusts. The CA is a throwaway generated per
+checkout under `target/`; nothing secret is written or committed.
+
 ### zio-bdd conformance
 
 `rift-scala-zio-bdd` is certified against zio-bdd's **own published conformance catalogue**

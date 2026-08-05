@@ -1,0 +1,8 @@
+# The generator is hooked into Test/resourceGenerators, so compiling tests produces the material.
+> Test/compile
+> checkGenerated
+> checkJavaOptions
+> recordFingerprint
+# A second run must reuse the existing CA rather than mint one the truststore would not contain.
+> Test/compile
+> checkUnchanged

@@ -30,6 +30,12 @@ jobs:
         run: sbt compile
       - name: Test
         run: sbt test
+      # `sbt test` covers only sbt-rift's pure option builders. Everything that makes the plugin
+      # worth having — invoking keytool, the generated CA/truststore, Test/fork wiring, and the
+      # idempotency guards — lives in the scripted test, so without this step a regression in the
+      # generator would be invisible to CI. Both matrix JDKs ship keytool.
+      - name: Scripted (sbt-rift plugin)
+        run: sbt sbtRift/scripted
         env:
           # G3 replay must actually RUN a live engine on each job — RIFT_G3_REQUIRE names the lane
           # this job requires, so a silently-unavailable engine is a RED build, not a green skip

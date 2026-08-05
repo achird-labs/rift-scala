@@ -1,0 +1,4 @@
+# `->` asserts the command FAILS. A keytool that exits non-zero must abort the build rather than
+# leave a partially-generated CA behind for a later run to treat as complete.
+-> riftTlsGenerate
+> checkNothingLeftBehind
