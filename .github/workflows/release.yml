@@ -1,17 +1,54 @@
+# The single release path: `sbt ci-release` to Sonatype, then the GitHub Release and the
+# install-snippet stamp. `auto-release.yml` reaches it by pushing a `v*` tag with RELEASE_TOKEN.
+#
+# `workflow_dispatch` re-runs the whole thing against an EXISTING tag. Before it existed, recovering a
+# tag whose release never ran meant deleting and re-pushing the tag by hand (#143) — a destructive
+# rewrite of a published ref, for a workflow that is already idempotent per job (`gh release view`
+# short-circuits an existing Release; the stamp no-ops when the docs already match).
+
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing vX.Y.Z tag to release (recovery: re-runs publish + GitHub Release + stamp)"
+        required: true
+        type: string
+
+# Every job reads the release tag from here rather than from GITHUB_REF_NAME, which on a dispatch is
+# the branch the workflow was launched from, not the tag being released.
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   publish:
     name: Publish to Sonatype
     runs-on: ubuntu-latest
     steps:
+      # Checking out the tag (not the branch) is what makes dispatch work: sbt-dynver reads the
+      # version off the checked-out ref, so ci-release publishes X.Y.Z rather than a -SNAPSHOT.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.TAG }}
           fetch-depth: 0
+      - name: Verify the tag exists and is a release tag
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${TAG}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'${TAG}' is not a vMAJOR.MINOR.PATCH release tag; refusing to publish."
+            exit 1
+          fi
+          # A dispatch input is free text: reject a branch name that merely happens to check out, so
+          # dynver can never derive a -SNAPSHOT and publish it under a release-shaped name.
+          if ! git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::Tag ${TAG} does not exist on origin. This workflow releases an EXISTING tag;"
+            echo "::error::push the tag first (auto-release.yml does this on a green bump)."
+            exit 1
+          fi
+          echo "Releasing ${TAG}."
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
@@ -43,12 +80,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ env.TAG }}
           fetch-depth: 0
 
       - name: Create the GitHub Release
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
           if gh release view "${TAG}" >/dev/null 2>&1; then
             echo "Release ${TAG} already exists — leaving it as-is."
             exit 0
@@ -61,7 +98,7 @@ jobs:
       - name: Stamp the install snippets to the released version
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${TAG#v}"
           git fetch origin master
           git switch -C master origin/master
 
