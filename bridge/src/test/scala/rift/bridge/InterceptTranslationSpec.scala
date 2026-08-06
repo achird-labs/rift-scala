@@ -184,6 +184,49 @@ class InterceptTranslationSpec extends FunSuite:
     assert(wire.contains("503"), wire)
     assert(wire.contains("down"), wire)
 
+  // Issue #149 — the engine's imposter defaults an absent `Content-Type` to `application/json` for
+  // a non-string body, but its serve action writes a rule's headers verbatim and infers nothing.
+  // The translation injects that default so the same response object is typed the same way on both
+  // paths; these pin the default's *scope* to the imposter's, not just its presence.
+  private def contentTypeCount(wire: String): Int =
+    "(?i)content-type".r.findAllIn(wire).length
+
+  test("serve defaults an absent Content-Type to application/json for a JSON body"):
+    val wire = FacadeEncode.isSpec(ok.json("""{"a":1}""")).build.toJsonValue.toJson
+    assert(wire.contains("application/json"), wire)
+    assertEquals(contentTypeCount(wire), 1, wire)
+
+  // The default keys on "not a JSON string", not on "is a JSON object" — narrowing it to `Json.Obj`
+  // would type object bodies only and leave the rest of the imposter's scope untyped again.
+  test("serve defaults the Content-Type for a non-object JSON body too"):
+    val wire = FacadeEncode.isSpec(ok.json("[1,2,3]")).build.toJsonValue.toJson
+    assert(wire.contains("application/json"), wire)
+    assertEquals(contentTypeCount(wire), 1, wire)
+
+  test("serve never overrides or duplicates a caller's Content-Type, whatever its casing"):
+    val wire = FacadeEncode
+      .isSpec(ok.header("content-type", "application/vnd.api+json").json("""{"a":1}"""))
+      .build
+      .toJsonValue
+      .toJson
+    assert(wire.contains("application/vnd.api+json"), wire)
+    assert(!wire.contains("application/json"), wire)
+    assertEquals(contentTypeCount(wire), 1, wire)
+
+  test("serve adds no Content-Type to a text body"):
+    val wire = FacadeEncode.isSpec(ok.text("plain")).build.toJsonValue.toJson
+    assertEquals(contentTypeCount(wire), 0, wire)
+
+  // A JSON *string* body translates via `withTextBody` and has no `rendered_body` on the imposter
+  // path either, so it gets no default there and must get none here.
+  test("serve adds no Content-Type to a JSON string body"):
+    val wire = FacadeEncode.isSpec(ok.json("\"just a string\"")).build.toJsonValue.toJson
+    assertEquals(contentTypeCount(wire), 0, wire)
+
+  test("serve adds no Content-Type to a bodyless response"):
+    val wire = FacadeEncode.isSpec(noContent).build.toJsonValue.toJson
+    assertEquals(contentTypeCount(wire), 0, wire)
+
   // AC5 — everything the response DSL accepts but the engine's intercept serve action cannot
   // deliver (issue #147). `InterceptImpl.toServeStub` builds the action from `statusCode`, `headers`
   // and `body` alone: it never reads `Response.Is.behaviors()`, `.rift()` or `IsResponse.mode()`,
