@@ -809,9 +809,11 @@ trait InterceptHandle:
                                                     // forward(target: String) is kept for facade parity; its host component
                                                     // is parsed and discarded upstream (deliberately, not a dropped field).
   def rule(): InterceptRuleBuilder                  // all-hosts (catch-all) form — matches every intercepted host
-  // `serve` carries the _behaviors/_rift constructs IsSpec can express (waits, decorate, repeat,
-  // shellTransform, templating, latency/error/tcp faults). copy/lookup/_rift.script and unknown
-  // behavior keys reject loudly naming the offender — those need redirectTo(imposter).
+  // `serve` carries a numeric status, single-valued headers and a text/JSON body — the whole of
+  // what the engine's intercept serve action delivers (#147). Every other construct an `is`
+  // response can express (all _behaviors and _rift constructs, a binary body, a repeated header
+  // name) rejects loudly naming every offender — those need redirectTo(imposter), which keeps
+  // full stub fidelity across the D2 raw-JSON seam.
   def rules: IO[RiftError, Chunk[InterceptRule]]
   def clearRules: IO[RiftError, Unit]
   def caPem: IO[RiftError, String]

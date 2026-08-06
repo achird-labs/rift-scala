@@ -139,12 +139,12 @@ final class InterceptRuleBuilder private[bridge] (
       def predicates: Vector[Predicate] = matches.flatMap(_.predicates)
     underlying.when(FacadeEncode.requestMatch(combined))
 
-  /** Serve a canned response. Translates an `is` response — status/headers/body plus the
-    * `_behaviors`/`_rift` constructs the facade's `IsSpec` can express (waits, decorate, repeat,
-    * shellTransform, templating, latency/error/tcp faults) — to the facade's `IsSpec`. What
-    * `IsSpec` cannot express (`copy`/`lookup`, unknown behavior keys, `_rift.script`, a
-    * proxy/inject/fault response) is rejected by `FacadeEncode.isSpec` rather than silently
-    * degraded — use `redirectTo` for full stub fidelity there.
+  /** Serve a canned response — a numeric status, single-valued headers, and a text or JSON body.
+    *
+    * That is the whole of what the engine's serve action carries, so anything else an `is` response
+    * can express (every `_behaviors` and `_rift` construct, a binary body, a repeated header name)
+    * is rejected by `FacadeEncode.isSpec` rather than accepted and then dropped in transit — use
+    * `redirectTo` for full stub fidelity there.
     */
   def serve(response: ResponseBuilder): InterceptRule =
     FacadeBoundary.run(InterceptRule.fromJava(applied.serve(FacadeEncode.isSpec(response))))

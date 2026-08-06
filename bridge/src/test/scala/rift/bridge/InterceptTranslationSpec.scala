@@ -9,9 +9,7 @@ import rift.model.{
   Behaviors,
   ErrorFault,
   FaultConfig,
-  Headers,
   IsResponse,
-  LatencyFault,
   Port,
   Response,
   RiftResponseExt,
@@ -169,7 +167,7 @@ class InterceptTranslationSpec extends FunSuite:
   // IsSpec renders (`model.Response.toJsonValue`): status, body and headers must all survive.
   test("serve translates a plain is response (status, headers, body) to an IsSpec"):
     val wire = FacadeEncode
-      .isSpec(ok.header("X-Test", "hdr-val").json("""{"id":1}"""))
+      .isSpec(ok.header("X-Test", "hdr-val").header("X-Other", "second").json("""{"id":1}"""))
       .build
       .toJsonValue
       .toJson
@@ -177,122 +175,122 @@ class InterceptTranslationSpec extends FunSuite:
     assert(js.render.contains("\"is\""), wire) // wrapped as an `is` response
     assert(wire.contains("200"), wire)
     assert(wire.contains("id"), wire)
+    // several distinct names must all survive — only a *repeated* name is rejected
     assert(wire.contains("X-Test") && wire.contains("hdr-val"), wire)
+    assert(wire.contains("X-Other") && wire.contains("second"), wire)
 
   test("serve translates a non-200 status and a text body"):
     val wire = FacadeEncode.isSpec(status(503).text("down")).build.toJsonValue.toJson
     assert(wire.contains("503"), wire)
     assert(wire.contains("down"), wire)
 
-  test("serve translates a binary body (base64 survives)"):
-    val bytes = Array[Byte](1, 2, 3, 4)
-    val base64 = java.util.Base64.getEncoder.encodeToString(bytes)
-    val wire = FacadeEncode.isSpec(ok.binary(bytes)).build.toJsonValue.toJson
-    assert(wire.contains(base64), wire)
+  // AC5 — everything the response DSL accepts but the engine's intercept serve action cannot
+  // deliver (issue #147). `InterceptImpl.toServeStub` builds the action from `statusCode`, `headers`
+  // and `body` alone: it never reads `Response.Is.behaviors()`, `.rift()` or `IsResponse.mode()`,
+  // and it keeps only the first value of a multi-valued header. Translating any of these would
+  // register a rule that answers something the author never asked for, so each must reject —
+  // naming the construct, since a caller has to know which line to change.
+  // `using munit.Location` on both: without it a failure inside these helpers reports the helper's
+  // own line, which every reject test in this file shares.
+  private def rejectMessage(response: ResponseBuilder)(using munit.Location): String =
+    intercept[RiftError.InvalidDefinition](FacadeEncode.isSpec(response)).msg
 
-  test("serve collapses a repeated header name into one multi-valued header"):
-    val wire = FacadeEncode
-      .isSpec(ok.header("Set-Cookie", "cookie-a").header("Set-Cookie", "cookie-b").json("{}"))
-      .build
-      .toJsonValue
-      .toJson
-    assert(wire.contains("Set-Cookie"), wire)
-    assert(wire.contains("cookie-a") && wire.contains("cookie-b"), wire)
+  private def assertRejects(response: ResponseBuilder, offender: String)(using
+      munit.Location
+  ): Unit =
+    val msg = rejectMessage(response)
+    assert(msg.contains(offender), s"expected the message to name '$offender', got: $msg")
 
-  // AC5 — serve carries the behaviors/faults the facade's IsSpec can express (issue #81). Assert on
-  // the engine wire JSON the translated IsSpec renders, so a mistranslation shows up as a wrong
-  // wire shape rather than a passing type-check.
-  private def wireOf(response: ResponseBuilder): String =
-    FacadeEncode.isSpec(response).build.toJsonValue.toJson
+  test("serve rejects a binary body — the engine's serve action drops the binary marker"):
+    assertRejects(ok.binary(Array[Byte](1, 2, 3, 4)), "binary")
 
-  test("serve translates every wait spelling"):
+  test("serve rejects a repeated header name — the engine keeps only the first value"):
+    assertRejects(
+      ok.header("Set-Cookie", "cookie-a").header("Set-Cookie", "cookie-b").json("{}"),
+      // the offending name specifically: a generic "a header repeats" would silently weaken the
+      // names-the-offender guarantee the whole reject set is built on.
+      "Set-Cookie"
+    )
+
+    // two *different* repeated names: naming only the first would leave the caller fixing one and
+    // being rejected again for the other.
+    val both = rejectMessage(
+      ok.header("Set-Cookie", "a")
+        .header("X-Trace", "1")
+        .header("Set-Cookie", "b")
+        .header("X-Trace", "2")
+        .json("{}")
+    )
+    assert(both.contains("Set-Cookie"), both)
+    assert(both.contains("X-Trace"), both)
+
+  test("serve rejects every wait spelling"):
     import scala.concurrent.duration.DurationInt
-    val fixed = wireOf(ok.json("{}").after(1.second))
-    assert(fixed.contains("\"wait\"") && fixed.contains("1000"), fixed)
-
-    // bind each value to its key: asserting the numbers appear anywhere would still pass if a bug
-    // swapped min and max.
-    val range = wireOf(ok.json("{}").afterBetween(100.millis, 300.millis))
-    assert(range.contains("\"min\":100"), range)
-    assert(range.contains("\"max\":300"), range)
-
-    val injected = wireOf(ok.json("{}").afterInject("function () { return 5; }"))
-    assert(injected.contains("inject"), injected)
+    assertRejects(ok.json("{}").after(1.second), "wait")
+    assertRejects(ok.json("{}").afterBetween(100.millis, 300.millis), "wait")
+    assertRejects(ok.json("{}").afterInject("function () { return 5; }"), "wait")
 
     // the bare-string (Mountebank-compatible) spelling has no DSL builder — drive the model shape
-    val scripted = wireOf(
+    assertRejects(
       Fixed(
         Response.Is(
           IsResponse(statusCode = Some(200)),
           behaviors = Behaviors(waitFor = Some(WaitBehavior.Script("function () { return 7; }")))
         )
-      )
+      ),
+      "wait"
     )
-    assert(scripted.contains("\"wait\"") && scripted.contains("return 7"), scripted)
 
-  test("serve translates decorate, repeat and shellTransform"):
-    val decorated = wireOf(ok.json("{}").decorate("function (req, res) { return res; }"))
-    assert(decorated.contains("decorate"), decorated)
-
-    val repeated = wireOf(ok.json("{}").repeat(3))
-    assert(repeated.contains("repeat") && repeated.contains("3"), repeated)
-
+  test("serve rejects decorate, repeat and shellTransform"):
+    assertRejects(ok.json("{}").decorate("function (req, res) { return res; }"), "decorate")
+    assertRejects(ok.json("{}").repeat(3), "repeat")
     // Straight off the response DSL since #93 — this is the builder -> model -> facade path a
     // user actually takes, not a hand-assembled model value.
-    val shell = wireOf(ok.json("{}").shellTransform("sed s/a/b/"))
-    assert(shell.contains("shellTransform") && shell.contains("sed"), shell)
+    assertRejects(ok.json("{}").shellTransform("sed s/a/b/"), "shellTransform")
 
-    val chained = wireOf(ok.json("{}").shellTransform("first").shellTransform("second"))
-    assert(chained.contains("first") && chained.contains("second"), chained)
+  test("serve rejects the _rift templated flag"):
+    assertRejects(ok.json("{}").templated, "templated")
 
-  test("serve translates the _rift templated flag"):
-    val wire = wireOf(ok.json("{}").templated)
-    assert(wire.contains("templated"), wire)
-
-  test("serve translates a latency fault in both wire forms"):
+  test("serve rejects a latency fault in either wire form"):
     import scala.concurrent.duration.DurationInt
-    val fixed = wireOf(ok.json("{}").withLatencyFault(0.5, 250.millis))
-    assert(fixed.contains("latency") && fixed.contains("250"), fixed)
-    // the fixed form must not gain the range's fields (rift#56)
-    assert(!fixed.contains("minMs"), fixed)
+    assertRejects(ok.json("{}").withLatencyFault(0.5, 250.millis), "withLatencyFault")
+    assertRejects(ok.json("{}").withLatencyFault(0.5, 100.millis to 400.millis), "withLatencyFault")
 
-    val ranged = wireOf(ok.json("{}").withLatencyFault(0.5, 100.millis to 400.millis))
-    assert(ranged.contains("minMs") && ranged.contains("maxMs"), ranged)
-    assert(!ranged.contains("\"ms\""), ranged)
-
-  test("serve translates an error fault in each expressible shape"):
+  test("serve rejects an error fault in every shape"):
+    assertRejects(ok.json("{}").withErrorFault(0.5, 500, "boom"), "withErrorFault")
+    assertRejects(
+      ok.json("{}").withErrorFault(0.5, 503, "DOWN", headers = Map("Retry-After" -> "30")),
+      "withErrorFault"
+    )
     // the response DSL requires a body, so the bodiless shape comes from the model directly
-    val bare = wireOf(
+    assertRejects(
       Fixed(
         Response.Is(
           IsResponse(statusCode = Some(200)),
           rift =
             Some(RiftResponseExt(fault = Some(FaultConfig(error = Some(ErrorFault(0.25, 503))))))
         )
-      )
+      ),
+      "withErrorFault"
     )
-    assert(bare.contains("error") && bare.contains("503"), bare)
 
-    val withBody = wireOf(ok.json("{}").withErrorFault(0.5, 500, "boom"))
-    assert(withBody.contains("boom"), withBody)
+  // Issue #147's shape (b): this is the spelling that was accepted and then answered as a plain
+  // 200, which is what made a fault-injection test certify resilience the SUT did not have.
+  test("serve rejects a tcp fault in both wire forms"):
+    assertRejects(ok.withTcpFault(TcpFaultKind.ConnectionResetByPeer), "withTcpFault")
+    assertRejects(ok.withTcpFault(0.5, TcpFaultKind.EmptyResponse), "withTcpFault")
 
-    val withHeaders =
-      wireOf(ok.json("{}").withErrorFault(0.5, 503, "DOWN", headers = Map("Retry-After" -> "30")))
-    assert(withHeaders.contains("Retry-After") && withHeaders.contains("30"), withHeaders)
-
-  test("serve translates a tcp fault in both wire forms"):
-    val bare = wireOf(ok.withTcpFault(TcpFaultKind.ConnectionResetByPeer))
-    assert(bare.contains("CONNECTION_RESET_BY_PEER"), bare)
-
-    val probabilistic = wireOf(ok.withTcpFault(0.5, TcpFaultKind.EmptyResponse))
-    assert(
-      probabilistic.contains("EMPTY_RESPONSE") && probabilistic.contains("\"probability\":0.5"),
-      probabilistic
+  // First-wins would send a caller round the loop once per construct, each time reporting a rule
+  // they had already been told was unusable.
+  test("serve names every dropped construct, not just the first"):
+    val msg = rejectMessage(
+      ok.json("{}").templated.repeat(3).withTcpFault(TcpFaultKind.ConnectionResetByPeer)
     )
+    assert(msg.contains("templated"), msg)
+    assert(msg.contains("repeat"), msg)
+    assert(msg.contains("withTcpFault"), msg)
 
   // AC9 — everything IsSpec genuinely cannot express still rejects loudly, naming the offender.
-  private def rejectMessage(response: ResponseBuilder): String =
-    intercept[RiftError.InvalidDefinition](FacadeEncode.isSpec(response)).msg
 
   test("serve still rejects a copy behavior — the facade CopySpec has no JSON seam"):
     val msg = rejectMessage(
@@ -361,71 +359,9 @@ class InterceptTranslationSpec extends FunSuite:
     )
     assert(msg.contains("futureThing"), msg)
 
-  test("serve rejects a latency fault that names neither a fixed delay nor a complete range"):
-    val partial = Response.Is(
-      IsResponse(statusCode = Some(200)),
-      rift = Some(RiftResponseExt(fault = Some(FaultConfig(latency = Some(LatencyFault(1.0))))))
-    )
-    val msg = intercept[RiftError.InvalidDefinition](FacadeEncode.isSpec(Fixed(partial))).message
-    assert(msg.contains("latency"), msg)
-
-  test(
-    "serve rejects a latency fault carrying BOTH a fixed delay and a range — facade cannot express both"
-  ):
-    val both = Response.Is(
-      IsResponse(statusCode = Some(200)),
-      rift = Some(
-        RiftResponseExt(fault =
-          Some(FaultConfig(latency = Some(LatencyFault(1.0, Some(50), Some(10), Some(90)))))
-        )
-      )
-    )
-    val msg = intercept[RiftError.InvalidDefinition](FacadeEncode.isSpec(Fixed(both))).message
-    assert(msg.contains("latency"), msg)
-
-  // The facade's only headers-carrying overload is `withErrorFault(p, status, body, headers)`, which
-  // does `Optional.of(body)` — a null body NPEs and an empty one would turn "absent" into "empty".
-  test("serve rejects an error fault with headers but no body — no expressible facade overload"):
-    val headersNoBody = Response.Is(
-      IsResponse(statusCode = Some(200)),
-      rift = Some(
-        RiftResponseExt(fault =
-          Some(
-            FaultConfig(error =
-              Some(ErrorFault(1.0, 503, None, Headers(Vector("Retry-After" -> "30"))))
-            )
-          )
-        )
-      )
-    )
-    val msg =
-      intercept[RiftError.InvalidDefinition](FacadeEncode.isSpec(Fixed(headersNoBody))).message
-    assert(msg.contains("body"), msg)
-
-  test("serve rejects error-fault headers that repeat a name — the facade Map is single-valued"):
-    val repeated = Response.Is(
-      IsResponse(statusCode = Some(200)),
-      rift = Some(
-        RiftResponseExt(fault =
-          Some(
-            FaultConfig(error =
-              Some(
-                ErrorFault(
-                  1.0,
-                  503,
-                  Some("DOWN"),
-                  Headers(Vector("Set-Cookie" -> "a", "Set-Cookie" -> "b"))
-                )
-              )
-            )
-          )
-        )
-      )
-    )
-    val msg = intercept[RiftError.InvalidDefinition](FacadeEncode.isSpec(Fixed(repeated))).message
-    // asserts the offending name specifically: a generic "a header repeats" message would silently
-    // weaken the names-the-offender guarantee the reject set is built on.
-    assert(msg.contains("Set-Cookie"), msg)
+  // The per-shape fault rejections this spec used to carry (an incomplete latency range, an error
+  // fault with headers but no body, repeated fault headers) are gone with #147: they distinguished
+  // translatable fault shapes from untranslatable ones, and no fault shape is translatable now.
 
   test("serve still rejects a non-is response (proxy/inject/fault)"):
     intercept[RiftError.InvalidDefinition] {
@@ -433,8 +369,8 @@ class InterceptTranslationSpec extends FunSuite:
     }
 
   /** Wraps an already-built `Response` as a `ResponseBuilder` so a test can drive `isSpec` with a
-    * model shape the fluent DSL will not construct (an incomplete latency fault, an error fault
-    * with headers but no body, repeated fault headers).
+    * model shape the fluent DSL will not construct (a bare-string `wait`, a bodiless error fault,
+    * an unknown forward-compat key).
     */
   private final case class Fixed(response: Response) extends ResponseBuilder:
     def build: Response = response
