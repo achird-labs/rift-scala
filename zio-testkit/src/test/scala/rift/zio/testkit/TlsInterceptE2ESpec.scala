@@ -7,9 +7,12 @@ import javax.net.ssl.SSLContext
 
 import zio.*
 import zio.test.*
+import zio.test.Assertion.*
 import zio.test.TestAspect.*
 
+import rift.RiftError
 import rift.dsl.*
+import rift.model.TcpFaultKind
 import rift.zio.InterceptHandle
 // Renamed: `ZIOSpec` inherits a member called `aspects`, which outranks even an explicit import of
 // this object (inherited definitions bind tighter than imports), so the bare name would resolve to
@@ -76,9 +79,9 @@ object TlsInterceptE2ESpec extends ZIOSpecDefault:
     test("serves a rejected-credentials response through the fixture") {
       // The failure scenario these fixtures exist for: the SUT's real client talks to what it
       // believes is its upstream and gets a 401 back. TCP-level faults are deliberately not
-      // exercised here — an intercept `serve` rule only carries an `is` response, and the engine
-      // rejects a `fault` one outright (`use redirectTo(imposter)`), so injecting one is a
-      // property of imposters rather than of this fixture.
+      // exercised here — the engine's intercept `serve` action carries only statusCode, headers
+      // and body, so injecting one is a property of imposters rather than of this fixture. Since
+      // #147 the DSL says so out loud; the next test pins that.
       withFixture(
         InterceptTestConfig(proxyProps = false, proxySelector = true, sslContext = true)
       ) { handle =>
@@ -87,6 +90,24 @@ object TlsInterceptE2ESpec extends ZIOSpecDefault:
           result <- fetch(Url)
           (code, body) = result
         yield assertTrue(code == 401, body.contains("unauthorized"))
+      }
+    },
+    test("refuses a tcp fault on a serve rule rather than quietly answering 200") {
+      // Regression for #147. This spelling used to register successfully and then answer a plain
+      // 200 with an empty body, so a resilience test asserting the request failed passed against a
+      // success response the author never asked for. `fault(...)` was already rejected; the two
+      // spellings now agree.
+      withFixture(
+        InterceptTestConfig(proxyProps = false, proxySelector = true, sslContext = true)
+      ) { handle =>
+        for exit <- handle.rule().serve(ok.withTcpFault(TcpFaultKind.ConnectionResetByPeer)).exit
+        yield assert(exit)(
+          fails(
+            isSubtype[RiftError.InvalidDefinition](
+              hasField("msg", _.msg, containsString("withTcpFault"))
+            )
+          )
+        )
       }
     },
     test("restores every global it touched when the scope closes") {

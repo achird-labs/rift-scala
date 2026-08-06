@@ -99,6 +99,24 @@ object FacadeCoverage:
       "through rule(host)/rule() to build an InterceptRuleBuilder first, so only that builder's " +
       "single-target overload is ever called"
 
+  /** Shared reason: an `IsSpec` capability that only an intercept `serve` rule could carry, and the
+    * engine's serve action cannot carry it. `InterceptImpl.toServeStub` builds that action from
+    * `statusCode`, `headers` and `body` alone, so building it into the `IsSpec` would have it
+    * discarded one hop later — `FacadeEncode.isSpec` rejects the response instead (issue #147,
+    * upstream achird-labs/rift-java#207).
+    *
+    * The capability itself is not lost to rift-scala users: on an imposter stub the same
+    * `_behaviors`/`_rift`/binary construct crosses the D2 raw-JSON seam intact, which is what the
+    * rejection message points at. Only this typed facade entry point is unreachable, and it becomes
+    * reachable again if the upstream action learns to carry these.
+    */
+  private val interceptServeActionDrops =
+    "unreachable from rift-scala: only an intercept serve rule reaches this IsSpec capability, and " +
+      "the engine's serve action carries only statusCode/headers/body (InterceptImpl.toServeStub), " +
+      "so FacadeEncode.isSpec rejects such a response rather than building a spec the engine would " +
+      "silently discard — see issue #147 and upstream achird-labs/rift-java#207; the same construct " +
+      "still reaches the engine on an imposter stub through the D2 raw-JSON seam"
+
   val entries: Vector[Coverage] = Vector(
     Coverage.Wrapped("RuleKind#SERVE", "rift.bridge.RuleKind#fromJava"),
     Coverage.Wrapped("RuleKind#FORWARD", "rift.bridge.RuleKind#fromJava"),
@@ -579,32 +597,31 @@ object FacadeCoverage:
     Coverage.Wrapped("ClosestMiss#request()", "rift.bridge.FacadeDecode#verificationResult"),
     Coverage.Wrapped("FailedPredicate#actual()", "rift.bridge.FacadeDecode#verificationResult"),
     Coverage.Wrapped("FailedPredicate#predicate()", "rift.bridge.FacadeDecode#verificationResult"),
-    Coverage.Wrapped("Fault#CONNECTION_RESET_BY_PEER", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("Fault#EMPTY_RESPONSE", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("Fault#MALFORMED_RESPONSE_CHUNK", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("Fault#RANDOM_DATA_THEN_CLOSE", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#decorate(String)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#repeat(int)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#shellTransform(String[])", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#templated()", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#waitBetween(long,long)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#waitInject(String)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#waitMs(long)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#waitScript(String)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#withBinaryBody(byte[])", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#withErrorFault(double,int)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#withErrorFault(double,int,String)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage
-      .Wrapped("IsSpec#withErrorFault(double,int,String,Map)", "rift.bridge.FacadeEncode#isSpec"),
+    // #147 — the fault/behavior/binary half of IsSpec is no longer built: the engine's intercept
+    // serve action drops it, so `isSpec` rejects those responses instead of translating them.
+    Coverage.Excluded("Fault#CONNECTION_RESET_BY_PEER", interceptServeActionDrops),
+    Coverage.Excluded("Fault#EMPTY_RESPONSE", interceptServeActionDrops),
+    Coverage.Excluded("Fault#MALFORMED_RESPONSE_CHUNK", interceptServeActionDrops),
+    Coverage.Excluded("Fault#RANDOM_DATA_THEN_CLOSE", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#decorate(String)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#repeat(int)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#shellTransform(String[])", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#templated()", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#waitBetween(long,long)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#waitInject(String)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#waitMs(long)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#waitScript(String)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#withBinaryBody(byte[])", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#withErrorFault(double,int)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#withErrorFault(double,int,String)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#withErrorFault(double,int,String,Map)", interceptServeActionDrops),
     Coverage.Wrapped("IsSpec#withHeader(String,String[])", "rift.bridge.FacadeEncode#isSpec"),
     Coverage.Wrapped("IsSpec#withJsonBody(JsonValue)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#withLatencyFault(double,Duration)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped(
-      "IsSpec#withLatencyFault(double,Duration,Duration)",
-      "rift.bridge.FacadeEncode#isSpec"
-    ),
-    Coverage.Wrapped("IsSpec#withTcpFault(Fault)", "rift.bridge.FacadeEncode#isSpec"),
-    Coverage.Wrapped("IsSpec#withTcpFault(double,Fault)", "rift.bridge.FacadeEncode#isSpec"),
+    Coverage.Excluded("IsSpec#withLatencyFault(double,Duration)", interceptServeActionDrops),
+    Coverage
+      .Excluded("IsSpec#withLatencyFault(double,Duration,Duration)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#withTcpFault(Fault)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#withTcpFault(double,Fault)", interceptServeActionDrops),
     Coverage.Wrapped("IsSpec#withTextBody(String)", "rift.bridge.FacadeEncode#isSpec"),
     Coverage.Wrapped("RequestMatch#ofJson(JsonValue)", "rift.bridge.FacadeEncode#requestMatch"),
     Coverage.Wrapped("RiftDsl#status(int)", "rift.bridge.FacadeEncode#isSpec"),
