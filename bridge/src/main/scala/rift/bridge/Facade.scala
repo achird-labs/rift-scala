@@ -270,10 +270,11 @@ private[bridge] object FacadeEncode:
     * have. `redirectTo(imposter)` is the full-fidelity path — its stubs go through the D2 raw-JSON
     * seam unchanged. See `requireDeliverable` for the set and for what would relax it.
     *
-    * One caveat *within* the accepted set: the engine writes a serve rule's headers verbatim and
-    * infers none, while an imposter answering the same response defaults an absent `Content-Type`
-    * to `application/json`. So a `.json(...)` body served here arrives untyped unless the response
-    * sets the header itself — issue #149.
+    * One header is *added* within the accepted set: the engine writes a serve rule's headers
+    * verbatim and infers none, while an imposter answering the same response defaults an absent
+    * `Content-Type` to `application/json`. This translation injects that same default, so a
+    * non-string JSON body is typed the same way whichever rule kind serves it — issue #149. A
+    * caller's own content-type, in any casing, is left alone.
     */
   def isSpec(response: ResponseBuilder): JIsSpec =
     response.build match
@@ -377,5 +378,13 @@ private[bridge] object FacadeEncode:
     }
     is.body match
       case Some(Json.Str(s)) => withHeaders.withTextBody(s)
-      case Some(json) => withHeaders.withJsonBody(JJsonValue.parse(json.render))
+      case Some(json) =>
+        // Mirrors the imposter path's default exactly — same body shape (a non-string body, the
+        // only one it renders), and `Headers.get` is the same case-insensitive presence check the
+        // engine makes. Without it the same response object is typed through an imposter and
+        // untyped through a serve rule, because the engine's serve action infers nothing. #149.
+        val withContentType =
+          if is.headers.get("Content-Type").isDefined then withHeaders
+          else withHeaders.withHeader("Content-Type", "application/json")
+        withContentType.withJsonBody(JJsonValue.parse(json.render))
       case None => withHeaders
