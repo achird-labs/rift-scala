@@ -480,6 +480,9 @@ imposter("users")
   .https(certPem, keyPem)
   .defaultResponse(notFound.text("no stub matched"))
   .strictBehaviors
+  // flowIdFromHeader's name must be an RFC 9110 token, like every authored header name, and is
+  // rejected at construction: the engine matches it verbatim, and a name it can never match
+  // silently falls back to the imposter-port flow, so every correlated space would share one flow
   .flowState(inMemoryFlowState.ttl(5.minutes).flowIdFromHeader("X-Flow-Id"))
   .flowState(redisFlowState("redis://localhost:6379").keyPrefix("rift:"))
   .scriptEngine(ScriptEngine.Rhai, timeout = 2.seconds)

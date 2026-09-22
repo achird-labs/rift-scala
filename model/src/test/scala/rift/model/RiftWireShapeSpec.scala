@@ -78,6 +78,14 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assertEquals(cfg.backend, FlowStateBackend.InMemory)
     assert(cfg.toJson.semanticEquals(json))
 
+  // Issue #156 — only the DSL validates the header name; decoding reproduces whatever a fixture or
+  // an engine payload carried, so a malformed source survives a decode -> encode round trip.
+  test("flowState decode keeps a flowIdSource the DSL would refuse to author"):
+    val json = parse("""{"backend":"inmemory","flowIdSource":"header:X:Y"}""")
+    val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(cfg.flowIdSource, Some("header:X:Y"))
+    assert(cfg.toJson.semanticEquals(json))
+
   test("flowState redis backend nests url/poolSize/keyPrefix under 'redis'"):
     val json = parse(
       """{"backend":"redis","ttlSeconds":60,
