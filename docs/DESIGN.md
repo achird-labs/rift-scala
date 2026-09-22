@@ -325,8 +325,8 @@ final case class RiftResponseExt(
 )
 
 enum ScriptSource:
-  case Inline(engine: ScriptEngine, code: String)
-  case File(engine: ScriptEngine, path: String)
+  case Inline(engine: Option[ScriptEngine], code: String)  // None: the engine resolves it
+  case File(engine: Option[ScriptEngine], path: String)
   case Ref(name: String)                 // resolves against ImposterDefinition-level registry
 
 enum ScriptEngine:
@@ -485,6 +485,8 @@ imposter("users")
   // silently falls back to the imposter-port flow, so every correlated space would share one flow
   .flowState(inMemoryFlowState.ttl(5.minutes).flowIdFromHeader("X-Flow-Id"))
   .flowState(redisFlowState("redis://localhost:6379").keyPrefix("rift:"))
+  // defaultEngine takes effect on engine >= 0.18.0, and only for scripts that name no engine
+  // (raw JSON): the Script.* factories always name theirs
   .scriptEngine(ScriptEngine.Rhai, timeout = 2.seconds)
   .script("checkout", Script.rhaiFile("checkout.rhai"))
   .stub(on(GET, "/api/users/1").reply(ok.json("""{"id":1}""")))

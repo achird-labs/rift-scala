@@ -67,8 +67,62 @@ class RiftWireShapeSpec extends munit.FunSuite:
   test("script file source uses the 'file' wire key"):
     val json = parse("""{"engine":"rhai","file":"scripts/respond.rhai"}""")
     val src = ScriptSource.fromJson(json).fold(e => fail(e.toString), identity)
-    assertEquals(src, ScriptSource.File(ScriptEngine.Rhai, "scripts/respond.rhai"))
+    assertEquals(src, ScriptSource.File(Some(ScriptEngine.Rhai), "scripts/respond.rhai"))
     assert(src.toJson.semanticEquals(json))
+
+  // Issue #157 — `engine` is optional on the wire (engine `RiftScriptConfig.engine: Option<String>`,
+  // rift-java `Optional<String> engine`). An engine-less script is resolved by the engine: its file
+  // extension, then `_rift.scriptEngine.defaultEngine` (honoured from engine 0.18.0), then Rhai. The
+  // SDK must read such a script and hand it back without inventing an engine.
+  test("an inline script with no engine decodes and re-encodes without one"):
+    val json = parse("""{"code":"respond(200)"}""")
+    val src = ScriptSource.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(src, ScriptSource.Inline(None, "respond(200)"))
+    assertEquals(src.toJson.render, """{"code":"respond(200)"}""")
+
+  test("a file script with no engine decodes and re-encodes without one"):
+    val json = parse("""{"file":"scripts/respond.js"}""")
+    val src = ScriptSource.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(src, ScriptSource.File(None, "scripts/respond.js"))
+    assertEquals(src.toJson.render, """{"file":"scripts/respond.js"}""")
+
+  test("a present but unknown or non-string engine is still a decode error under 'engine'"):
+    for bad <- List("""{"engine":"lua","code":"1"}""", """{"engine":1,"code":"1"}""") do
+      ScriptSource.fromJson(parse(bad)) match
+        case Left(e) => assertEquals(e.path, Vector("engine"), e.toString)
+        case Right(src) => fail(s"$bad decoded to $src")
+
+  test("an engine-less script survives the imposter-level registry and a response _rift block"):
+    val registry = parse("""{"scripts":{"checkout":{"code":"respond(200)"}}}""")
+    val cfg = RiftConfig.fromJson(registry).fold(e => fail(e.toString), identity)
+    assertEquals(cfg.scripts, Vector("checkout" -> ScriptSource.Inline(None, "respond(200)")))
+    assert(cfg.toJson.semanticEquals(registry), cfg.toJson.render)
+    val ext = parse("""{"script":{"file":"respond.rhai"}}""")
+    val decoded = RiftResponseExt.fromJson(ext).fold(e => fail(e.toString), identity)
+    assertEquals(decoded.script, Some(ScriptSource.File(None, "respond.rhai")))
+    assert(decoded.toJson.semanticEquals(ext), decoded.toJson.render)
+
+  test("a ref script round-trips as a bare ref"):
+    val json = parse("""{"ref":"checkout"}""")
+    val src = ScriptSource.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(src, ScriptSource.Ref("checkout"))
+    assertEquals(src.toJson.render, """{"ref":"checkout"}""")
+
+  test("the Script factories always name their engine"):
+    import rift.dsl.Script
+    assertEquals(Script.rhai("1").toJson.render, """{"engine":"rhai","code":"1"}""")
+    assertEquals(
+      Script.javascript("1").toJson.render,
+      """{"engine":"javascript","code":"1"}"""
+    )
+    assertEquals(
+      Script.rhaiFile("a.rhai").toJson.render,
+      """{"engine":"rhai","file":"a.rhai"}"""
+    )
+    assertEquals(
+      Script.javascriptFile("a.js").toJson.render,
+      """{"engine":"javascript","file":"a.js"}"""
+    )
 
   // ── 4. RiftConfig.flowState — "backend" key + nested "redis" object ─────────────────────────
   // Proof: types.rs:911-927 @ v0.14.0; RiftFlowStateConfig.java; zio-bdd RiftProtocol.scala:36.

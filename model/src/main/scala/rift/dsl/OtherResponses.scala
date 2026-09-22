@@ -83,9 +83,15 @@ final case class ScriptResponseBuilder private[dsl] (source: ScriptSource) exten
 
 def script(source: ScriptSource): ScriptResponseBuilder = ScriptResponseBuilder(source)
 
+/** Script sources for `_rift` scripts. Every factory names its engine, so
+  * `_rift.scriptEngine.defaultEngine` never decides a script built here — only an engine-less one
+  * read from raw JSON (see [[rift.model.ScriptSource]]).
+  */
 object Script:
-  def rhai(code: String): ScriptSource = ScriptSource.Inline(ScriptEngine.Rhai, code)
-  def rhaiFile(path: String): ScriptSource = ScriptSource.File(ScriptEngine.Rhai, path)
-  def javascript(code: String): ScriptSource = ScriptSource.Inline(ScriptEngine.JavaScript, code)
-  def javascriptFile(path: String): ScriptSource = ScriptSource.File(ScriptEngine.JavaScript, path)
+  def rhai(code: String): ScriptSource = ScriptSource.Inline(Some(ScriptEngine.Rhai), code)
+  def rhaiFile(path: String): ScriptSource = ScriptSource.File(Some(ScriptEngine.Rhai), path)
+  def javascript(code: String): ScriptSource =
+    ScriptSource.Inline(Some(ScriptEngine.JavaScript), code)
+  def javascriptFile(path: String): ScriptSource =
+    ScriptSource.File(Some(ScriptEngine.JavaScript), path)
   def ref(name: String): ScriptSource = ScriptSource.Ref(name)

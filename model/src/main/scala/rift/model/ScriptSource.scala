@@ -20,20 +20,36 @@ object ScriptEngine:
     case Json.Str(other) => Left(JsonError.Decode(s"unknown script engine: $other", Vector.empty))
     case _ => Left(JsonError.Decode("expected a script engine string", Vector.empty))
 
+/** A `_rift` script: inline `code`, a `file` path, or a `ref` to the imposter's named registry.
+  *
+  * `engine = None` is legal wire input and means "let the engine resolve it" (the engine's
+  * `RiftScriptConfig.engine` and rift-java's are both optional). An engine ≥ 0.18.0 resolves it
+  * from the `file` extension (`.rhai`, `.js`, `.lua`), then the imposter's
+  * `_rift.scriptEngine.defaultEngine`, then Rhai; 0.17.0 and earlier always ran it as Rhai. It only
+  * reaches this model from raw JSON: the `rift.dsl.Script` factories always name their engine.
+  *
+  * The engine writes the resolved engine back, so `GET /imposters` returns it explicitly. A `.lua`
+  * file resolves to `"lua"`, which [[ScriptEngine]] does not model, so reading such an imposter
+  * back fails to decode.
+  */
 enum ScriptSource:
-  case Inline(engine: ScriptEngine, code: String)
-  case File(engine: ScriptEngine, path: String)
+  case Inline(engine: Option[ScriptEngine], code: String)
+  case File(engine: Option[ScriptEngine], path: String)
   case Ref(name: String)
 
   def toJson: Json = this match
     case ScriptSource.Inline(engine, code) =>
-      Json.obj("engine" -> engine.toJson, "code" -> Json.Str(code))
+      ScriptSource.sourceObj(engine, "code" -> Json.Str(code))
     case ScriptSource.File(engine, path) =>
       // types.rs:1213-1217 / RiftScriptConfig.java:13,34,42 — the wire key is "file", not "path".
-      Json.obj("engine" -> engine.toJson, "file" -> Json.Str(path))
+      ScriptSource.sourceObj(engine, "file" -> Json.Str(path))
     case ScriptSource.Ref(name) => Json.obj("ref" -> Json.Str(name))
 
 object ScriptSource:
+  /** `engine` first when present and omitted (never `null`) when absent, as rift-java writes it. */
+  private def sourceObj(engine: Option[ScriptEngine], source: (String, Json)): Json =
+    Json.Obj(Vector(engine.map("engine" -> _.toJson), Some(source)).flatten)
+
   def fromJson(json: Json): Either[JsonError.Decode, ScriptSource] =
     for
       fields <- asObj(json, "script")
@@ -52,16 +68,16 @@ object ScriptSource:
       fields: Vector[(String, Json)]
   ): Either[JsonError.Decode, ScriptSource] =
     for
-      engineJson <- fields
-        .field("engine")
-        .toRight[JsonError.Decode](JsonError.Decode("missing required field", Vector.empty))
-      engine <- ScriptEngine.fromJson(engineJson)
+      engine <- fields.field("engine") match
+        case Some(engineJson) =>
+          ScriptEngine.fromJson(engineJson).map(Some(_)).left.map(_.under("engine"))
+        case None => Right(None)
       source <- decodeCodeOrPath(fields, engine)
     yield source
 
   private def decodeCodeOrPath(
       fields: Vector[(String, Json)],
-      engine: ScriptEngine
+      engine: Option[ScriptEngine]
   ): Either[JsonError.Decode, ScriptSource] =
     (fields.field("code"), fields.field("file")) match
       case (Some(Json.Str(code)), None) => Right(Inline(engine, code))
