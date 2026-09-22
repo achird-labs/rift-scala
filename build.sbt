@@ -6,7 +6,7 @@
 // feature issue — the bootstrap wires only the module graph and the shared toolchain, so
 // `sbt compile` stays green before any effect backend is implemented.
 
-lazy val scala3 = "3.3.4"
+lazy val scala3 = "3.3.7"
 
 inThisBuild(
   Seq(
