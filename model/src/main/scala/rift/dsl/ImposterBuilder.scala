@@ -16,10 +16,18 @@ final class FlowStateConfigBuilder private[dsl] (
   def ttl(duration: FiniteDuration): FlowStateConfigBuilder =
     new FlowStateConfigBuilder(backend, Some(duration.toSeconds), flowIdSourceValue)
 
-  // Unvalidated for the same reason as the predicate-side `header(...)` selector: this names a
-  // header to read off an inbound request, not one to write to a wire.
+  /** Partition flow state by the value of the inbound request header `name`.
+    *
+    * `name` must be an RFC 9110 token, and is rejected at construction otherwise. Unlike the
+    * predicate-side `header(...)` selector, a bad name here is not merely a match that fails: the
+    * engine strips `header:` off this config string and compares the rest verbatim,
+    * case-insensitively, against inbound headers. A name outside the token grammar, such as one
+    * holding a colon or whitespace or an empty one, can never match. Every request then silently
+    * falls back to the imposter-port flow id, and correlated isolation collapses into one flow
+    * shared by every space.
+    */
   def flowIdFromHeader(name: String): FlowStateConfigBuilder =
-    new FlowStateConfigBuilder(backend, ttlSecondsValue, Some(s"header:$name"))
+    new FlowStateConfigBuilder(backend, ttlSecondsValue, Some(s"header:${requireHeaderName(name)}"))
 
   private[dsl] def build: FlowStateConfig =
     FlowStateConfig(backend, ttlSecondsValue, flowIdSourceValue)

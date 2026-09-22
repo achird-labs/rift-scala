@@ -282,6 +282,43 @@ class DslSpec extends munit.FunSuite:
         ]
     )
 
+  // Issue #156 — `flowIdFromHeader` splices its name into the engine's `header:<name>` config
+  // string, which the engine strips by prefix and matches verbatim, case-insensitively, against
+  // inbound headers. A non-token name can never match, and the engine then falls back to the
+  // imposter-port flow id for every request: correlated isolation silently becomes one shared flow.
+  test("flowIdFromHeader rejects a name outside the RFC 9110 token grammar, naming it"):
+    val msg = rejectsName(inMemoryFlowState.flowIdFromHeader("X:Y"))
+    assert(msg.contains("'X:Y'"), msg)
+    assert(msg.contains("U+003A"), msg)
+    assert(msg.contains("index 1"), msg)
+    // a leading space is the invisible case: it must be named by code point and position
+    val padded = rejectsName(inMemoryFlowState.flowIdFromHeader(" X-Flow"))
+    assert(padded.contains("U+0020"), padded)
+    assert(padded.contains("index 0"), padded)
+    // an empty name has no offending character to name, so it says so instead
+    val empty = rejectsName(inMemoryFlowState.flowIdFromHeader(""))
+    assert(empty.contains("must not be empty"), empty)
+
+  test("flowIdFromHeader rejects every malformed name shape"):
+    for bad <- List("", " X-Flow", "X-Flow ", "X Flow", "X-Flow:", "Flow-Idé", "X\tY", "X\nY") do
+      intercept[IllegalArgumentException](inMemoryFlowState.flowIdFromHeader(bad))
+    // the validation holds on every backend and wherever it sits in the chain
+    intercept[IllegalArgumentException](redisFlowState("redis://h:6379").flowIdFromHeader(" X"))
+    intercept[IllegalArgumentException](inMemoryFlowState.ttl(5.minutes).flowIdFromHeader(""))
+
+  test("flowIdFromHeader writes a valid token into flowIdSource unchanged"):
+    def source(b: FlowStateConfigBuilder): Option[Json] =
+      imposter("a").flowState(b).build.toJson.get("_rift", "flowState", "flowIdSource")
+    assertEquals(
+      source(inMemoryFlowState.ttl(5.minutes).flowIdFromHeader("X-Flow-Id")),
+      Some(Json.Str("header:X-Flow-Id"))
+    )
+    val exotic = "x!#$%&'*+-.^_`|~9"
+    assertEquals(
+      source(inMemoryFlowState.flowIdFromHeader(exotic)),
+      Some(Json.Str("header:x!#$%&'*+-.^_`|~9"))
+    )
+
   test("other response kinds build their wire forms"):
     assert(fault(TcpFaultKind.ConnectionResetByPeer).build.isInstanceOf[Response.Fault])
     assert(inject("function (request) { return {}; }").build.isInstanceOf[Response.Inject])
