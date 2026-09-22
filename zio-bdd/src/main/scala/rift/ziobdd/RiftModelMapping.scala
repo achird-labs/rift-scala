@@ -127,7 +127,9 @@ private[ziobdd] object RiftModelMapping:
       id: spi.RuleId
   ): Either[spi.MockError, StubBuilder[StubPhase.Complete]] =
     Right(
-      toMatch(m).withId(stubIdOf(id)).reply(script(ScriptSource.Inline(engineOf(s.engine), s.code)))
+      toMatch(m)
+        .withId(stubIdOf(id))
+        .reply(script(ScriptSource.Inline(Some(engineOf(s.engine)), s.code)))
     )
 
   private def engineOf(e: spi.ScriptEngine): RiftScriptEngine = e match

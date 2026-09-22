@@ -395,7 +395,8 @@ class InterceptTranslationSpec extends FunSuite:
       Fixed(
         Response.Is(
           IsResponse(statusCode = Some(200)),
-          rift = Some(RiftResponseExt(script = Some(ScriptSource.Inline(ScriptEngine.Rhai, "1"))))
+          rift =
+            Some(RiftResponseExt(script = Some(ScriptSource.Inline(Some(ScriptEngine.Rhai), "1"))))
         )
       )
     )
