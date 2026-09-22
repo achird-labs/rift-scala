@@ -44,9 +44,9 @@ object Dependencies {
   )
 
   /** `rift-scala-zio-bdd` (#18): the published `MockControl` SPI this module's adapter implements.
-    * Standalone artifact (no zio-bdd core dependency) built with Scala 3.3.4 — matching the repo
-    * pin — and zio 2.1.17, which sbt eviction bumps this module's zio to (a binary-compatible patch
-    * bump within ZIO 2.1.x; the rest of the repo stays on the `zio` pin below).
+    * Standalone artifact (no zio-bdd core dependency) built with Scala 3.3.4 and zio 2.1.17. Both
+    * are older than this repo's pins: a 3.3.7 compiler reads 3.3.4 TASTy, and the repo's `zio` pin
+    * below evicts 2.1.17 (a binary-compatible patch bump within ZIO 2.1.x).
     */
   val zioBdd = "1.4.4"
 
@@ -64,7 +64,7 @@ object Dependencies {
   /** `rift-scala-zio` (#4): the ZIO surface is zio + zio-streams only (the cursor request tail is a
     * `ZStream`). No JSON library — codecs opt in via the `zio-json` side-car (D7).
     */
-  val zio = "2.1.14"
+  val zio = "2.1.21"
 
   val zioDeps: Seq[ModuleID] = Seq(
     "dev.zio" %% "zio" % zio,
