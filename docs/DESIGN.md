@@ -680,7 +680,13 @@ upstreamTrust)`,
 literal), so a `SpawnConfig` that leaves `version` unset spawns the engine pinned by this build.
 `upstreamTrust` (`UpstreamTrust.CaFile | CaPem | SkipVerify`, #176) is how the engine trusts an
 HTTPS origin a proxy stub dials (engine ≥ 0.18.0); spawn takes no inline PEM, and
-`EngineInfo.serveOptions` is how a caller feature-detects it.
+`EngineInfo.serveOptions` is how a caller feature-detects it. rift-java refuses a bad config
+(a PEM with no certificate block, an inline PEM on spawn, trust on a pre-0.18.0 spawn `version`,
+an out-of-range admin port) with a bare `IllegalArgumentException` while its options are built.
+`RiftConnector.embedded`/`spawn` catch exactly that step — no engine is involved yet, so it can
+only be the caller's mistake — and raise `RiftError.InvalidDefinition`, keeping it in every
+backend's typed channel instead of a defect (#193). The transport start itself is not covered;
+rift-java's rules are not duplicated.
 
 Verification detail (D5): `verify` calls the facade; on `VerificationException` the bridge reads
 its structured `result()` (`requests` for the matched calls, `closest` with `failedPredicates`

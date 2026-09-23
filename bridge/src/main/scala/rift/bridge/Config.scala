@@ -34,10 +34,12 @@ enum VersionCheck:
   * with, so it is a transport setting rather than a per-imposter one.
   *
   * rift-java sends it only to an engine that supports it: the embedded transport checks the
-  * engine's advertised `serveOptions`, and spawn checks the declared `version`. An inline PEM
-  * without a certificate block, and [[CaPem]] on spawn (the engine CLI has no inline form — write
-  * the PEM to a file and use [[CaFile]]), are refused with `IllegalArgumentException` when the
-  * transport starts.
+  * engine's advertised `serveOptions` (an engine without it fails with
+  * `RiftError.EngineUnavailable`), and spawn checks the declared `version`. An inline PEM without a
+  * certificate block, [[CaPem]] on spawn (the engine CLI has no inline form — write the PEM to a
+  * file and use [[CaFile]]), and any trust on a spawn `version` older than 0.18.0 are refused
+  * before an engine starts: `RiftConnector.embedded`/`spawn`, and every effect surface over them,
+  * fail with the typed `RiftError.InvalidDefinition` (#193).
   */
 enum UpstreamTrust:
   case CaFile(pem: Path)

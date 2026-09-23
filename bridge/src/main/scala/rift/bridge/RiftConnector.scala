@@ -145,14 +145,43 @@ object RiftConnector:
     */
   def isEmbeddedAvailable: Boolean = FacadeBoundary.run(JRift.isEmbeddedAvailable())
 
+  /** Builds a transport's facade options, typing the builder's refusals.
+    *
+    * rift-java validates a config while its options are built — an inline CA PEM without a
+    * certificate block, an inline PEM on spawn, trust on a pre-0.18.0 spawn version, an admin port
+    * outside `0..65535`, a blank API key — and refuses with a bare `IllegalArgumentException`,
+    * which is not a `RiftException` and so would escape `FacadeBoundary` as a defect (#193). This
+    * step only turns the caller's config into options, with no engine involved, so a refusal here
+    * is always the caller's configuration mistake: `InvalidDefinition`, the same treatment
+    * `FacadeEncode.matchClause` gives a malformed filter. The rules stay rift-java's; nothing is
+    * re-checked here. The catch is deliberately this narrow — the transport start that follows is
+    * not covered, so an `IllegalArgumentException` from inside the facade stays the defect it is.
+    */
+  private def options[A](config: Product)(build: => A): A =
+    try build
+    catch
+      case e: IllegalArgumentException =>
+        throw RiftError.InvalidDefinition(
+          s"invalid ${config.productPrefix}: ${e.getMessage}",
+          Some(e)
+        )
+
+  /** Fails with `RiftError.InvalidDefinition` if rift-java refuses `config` (see
+    * [[UpstreamTrust]]), before any engine starts.
+    */
   def embedded(config: EmbeddedConfig = EmbeddedConfig()): RiftConnector =
-    FacadeBoundary.run(new RiftConnector(JRift.embedded(config.toOptions), () => ()))
+    val opts = options(config)(config.toOptions)
+    FacadeBoundary.run(new RiftConnector(JRift.embedded(opts), () => ()))
 
   def connect(config: ConnectConfig): RiftConnector =
     FacadeBoundary.run(new RiftConnector(JRift.connect(config.toOptions), () => ()))
 
+  /** Fails with `RiftError.InvalidDefinition` if rift-java refuses `config` (see
+    * [[UpstreamTrust]]), before the engine process is launched.
+    */
   def spawn(config: SpawnConfig = SpawnConfig()): RiftConnector =
-    FacadeBoundary.run(new RiftConnector(JRift.spawn(config.toOptions), () => ()))
+    val opts = options(config)(config.toOptions)
+    FacadeBoundary.run(new RiftConnector(JRift.spawn(opts), () => ()))
 
   /** Requires `rift-java-testcontainers` (+ Docker) on the runtime classpath — `% Optional` in this
     * build (project/Dependencies.scala) so consumers who never call `container` don't inherit

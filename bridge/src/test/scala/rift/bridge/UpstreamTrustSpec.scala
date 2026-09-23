@@ -6,6 +6,7 @@ import java.nio.file.Paths
 
 import scala.jdk.OptionConverters.*
 
+import rift.RiftError
 import rift.json.Json
 import rift.model.EngineInfo
 
@@ -64,6 +65,36 @@ class UpstreamTrustSpec extends FunSuite:
   test("an inline PEM without a certificate block is refused"):
     intercept[IllegalArgumentException](
       EmbeddedConfig(upstreamTrust = Some(UpstreamTrust.CaPem("junk"))).toOptions
+    )
+
+  // #193 — the facade refuses these with a bare IllegalArgumentException while the options are
+  // built. The connector must surface that as the typed InvalidDefinition, not leak it as a defect.
+  // Every refusal fires before an engine is touched, so none of these needs one.
+  private def assertInvalid(open: => RiftConnector, mentions: String): Unit =
+    val err = intercept[RiftError.InvalidDefinition](open)
+    assert(err.getMessage.contains(mentions), err.getMessage)
+    assert(err.getCause.isInstanceOf[IllegalArgumentException], String.valueOf(err.getCause))
+
+  test("embedded with an inline PEM without a certificate block fails as InvalidDefinition"):
+    assertInvalid(
+      RiftConnector.embedded(
+        EmbeddedConfig(upstreamTrust = Some(UpstreamTrust.CaPem("not a pem")))
+      ),
+      "BEGIN CERTIFICATE"
+    )
+
+  test("spawn with an inline PEM fails as InvalidDefinition"):
+    assertInvalid(
+      RiftConnector.spawn(SpawnConfig(upstreamTrust = Some(UpstreamTrust.CaPem(pem)))),
+      "inline CA PEM"
+    )
+
+  test("spawn with trust on an engine version older than 0.18.0 fails as InvalidDefinition"):
+    assertInvalid(
+      RiftConnector.spawn(
+        SpawnConfig(version = "0.17.0", upstreamTrust = Some(UpstreamTrust.SkipVerify))
+      ),
+      "0.18.0"
     )
 
   test("EngineInfo reads and writes serveOptions, absent meaning none"):
