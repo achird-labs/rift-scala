@@ -642,7 +642,7 @@ object FacadeCoverage:
     // IsSpec overrides keep their own rows above.
     Coverage.ExcludedClass(
       "BehaviorChain",
-      "the facade's behavior-chainer mixin shared by IsSpec, ProxySpec and InjectSpec (rift-java #224). rift-scala authors behaviors in rift.dsl and sends them across the D2 raw-JSON seam, and FacadeEncode.isSpec refuses behaviors because the intercept serve action cannot deliver them, so this mixin is never called; behaviors on proxy/inject/fault/script responses are tracked in #173"
+      "the facade's behavior-chainer mixin shared by IsSpec, ProxySpec and InjectSpec (rift-java #224). rift-scala authors behaviors in rift.dsl and sends them across the D2 raw-JSON seam, and FacadeEncode.isSpec refuses behaviors because the intercept serve action cannot deliver them, so this mixin is never called; rift.dsl.BehaviorChain is the Scala counterpart, on is/proxy/inject responses (#173)"
     ),
     Coverage.Excluded("IsSpec#clearFlowState()", interceptServeActionDrops),
     Coverage.Excluded("IsSpec#deleteState(String)", interceptServeActionDrops),

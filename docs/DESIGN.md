@@ -1246,6 +1246,12 @@ sbt module `conformance` (`publish / skip := true`), depends on `zio`, `cats`, `
   `expect {status, bodyContains}`) with a plain JDK HTTP client, honoring `requires` skips.
   Runs through **both** the ZIO surface (M3 gate, issue #6) and the cats surface (M4 gate,
   issue #13), over **embedded and connect** transports.
+- **Live feature checks (issue #188):** `Engine018Spec` asserts what engine 0.18.0 *does* with
+  the DSL's output for every feature adopted in #156–#178 (state ops, behaviors on proxy/fault
+  responses, the behaviors array program, recorded outcomes, client-certificate auth,
+  `defaultEngine`, repeated serve headers) — JSON-level tests cannot catch a key the engine parses
+  and ignores. Same `RIFT_G3_REQUIRE` guard and lanes as Gate 3; script cases run on spawn (the
+  only transport with injection on), the intercept case on embedded.
 - **Parity table (issue #13):** a generated markdown table (one row per `Rift`/handle
   operation, one column per backend) emitted from a shared op-inventory test, committed to
   `docs/PARITY.md`; CI fails if regeneration differs — backends cannot silently drift.
