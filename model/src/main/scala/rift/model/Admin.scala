@@ -23,6 +23,36 @@ final case class RecordedRequest(
 ):
   def toJson: Json = raw
 
+  /** The status the imposter answered this request with, recorded by engine 0.18.0 and later.
+    * Absent when not recorded — an older engine, a request still in flight, a request that failed
+    * before responding, or an event-stream copy, which is pushed before the answer. A value the
+    * engine could not have written (not an integer, or outside `0..65535`) also reads as absent:
+    * these are informational, so they never fail a decode. Present together with [[latencyMs]] or
+    * not at all.
+    */
+  def status: Option[Int] = raw.get("status") match
+    case Some(Json.Num(n)) if n.isValidInt && n >= 0 && n <= 0xffff => Some(n.toInt)
+    case _ => None
+
+  /** How long the imposter took to answer, in whole milliseconds, from receiving the request
+    * (including its body) to the response being ready — `wait` behaviors, scripts and a proxied
+    * round trip included. A present `0` is an ordinary sub-millisecond reading. Same absence rules
+    * as [[status]]; a negative value reads as absent.
+    */
+  def latencyMs: Option[Long] = raw.get("latencyMs") match
+    case Some(Json.Num(n)) if n.isValidLong && n >= 0 => Some(n.toLong)
+    case _ => None
+
+  /** `METHOD path`, then ` → status in N ms` when the outcome was recorded (` → status` if only the
+    * status was). An empty path prints as `/`. The one-line form rift-java uses in verify failures.
+    */
+  def summary: String =
+    val line = s"${method.wireName} ${if path.isEmpty then "/" else path}"
+    status match
+      case None => line
+      case Some(code) =>
+        latencyMs.fold(s"$line → $code")(ms => s"$line → $code in $ms ms")
+
   /** Decodes the recorded JSON body as an `A` via its [[JsonBody]] codec — the read-back half of
     * the codec side-car design, mirroring `ok.json(a)` on the write side.
     *

@@ -357,7 +357,10 @@ final case class RecordedRequest(
   method: Method, path: String, query: Map[String, Vector[String]],
   headers: Headers, body: Option[Json], bodyText: Option[String],
   timestamp: Instant, requestFrom: Option[String], flowId: Option[FlowId],
-  pathParams: Map[String, String], raw: Json)
+  pathParams: Map[String, String], raw: Json):
+  // read from raw, never failing a decode (engine >= 0.18.0 records them; #174)
+  def status: Option[Int]; def latencyMs: Option[Long]
+  def summary: String   // "GET /orders → 201 in 12 ms", as rift-java renders it
 
 final case class EngineInfo(version: String, commit: String, features: Set[String])
 final case class ApplyResult(created: Int, replaced: Int, stubPatched: Int,

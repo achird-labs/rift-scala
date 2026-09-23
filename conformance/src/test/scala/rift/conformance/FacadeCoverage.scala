@@ -652,15 +652,15 @@ object FacadeCoverage:
     Coverage.Excluded("IsSpec#withBehavior(Behavior)", interceptServeActionDrops),
     Coverage.Excluded(
       "RecordedRequest#latencyMs()",
-      "rift-scala decodes a recorded request from raw() across the D2 seam, so the engine's latencyMs reaches RecordedRequest.raw today; the typed field is tracked in #174"
+      "rift-scala decodes a recorded request from raw() across the D2 seam and reads latencyMs from that document itself (rift.model.RecordedRequest.latencyMs, #174), so the facade accessor is never called"
     ),
     Coverage.Excluded(
       "RecordedRequest#status()",
-      "rift-scala decodes a recorded request from raw() across the D2 seam, so the engine's status reaches RecordedRequest.raw today; the typed field is tracked in #174"
+      "rift-scala decodes a recorded request from raw() across the D2 seam and reads status from that document itself (rift.model.RecordedRequest.status, #174), so the facade accessor is never called"
     ),
     Coverage.Excluded(
       "RecordedRequest#summary()",
-      "a rendering helper over status/latencyMs; rift-scala's own summary is tracked in #174"
+      "a rendering helper over status/latencyMs; rift-scala renders its own identical line (rift.model.RecordedRequest.summary, #174)"
     ),
     Coverage.Excluded(
       "EngineInfo#serveOptions()",
