@@ -12,15 +12,18 @@ final class ProxyResponseBuilder private[dsl] (
     private val addWaitValue: Boolean = false,
     private val injectHeadersValue: Vector[(String, String)] = Vector.empty,
     private val decorateValue: Option[String] = None,
-    private val rewriteValue: Option[PathRewrite] = None
-) extends ResponseBuilder:
+    private val rewriteValue: Option[PathRewrite] = None,
+    protected val behaviorsValue: Behaviors = Behaviors.empty
+) extends ResponseBuilder
+    with BehaviorChain[ProxyResponseBuilder]:
   private def withState(
       modeValue: ProxyMode = this.modeValue,
       generatorsValue: Vector[RequestField] = this.generatorsValue,
       addWaitValue: Boolean = this.addWaitValue,
       injectHeadersValue: Vector[(String, String)] = this.injectHeadersValue,
       decorateValue: Option[String] = this.decorateValue,
-      rewriteValue: Option[PathRewrite] = this.rewriteValue
+      rewriteValue: Option[PathRewrite] = this.rewriteValue,
+      behaviorsValue: Behaviors = this.behaviorsValue
   ): ProxyResponseBuilder =
     new ProxyResponseBuilder(
       to,
@@ -29,8 +32,12 @@ final class ProxyResponseBuilder private[dsl] (
       addWaitValue,
       injectHeadersValue,
       decorateValue,
-      rewriteValue
+      rewriteValue,
+      behaviorsValue
     )
+
+  protected def withBehaviors(behaviors: Behaviors): ProxyResponseBuilder =
+    withState(behaviorsValue = behaviors)
 
   def proxyOnce: ProxyResponseBuilder = withState(modeValue = ProxyMode.ProxyOnce)
   def proxyAlways: ProxyResponseBuilder = withState(modeValue = ProxyMode.ProxyAlways)
@@ -39,14 +46,18 @@ final class ProxyResponseBuilder private[dsl] (
   def generateBy(fields: RequestField*): ProxyResponseBuilder =
     withState(generatorsValue = fields.toVector)
 
-  /** Records the observed upstream latency as a `wait` behavior on each recorded stub. */
+  /** Records the observed upstream latency as a `wait` behavior on each *recorded* stub. Distinct
+    * from [[after]], which delays this proxy response itself.
+    */
   def addWaitBehavior: ProxyResponseBuilder = withState(addWaitValue = true)
 
   /** Adds a header to the request sent upstream (not to the recorded stub's response). */
   def injectHeader(name: String, value: String): ProxyResponseBuilder =
     withState(injectHeadersValue = injectHeadersValue :+ (requireHeaderName(name) -> value))
 
-  /** Attaches a `decorate` behavior to each recorded stub. */
+  /** Attaches a `decorate` behavior to each *recorded* stub. Distinct from [[decorate]], which runs
+    * on this proxy response itself (engine ≥ 0.18.0), before it is recorded.
+    */
   def decorateWith(js: String): ProxyResponseBuilder = withState(decorateValue = Some(js))
 
   /** Rewrites the recorded stub's path, e.g. `rewritePath("^/api", "/v2")`. */
@@ -63,25 +74,56 @@ final class ProxyResponseBuilder private[dsl] (
         injectHeadersValue,
         decorateValue,
         rewriteValue
-      )
+      ),
+      behaviorsValue
     )
 
 def proxyTo(url: String): ProxyResponseBuilder = new ProxyResponseBuilder(url)
 
-final case class FaultResponseBuilder private[dsl] (kind: TcpFaultKind) extends ResponseBuilder:
-  def build: Response = Response.Fault(kind)
+/** A TCP fault response. Only `repeat` runs on a fault (engine ≥ 0.18.0; an older engine drops it,
+  * and rift-java refuses the imposter there), so that is the one behavior offered.
+  */
+final class FaultResponseBuilder private[dsl] (
+    kind: TcpFaultKind,
+    behaviorsValue: Behaviors = Behaviors.empty
+) extends ResponseBuilder:
+  /** Serves this fault `times` times before moving to the stub's next response. */
+  def repeat(times: Int): FaultResponseBuilder =
+    new FaultResponseBuilder(kind, Behaviors.of(Behavior.Repeat(times, responseLevel = false)))
 
-def fault(kind: TcpFaultKind): FaultResponseBuilder = FaultResponseBuilder(kind)
+  def build: Response = Response.Fault(kind, behaviorsValue)
 
-final case class InjectResponseBuilder private[dsl] (scriptBody: String) extends ResponseBuilder:
-  def build: Response = Response.Inject(scriptBody)
+def fault(kind: TcpFaultKind): FaultResponseBuilder = new FaultResponseBuilder(kind)
 
-def inject(scriptBody: String): InjectResponseBuilder = InjectResponseBuilder(scriptBody)
+/** A Mountebank `inject` response. The engine runs behaviors on the response the function returns
+  * (engine ≥ 0.18.0; a function that throws runs none of them).
+  */
+final class InjectResponseBuilder private[dsl] (
+    scriptBody: String,
+    protected val behaviorsValue: Behaviors = Behaviors.empty
+) extends ResponseBuilder
+    with BehaviorChain[InjectResponseBuilder]:
+  protected def withBehaviors(behaviors: Behaviors): InjectResponseBuilder =
+    new InjectResponseBuilder(scriptBody, behaviors)
 
-final case class ScriptResponseBuilder private[dsl] (source: ScriptSource) extends ResponseBuilder:
-  def build: Response = Response.RiftScript(RiftResponseExt(script = Some(source)))
+  def build: Response = Response.Inject(scriptBody, behaviorsValue)
 
-def script(source: ScriptSource): ScriptResponseBuilder = ScriptResponseBuilder(source)
+def inject(scriptBody: String): InjectResponseBuilder = new InjectResponseBuilder(scriptBody)
+
+/** A `_rift`-only scripted response. Only `repeat` runs on it (engine ≥ 0.18.0), so that is the one
+  * behavior offered.
+  */
+final class ScriptResponseBuilder private[dsl] (
+    source: ScriptSource,
+    behaviorsValue: Behaviors = Behaviors.empty
+) extends ResponseBuilder:
+  /** Serves this response `times` times before moving to the stub's next response. */
+  def repeat(times: Int): ScriptResponseBuilder =
+    new ScriptResponseBuilder(source, Behaviors.of(Behavior.Repeat(times, responseLevel = false)))
+
+  def build: Response = Response.RiftScript(RiftResponseExt(script = Some(source)), behaviorsValue)
+
+def script(source: ScriptSource): ScriptResponseBuilder = new ScriptResponseBuilder(source)
 
 /** Script sources for `_rift` scripts. Every factory names its engine, so
   * `_rift.scriptEngine.defaultEngine` never decides a script built here — only an engine-less one
