@@ -189,15 +189,24 @@ object ProxyConfig:
         case None => Right(None)
     yield ProxyConfig(upstream, pool)
 
-/** The imposter-level `_rift` extension block: flow-state backend, scripting, metrics, proxy. */
+/** The imposter-level `_rift` extension block: flow-state backend, scripting, metrics, proxy.
+  *
+  * `extra` carries every child the model does not know, verbatim and in order, so a decode ->
+  * encode round trip never drops one. Engine 0.18.0 (rift#1152) adds `warnings` here on create and
+  * on `GET /imposters`, as `config_key_ignored` entries; its shape is engine-owned, so it is kept
+  * rather than typed. It is output-only: the engine recomputes it from its own analysis and ignores
+  * a `warnings` key sent back on create, so re-sending a read imposter is harmless.
+  */
 final case class RiftConfig(
     flowState: Option[FlowStateConfig] = None,
     scriptEngine: Option[ScriptEngineConfig] = None,
     scripts: Vector[(String, ScriptSource)] = Vector.empty,
     metrics: Option[MetricsConfig] = None,
-    proxy: Option[ProxyConfig] = None
+    proxy: Option[ProxyConfig] = None,
+    extra: Vector[(String, Json)] = Vector.empty
 ):
-  def toJson: Json = Json.Obj(
+  def toJson: Json = buildObj(
+    RiftConfig.knownKeys,
     Vector(
       flowState.map(f => "flowState" -> f.toJson),
       scriptEngine.map(s => "scriptEngine" -> s.toJson),
@@ -205,10 +214,13 @@ final case class RiftConfig(
       else None,
       metrics.map(m => "metrics" -> m.toJson),
       proxy.map(p => "proxy" -> p.toJson)
-    ).flatten
+    ).flatten,
+    extra
   )
 
 object RiftConfig:
+  private val knownKeys = Set("flowState", "scriptEngine", "scripts", "metrics", "proxy")
+
   def fromJson(json: Json): Either[JsonError.Decode, RiftConfig] =
     for
       fields <- asObj(json, "_rift")
@@ -238,4 +250,4 @@ object RiftConfig:
       proxy <- fields.field("proxy") match
         case Some(p) => ProxyConfig.fromJson(p).map(Some(_)).left.map(_.under("proxy"))
         case None => Right(None)
-    yield RiftConfig(flowState, scriptEngine, scripts, metrics, proxy)
+    yield RiftConfig(flowState, scriptEngine, scripts, metrics, proxy, fields.remainder(knownKeys))

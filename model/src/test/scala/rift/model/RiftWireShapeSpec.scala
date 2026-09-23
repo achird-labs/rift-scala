@@ -508,6 +508,46 @@ class RiftWireShapeSpec extends munit.FunSuite:
       .fold(e => fail(e.toString), identity)
     assertEquals(p.extra.map(_._1), Vector("futureKey"))
 
+  // Issue #160 — engine 0.18.0 (rift#1152) adds `_rift.warnings` to an imposter on create and on
+  // `GET /imposters`. `_rift` is a modeled key, so a child the model does not know has to survive
+  // on `RiftConfig.extra`, or a GET -> decode -> encode round trip silently drops it.
+  private val warnings =
+    """[{"code":"config_key_ignored","key":"_rift.metrics"}]"""
+
+  test("_rift: an unknown child such as warnings survives on extra"):
+    val json =
+      parse(s"""{"flowState":{"backend":"inmemory"},"warnings":$warnings,"futureThing":{"x":1}}""")
+    val c = RiftConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(
+      c.extra,
+      Vector("warnings" -> parse(warnings), "futureThing" -> parse("""{"x":1}"""))
+    )
+    assertEquals(c.toJson.render, json.render)
+
+  test("_rift: an imposter carrying warnings reads and writes them back unchanged"):
+    val raw =
+      s"""{"port":4545,"protocol":"http","_rift":{"metrics":{"enabled":true,"port":9091},"warnings":$warnings}}"""
+    val written =
+      ImposterDefinition.fromJson(parse(raw)).fold(e => fail(e.toString), identity).toJson
+    assertEquals(written.get("_rift", "warnings"), Some(parse(warnings)))
+    assert(written.semanticEquals(parse(raw)), written.render)
+
+  test("_rift: a block of only unknown children still round-trips"):
+    val json = parse(s"""{"warnings":$warnings}""")
+    val c = RiftConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(c.toJson.render, json.render)
+
+  test("_rift: a DSL-built block is unchanged, with no extra keys"):
+    val written = rift.dsl.imposter("a").flowState(rift.dsl.inMemoryFlowState).build.toJson
+    assertEquals(
+      written.get("_rift").map(_.render),
+      Some("""{"flowState":{"backend":"inmemory"}}""")
+    )
+
+  test("_rift: a modeled key smuggled through extra is refused on encode"):
+    val bad = RiftConfig(extra = Vector("flowState" -> Json.Null))
+    intercept[IllegalArgumentException](bad.toJson)
+
   // ── 13. _rift.proxy — imposter-level proxy config ────────────────────────────────────────────
   // Proof: engine types.rs:987-1029 @ v0.14.0; rift-java RiftProxyConfig/RiftUpstreamConfig/
   // RiftConnectionPoolConfig (defaults: protocol "http", maxIdlePerHost 100, idleTimeoutSecs 90).
