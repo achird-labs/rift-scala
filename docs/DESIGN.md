@@ -653,12 +653,17 @@ Config case classes are Scala-idiomatic mirrors of rift-java's builder-style opt
 and `SpawnConfig` onto `SpawnOptions` (`ContainerConfig` configures the optional testcontainers
 `RiftContainer`) — with the same defaults (`ConnectConfig(adminUri, apiKey, requestTimeout =
 30.seconds, versionCheck = VersionCheck.Fail, hostResolver)`, `EmbeddedConfig(libraryPath,
-adminHost = "127.0.0.1", adminPort = 0, serveAdminEagerly = false, apiKey)`,
+adminHost = "127.0.0.1", adminPort = 0, serveAdminEagerly = false, apiKey, versionCheck,
+upstreamTrust)`,
 `SpawnConfig(binaryPath, version, host, adminPort, allowInjection, localOnly, logLevel, env,
-workingDir, mirrorUrl, startupTimeout = 15.seconds, shutdownTimeout = 5.seconds, inheritLog)`,
+workingDir, mirrorUrl, startupTimeout = 15.seconds, shutdownTimeout = 5.seconds, inheritLog,
+upstreamTrust)`,
 `ContainerConfig(image, imposterPorts, apiKey, gateway, interceptPort)`). The facade's
 `SpawnOptions.version()` defaults to the **live** `RiftVersion.engineVersion()` (not a static
 literal), so a `SpawnConfig` that leaves `version` unset spawns the engine pinned by this build.
+`upstreamTrust` (`UpstreamTrust.CaFile | CaPem | SkipVerify`, #176) is how the engine trusts an
+HTTPS origin a proxy stub dials (engine ≥ 0.18.0); spawn takes no inline PEM, and
+`EngineInfo.serveOptions` is how a caller feature-detects it.
 
 Verification detail (D5): `verify` calls the facade; on `VerificationException` the bridge reads
 its structured `result()` (`requests` for the matched calls, `closest` with `failedPredicates`

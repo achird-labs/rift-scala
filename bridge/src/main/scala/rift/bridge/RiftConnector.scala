@@ -68,7 +68,12 @@ final class RiftConnector private (
   def info(): EngineInfo =
     FacadeBoundary.run {
       val i = underlying.info()
-      EngineInfo(i.version(), i.commit(), i.features().asScala.toSet)
+      EngineInfo(
+        i.version(),
+        i.commit(),
+        i.features().asScala.toSet,
+        i.serveOptions().asScala.toSet
+      )
     }
 
   def adminUri: URI = FacadeBoundary.run(underlying.adminUri())

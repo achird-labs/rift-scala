@@ -662,33 +662,30 @@ object FacadeCoverage:
       "RecordedRequest#summary()",
       "a rendering helper over status/latencyMs; rift-scala renders its own identical line (rift.model.RecordedRequest.summary, #174)"
     ),
-    Coverage.Excluded(
-      "EngineInfo#serveOptions()",
-      "not yet surfaced on rift.model.EngineInfo; tracked in #176 with upstreamTrust, which it feature-detects"
-    ),
+    Coverage.Wrapped("EngineInfo#serveOptions()", "rift.bridge.RiftConnector#info"),
     Coverage.Excluded(
       "EmbeddedOptions#upstreamTrust()",
-      "outbound TLS trust for proxy stubs is not yet exposed on EmbeddedConfig; tracked in #176"
+      "the getter on built options; the bridge only sets trust (EmbeddedConfig.toOptions) and never reads it back"
     ),
-    Coverage.Excluded(
+    Coverage.Wrapped(
       "EmbeddedOptions.Builder#upstreamTrust(UpstreamTrust)",
-      "outbound TLS trust for proxy stubs is not yet exposed on EmbeddedConfig; tracked in #176"
+      "rift.bridge.EmbeddedConfig#toOptions"
     ),
     Coverage.Excluded(
       "SpawnOptions#upstreamTrust()",
-      "outbound TLS trust for proxy stubs is not yet exposed on SpawnConfig; tracked in #176"
+      "the getter on built options; the bridge only sets trust (SpawnConfig.toOptions) and never reads it back"
     ),
-    Coverage.Excluded(
+    Coverage.Wrapped(
       "SpawnOptions.Builder#upstreamTrust(UpstreamTrust)",
-      "outbound TLS trust for proxy stubs is not yet exposed on SpawnConfig; tracked in #176"
+      "rift.bridge.SpawnConfig#toOptions"
     ),
     Coverage.Excluded(
       "UpstreamTrust.CaFile#pem()",
-      "an accessor on the facade's trust type, which the bridge will construct but not read; tracked in #176"
+      "an accessor on the facade trust type; UpstreamTrust.toJava constructs it and nothing reads it back"
     ),
     Coverage.Excluded(
       "UpstreamTrust.CaPem#pem()",
-      "an accessor on the facade's trust type, which the bridge will construct but not read; tracked in #176"
+      "an accessor on the facade trust type; UpstreamTrust.toJava constructs it and nothing reads it back"
     ),
     Coverage.ExcludedClass(
       "CopySpec",

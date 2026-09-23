@@ -151,31 +151,48 @@ object RecordedRequest:
       }
     }
 
-final case class EngineInfo(version: String, commit: String, features: Set[String]):
-  def toJson: Json = Json.obj(
-    "version" -> Json.Str(version),
-    "commit" -> Json.Str(commit),
-    "features" -> Json.Arr(features.toVector.sorted.map(Json.Str(_)))
+/** What the engine reports about itself. `serveOptions` are the keys its embedded admin plane
+  * accepts (engine 0.17.0 and later advertise them; empty before), which is how a caller
+  * feature-detects a serve option such as upstream TLS trust.
+  */
+final case class EngineInfo(
+    version: String,
+    commit: String,
+    features: Set[String],
+    serveOptions: Set[String] = Set.empty
+):
+  def toJson: Json = Json.Obj(
+    Vector(
+      "version" -> Json.Str(version),
+      "commit" -> Json.Str(commit),
+      "features" -> Json.Arr(features.toVector.sorted.map(Json.Str(_)))
+    ) ++ Option.when(serveOptions.nonEmpty)(
+      "serveOptions" -> Json.Arr(serveOptions.toVector.sorted.map(Json.Str(_)))
+    )
   )
 
 object EngineInfo:
+  private def strings(fields: Vector[(String, Json)], key: String) =
+    fields.field(key) match
+      case Some(f) =>
+        decodeArray(
+          f,
+          (j: Json) =>
+            j.asString.toRight[JsonError.Decode](
+              JsonError.Decode("expected a string", Vector.empty)
+            )
+        ).left
+          .map(_.under(key))
+      case None => Right(Vector.empty)
+
   def fromJson(json: Json): Either[JsonError.Decode, EngineInfo] =
     for
       fields <- asObj(json, "engine info")
       version <- reqString(fields, "version")
       commit <- reqString(fields, "commit")
-      features <- fields.field("features") match
-        case Some(f) =>
-          decodeArray(
-            f,
-            (j: Json) =>
-              j.asString.toRight[JsonError.Decode](
-                JsonError.Decode("expected a string", Vector.empty)
-              )
-          ).left
-            .map(_.under("features"))
-        case None => Right(Vector.empty)
-    yield EngineInfo(version, commit, features.toSet)
+      features <- strings(fields, "features")
+      serveOptions <- strings(fields, "serveOptions")
+    yield EngineInfo(version, commit, features.toSet, serveOptions.toSet)
 
 final case class ApplyResult(
     created: Int,
