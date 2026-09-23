@@ -110,6 +110,8 @@ jobs:
           # copy-paste snippet is never a version behind — the #115 bug class, for our own version.
           for f in README.md docs/index.md; do
             sed -E -i "s#(\"rift-scala-[a-z0-9-]+\" % )\"[0-9][0-9.]*\"#\1\"${VERSION}\"#g" "${f}"
+            # sbt-rift is released from the same tag, so its plugin snippet tracks it too.
+            sed -E -i "s#(\"sbt-rift\" % )\"[0-9][0-9.]*\"#\1\"${VERSION}\"#g" "${f}"
             sed -E -i "s#(release is \*\*)[0-9][0-9.]*#\1${VERSION}#g" "${f}"
             sed -E -i "s#(release: )[0-9][0-9.]*#\1${VERSION}#g" "${f}"
           done

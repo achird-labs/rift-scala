@@ -65,25 +65,30 @@ Two conventions come from that comparison rather than from taste, and should not
   (`types.rs:812-817`). The Scala `tls: Option[TlsMaterial]` field is an ergonomic grouping that is
   flattened on encode.
 
-### `_behaviors` — two wire forms in, one out
+### Behaviors — an ordered program, two wire forms
 
-`POST /imposters` takes `_behaviors` as an **object**; `GET /imposters` hands it back as an **array
-of single-key objects** (`[{"wait":100},{"decorate":"..."}]`, engine `behaviors_to_array`). Both
-decode. Encoding always uses the object form — rift-java's policy verbatim, so a GET → PUT
-normalizes spelling identically in both SDKs.
+A response's behaviors are `Behaviors(entries: Vector[Behavior], spelling)`: an ordered program of
+steps (`Wait`, `Decorate`, `Copy`, `Lookup`, `ShellTransform`, `Repeat`, and `Unknown` for a key
+this module does not model). Two wire shapes carry it:
 
-The array is the only form that can repeat a key. `copy`/`lookup`/`shellTransform` are the only keys
-the object form spells as an array, so they are the only ones that may repeat — they accumulate into
-that single array. Any other repeated key, **scalar or unknown**, has no object-form representation,
-so it is a decode error rather than a silent last-wins that would lose data on the next encode.
+- the **`_behaviors` object**, which fixtures and the DSL write. Its keys run in the engine's fixed
+  order (`wait`, `lookup`, `copy`, `shellTransform`, `decorate`) and none can repeat;
+- the **`behaviors` array** of single-key elements (`[{"wait":100},{"decorate":"..."}]`), which the
+  engine's `GET /imposters` writes. From engine 0.18.0 every element runs, in array order, and a
+  key may repeat.
 
-That allow-list is deliberate: an unknown key the engine grows later is not vector-valued just
-because this module doesn't model it, so its value passes through untouched. Wrapping it would turn
-`{"futureThing":{...}}` into `{"futureThing":[{...}]}` on the next PUT — a document the author never
-wrote, and precisely what `unknown` exists to prevent.
+Both decode, and encoding writes back the spelling that was read. A block read as an object is
+still written as the array when a key repeats, because the object would keep only one of them.
+A single `copy`/`lookup` entry or `shellTransform` command keeps its bare spelling (`{...}` rather
+than `[{...}]`), since `semanticEquals` tells `Obj` from `Arr`. A response-level `repeat` beside
+`is`, Mountebank's spelling, is carried as `Repeat(count, responseLevel = true)` and written back
+beside `is`.
 
-The one thing this cannot round-trip is an array that repeats a non-vector key — the same limitation
-rift-java documents, and unreachable from any engine output.
+Two array shapes get special handling. A multi-key element runs its keys in the
+engine's order, not the order written, so it is expanded into one step per key in that order and
+written back one key per element: the spelling changes, what runs does not. A `null` value for a
+modeled key is refused with an error saying how to rewrite the document. The engine never writes
+one, and in the array form it would silently remove every earlier step of its key.
 
 ### Still unverified
 
@@ -113,8 +118,10 @@ Mountebank-portable config round-trips faithfully, while new configs get the Rif
 
 Unknown wire keys are preserved on an `extra: Vector[(String, Json)]` component of
 `ImposterDefinition` / `Stub` / `Response` and friends, so an engine that grows a field does not
-break round-tripping. Following rift-java 0.1.2's policy, putting a **modeled** key into `extra` is a
-construction error rather than a silent override.
+break round-tripping. That includes every level of the `_rift` extension: `RiftConfig`,
+`FlowStateConfig` and `RiftResponseExt` each carry their own `extra`, so an engine-added key such
+as `_rift.warnings` survives a read and a write. Following rift-java 0.1.2's policy, putting a
+**modeled** key into `extra` is a construction error rather than a silent override.
 
 ### Testing
 
