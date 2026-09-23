@@ -73,6 +73,7 @@ final class ImposterBuilder private[dsl] (
     private val allowCorsFlag: Boolean = false,
     private val strictBehaviorsFlag: Boolean = false,
     private val tlsValue: Option[TlsMaterial] = None,
+    private val clientAuthValue: ClientAuth = ClientAuth.none,
     private val riftValue: Option[RiftConfig] = None,
     // carried so `imposterFromJson` round-trips unknown engine keys instead of dropping them
     private val extraValue: Vector[(String, Json)] = Vector.empty
@@ -92,6 +93,7 @@ final class ImposterBuilder private[dsl] (
       allowCorsFlag: Boolean = this.allowCorsFlag,
       strictBehaviorsFlag: Boolean = this.strictBehaviorsFlag,
       tlsValue: Option[TlsMaterial] = this.tlsValue,
+      clientAuthValue: ClientAuth = this.clientAuthValue,
       riftValue: Option[RiftConfig] = this.riftValue,
       extraValue: Vector[(String, Json)] = this.extraValue
   ): ImposterBuilder =
@@ -113,6 +115,7 @@ final class ImposterBuilder private[dsl] (
       allowCorsFlag = allowCorsFlag,
       strictBehaviorsFlag = strictBehaviorsFlag,
       tlsValue = tlsValue,
+      clientAuthValue = clientAuthValue,
       riftValue = riftValue,
       extraValue = extraValue
     )
@@ -146,6 +149,37 @@ final class ImposterBuilder private[dsl] (
 
   def https(certPem: String, keyPem: String): ImposterBuilder =
     withState(protocolValue = Protocol.Https, tlsValue = Some(TlsMaterial(certPem, keyPem)))
+
+  /** Requires every client of this HTTPS imposter to present a certificate, without validating its
+    * chain (`mutualAuth`). A client with none is refused at the handshake. Use the overload taking
+    * CA PEMs to also check who issued it.
+    *
+    * Needs engine ≥ 0.18.0: an older one drops the setting and accepts every client, so rift-java
+    * refuses the imposter there. The imposter must be `https`, so chain [[https]]: the engine
+    * refuses `mutualAuth` on http with a 400 at create. This is not checked here, because
+    * `imposterFromJson` builds through the same path and must reproduce whatever the engine wrote.
+    * A later call replaces an earlier one.
+    */
+  def requireClientCertificate: ImposterBuilder =
+    withState(clientAuthValue = ClientAuth(mutualAuth = Some(true)))
+
+  /** Requires every client to present a certificate chaining to one of the given PEM trust anchors
+    * (`mutualAuth`, `rejectUnauthorized` and `ca`); any other client is refused at the handshake.
+    * One anchor is written as a string and several as an array. Same engine and protocol
+    * requirements as the no-argument overload. The engine's replayable export includes the anchors,
+    * as it does the imposter's own certificate.
+    */
+  def requireClientCertificate(trustedCaPem: String, moreCaPems: String*): ImposterBuilder =
+    val pems = trustedCaPem +: moreCaPems.toVector
+    pems.foreach(pem =>
+      require(
+        pem.contains("-----BEGIN CERTIFICATE-----"),
+        "a trusted CA PEM contains no certificate: expected a -----BEGIN CERTIFICATE----- block"
+      )
+    )
+    val ca =
+      if pems.size == 1 then CaCertificates.Single(trustedCaPem) else CaCertificates.Many(pems)
+    withState(clientAuthValue = ClientAuth(Some(true), Some(true), Some(ca)))
 
   def defaultResponse(response: IsResponseBuilder): ImposterBuilder =
     withState(defaultResponseValue = Some(response.buildIs))
@@ -269,6 +303,7 @@ final class ImposterBuilder private[dsl] (
       allowCors = allowCorsFlag,
       strictBehaviors = strictBehaviorsFlag,
       tls = tlsValue,
+      clientAuth = clientAuthValue,
       rift = riftValue,
       extra = extraValue
     )
@@ -292,6 +327,7 @@ private def fromDefinition(definition: ImposterDefinition): ImposterBuilder =
     allowCorsFlag = definition.allowCors,
     strictBehaviorsFlag = definition.strictBehaviors,
     tlsValue = definition.tls,
+    clientAuthValue = definition.clientAuth,
     riftValue = definition.rift,
     extraValue = definition.extra
   )

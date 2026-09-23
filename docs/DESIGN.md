@@ -496,6 +496,8 @@ imposter("users")
   .record                                       // recordRequests = true
   .disabled                                     // provision paused; `.enabled` un-pauses
   .https(certPem, keyPem)
+  .requireClientCertificate(caPem)              // mTLS: mutualAuth + rejectUnauthorized + ca
+                                                // (no-arg overload: any client cert; engine >= 0.18.0)
   .defaultResponse(notFound.text("no stub matched"))
   .strictBehaviors
   // flowIdFromHeader's name must be an RFC 9110 token, like every authored header name, and is
