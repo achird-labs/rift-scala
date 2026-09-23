@@ -353,6 +353,44 @@ class DslSpec extends munit.FunSuite:
       Some(Json.Str("header:x!#$%&'*+-.^_`|~9"))
     )
 
+  // Issue #173 — the behavior chainers now exist on proxy and inject responses too, and repeat on
+  // fault and rift-script ones. Each writes the same `_behaviors` object an is-response does.
+  private def behaviorsOf(r: ResponseBuilder): Option[String] =
+    r.build.toJson.get("_behaviors").map(_.render)
+
+  test("proxy and inject responses take the behavior chainers"):
+    assertEquals(
+      behaviorsOf(proxyTo("http://o").decorate("f").after(100.millis)),
+      Some("""{"wait":100,"decorate":"f"}""")
+    )
+    assertEquals(
+      behaviorsOf(inject("function () {}").shellTransform("a").repeat(2)),
+      Some("""{"shellTransform":["a"],"repeat":2}""")
+    )
+
+  test("proxy recording settings stay distinct from the proxy response's own behaviors"):
+    val built = proxyTo("http://o").decorateWith("rec").addWaitBehavior.decorate("run").build
+    val json = built.toJson
+    assertEquals(json.get("proxy", "addDecorateBehavior"), Some(Json.Str("rec")))
+    assertEquals(json.get("proxy", "addWaitBehavior"), Some(Json.Bool(true)))
+    assertEquals(json.get("_behaviors").map(_.render), Some("""{"decorate":"run"}"""))
+
+  test("fault and rift-script responses take repeat"):
+    assertEquals(
+      behaviorsOf(fault(TcpFaultKind.ConnectionResetByPeer).repeat(2)),
+      Some("""{"repeat":2}""")
+    )
+    assertEquals(behaviorsOf(script(Script.rhai("1")).repeat(3)), Some("""{"repeat":3}"""))
+
+  test("a response with no behaviors writes no block, on every type"):
+    List(
+      proxyTo("http://o"),
+      inject("f"),
+      fault(TcpFaultKind.EmptyResponse),
+      script(Script.rhai("1"))
+    )
+      .foreach(r => assertEquals(behaviorsOf(r), None, r.toString))
+
   test("other response kinds build their wire forms"):
     assert(fault(TcpFaultKind.ConnectionResetByPeer).build.isInstanceOf[Response.Fault])
     assert(inject("function (request) { return {}; }").build.isInstanceOf[Response.Inject])

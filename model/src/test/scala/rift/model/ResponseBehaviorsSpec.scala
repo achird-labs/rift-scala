@@ -153,3 +153,59 @@ class ResponseBehaviorsSpec extends munit.FunSuite:
       written.get("behaviors").map(_.render),
       Some("""[{"decorate":"a"},{"decorate":"b"}]""")
     )
+
+  // ── Issue #173 — behaviors on every response type (engine 0.18.0, rift#1188) ───────────────────
+  // The engine runs behaviors on proxy and inject responses and honours `repeat` on every type. The
+  // block is read and written with exactly the rules an is-response uses.
+  private def roundTrip(raw: String): Response =
+    val decoded = Response.fromJson(parse(raw)).fold(e => fail(s"$raw: $e"), identity)
+    assertEquals(decoded.toJson.render, parse(raw).render)
+    decoded
+
+  test("a proxy response carries a typed behaviors block"):
+    roundTrip("""{"proxy":{"to":"http://o","mode":"proxyOnce"},"_behaviors":{"wait":100}}""") match
+      case Response.Proxy(_, behaviors, extra) =>
+        assertEquals(behaviors.entries, Vector(Behavior.Wait(WaitBehavior.Fixed(100L))))
+        assertEquals(extra, Vector.empty)
+      case other => fail(s"expected a proxy response, got $other")
+
+  test("an inject response carries the array form and a response-level repeat"):
+    roundTrip("""{"inject":"f","behaviors":[{"decorate":"a"},{"decorate":"b"}],"repeat":2}""") match
+      case Response.Inject(_, behaviors, extra) =>
+        assertEquals(
+          behaviors.entries,
+          Vector(
+            Behavior.Decorate("a"),
+            Behavior.Decorate("b"),
+            Behavior.Repeat(2, responseLevel = true)
+          )
+        )
+        assertEquals(extra, Vector.empty)
+      case other => fail(s"expected an inject response, got $other")
+
+  test("a fault response carries repeat in either spelling"):
+    roundTrip("""{"fault":"CONNECTION_RESET_BY_PEER","repeat":2}""") match
+      case Response.Fault(_, behaviors, _) =>
+        assertEquals(behaviors.effectiveRepeat, Some(2))
+      case other => fail(s"expected a fault response, got $other")
+    roundTrip("""{"fault":"CONNECTION_RESET_BY_PEER","_behaviors":{"repeat":3}}""") match
+      case Response.Fault(_, behaviors, _) =>
+        assertEquals(behaviors.effectiveRepeat, Some(3))
+      case other => fail(s"expected a fault response, got $other")
+
+  test("a rift-script response carries a repeat block"):
+    roundTrip(
+      """{"_rift":{"script":{"engine":"rhai","code":"1"}},"_behaviors":{"repeat":2}}"""
+    ) match
+      case Response.RiftScript(_, behaviors, _) =>
+        assertEquals(behaviors.entries, Vector(Behavior.Repeat(2, responseLevel = false)))
+      case other => fail(s"expected a rift-script response, got $other")
+
+  test("the block rules hold on every type: an empty _behaviors keeps shadowing the array"):
+    roundTrip(
+      """{"proxy":{"to":"http://o","mode":"proxyAlways"},"_behaviors":{},"behaviors":[{"wait":1}]}"""
+    ) match
+      case Response.Proxy(_, behaviors, extra) =>
+        assertEquals(behaviors.entries, Vector.empty)
+        assertEquals(extra.map(_._1), Vector("_behaviors", "behaviors"))
+      case other => fail(s"expected a proxy response, got $other")

@@ -310,10 +310,12 @@ enum PredicateSelector:
 enum Response:
   case Is(response: IsResponse, behaviors: Behaviors = Behaviors.empty,
           rift: Option[RiftResponseExt] = None, extra: Vector[(String, Json)] = Vector.empty)
-  case Proxy(proxy: ProxyResponse, extra: Vector[(String, Json)] = Vector.empty)
-  case Inject(script: String, extra: Vector[(String, Json)] = Vector.empty)
-  case Fault(fault: TcpFaultKind, extra: Vector[(String, Json)] = Vector.empty)
-  case RiftScript(rift: RiftResponseExt, extra: Vector[(String, Json)] = Vector.empty)
+  // every kind carries a Behaviors block (#173): engine >= 0.18.0 runs behaviors on proxy and
+  // inject responses and honours repeat on all five
+  case Proxy(proxy: ProxyResponse, behaviors: Behaviors = Behaviors.empty, extra: ... = Vector.empty)
+  case Inject(script: String, behaviors: Behaviors = Behaviors.empty, extra: ... = Vector.empty)
+  case Fault(fault: TcpFaultKind, behaviors: Behaviors = Behaviors.empty, extra: ... = Vector.empty)
+  case RiftScript(rift: RiftResponseExt, behaviors: Behaviors = Behaviors.empty, extra: ... = Vector.empty)
 
 enum TcpFaultKind:
   case ConnectionResetByPeer, EmptyResponse, RandomDataThenClose, MalformedResponseChunk
@@ -465,6 +467,10 @@ proxyTo("https://real-api.example.com").proxyOnce
   .generateBy(RequestField.Method, RequestField.Path)
 fault(TcpFaultKind.ConnectionResetByPeer)       // Mountebank transport fault
 inject("function (request) { return { statusCode: 200 }; }")
+// behaviors on every kind (engine >= 0.18.0): the is-response chainers on proxy and inject, and
+// repeat on fault and script (#173)
+proxyTo("https://real-api.example.com").after(200.millis).decorate(js)
+fault(TcpFaultKind.ConnectionResetByPeer).repeat(2) // reset twice, then the next response
 script(Script.rhai("fn respond(ctx) { http(200, #{ok: true}) }"))
 script(Script.rhaiFile("checkout.rhai")); script(Script.ref("checkout"))
 
