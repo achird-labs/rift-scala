@@ -379,9 +379,12 @@ class RiftWireShapeSpec extends munit.FunSuite:
     roundTripsExactly("""[{"repeat":1},{"repeat":2}]""")
     roundTripsExactly("""[{"futureThing":1},{"futureThing":2}]""")
 
-  test("behaviors: an array entry with zero or several keys is a decode error"):
+  test("behaviors: an array entry with no key is a decode error, and several keys expand"):
     assert(Behaviors.fromJson(parse("""[{}]""")).isLeft)
-    assert(Behaviors.fromJson(parse("""[{"wait":100,"repeat":3}]""")).isLeft)
+    assertEquals(
+      decoded("""[{"wait":100,"repeat":3}]""").entries,
+      Vector(Behavior.Wait(WaitBehavior.Fixed(100L)), Behavior.Repeat(3, responseLevel = false))
+    )
 
   test("behaviors: a non-object array entry is a decode error"):
     assert(Behaviors.fromJson(parse("""["wait"]""")).isLeft)
@@ -448,10 +451,9 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assert(Behaviors.fromJson(parse("""{"repeat":1.5}""")).isLeft)
     assert(Behaviors.fromJson(parse("""[{"repeat":"3"}]""")).isLeft)
 
-  // Issue #167 — two shapes the engine accepts are refused on purpose, because the engine never
-  // writes either back: a null behavior value (absent in the object form, "remove every earlier
-  // step of this key" in the array form) and a multi-key array element (run in the engine's fixed
-  // order, flagged by rift-lint W018). The refusal has to say why and what to do instead.
+  // Issue #167 — a null behavior value is refused on purpose: the engine never writes one back, and
+  // in the array form it removes every earlier step of its key, so dropping it would change what
+  // runs. The refusal has to say why and what to do instead.
   private def decodeError(raw: String)(using munit.Location): JsonError.Decode =
     Behaviors.fromJson(parse(raw)) match
       case Left(e) => e
@@ -469,12 +471,38 @@ class RiftWireShapeSpec extends munit.FunSuite:
       assert(e.message.contains("null is not read"), e.message)
       assert(e.message.contains("never writes one back"), e.message)
 
-  test("behaviors: a multi-key array element is refused, pointing at rift-lint W018"):
-    val e = decodeError("""[{"wait":100,"decorate":"f"}]""")
-    assertEquals(e.path, Vector("0"))
-    assert(e.message.contains("got 2"), e.message)
-    assert(e.message.contains("W018"), e.message)
-    assert(e.message.contains("its own element"), e.message)
+  // Issue #178 — a multi-key array element runs its keys in the engine's fixed order (wait, lookup,
+  // copy, shellTransform, decorate, then any other key alphabetically), so expanding it into one
+  // step per key in that order keeps what runs. rift-java 0.3.0 (#240) reads it the same way.
+  test("behaviors: a multi-key element expands in the engine's run order"):
+    val b = decoded("""[{"decorate":"f","wait":100}]""")
+    assertEquals(
+      b.entries,
+      Vector(Behavior.Wait(WaitBehavior.Fixed(100L)), Behavior.Decorate("f"))
+    )
+    assertEquals(b.toJson.render, """[{"wait":100},{"decorate":"f"}]""")
+
+  test("behaviors: every known key takes its engine rank, and the rest follow alphabetically"):
+    val b = decoded(
+      s"""[{"zeta":1,"repeat":2,"decorate":"d","shellTransform":"s","copy":$copyA,"alpha":0,"wait":1}]"""
+    )
+    assertEquals(
+      b.entries.map(_.key),
+      Vector("wait", "copy", "shellTransform", "decorate", "alpha", "repeat", "zeta")
+    )
+
+  test("behaviors: expansion happens per element, keeping element order"):
+    assertEquals(
+      decoded("""[{"decorate":"a","wait":1},{"decorate":"b"}]""").entries.map(_.key),
+      Vector("wait", "decorate", "decorate")
+    )
+
+  test("behaviors: a bad value inside a multi-key element names its index and key"):
+    val e = decodeError("""[{"wait":1},{"decorate":"f","wait":{"min":1}}]""")
+    assertEquals(e.path, Vector("1", "wait"))
+
+  test("behaviors: an empty array element is still refused"):
+    assertEquals(decodeError("""[{"wait":1},{}]""").path, Vector("1"))
 
   test("behaviors: a null value for an unknown key is still kept verbatim"):
     assertEquals(
@@ -501,7 +529,11 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assert(Behaviors.fromJson(parse("""[{"copy":{"a":1}}]""")).isRight)
 
   test("behaviors: an array decode error names the offending entry index"):
-    List("""[{"wait":100},{}]""", """[{"wait":1},{"wait":{"min":1}}]""", """[{"a":1,"b":2}]""")
+    List(
+      """[{"wait":100},{}]""",
+      """[{"wait":1},{"wait":{"min":1}}]""",
+      """[{"wait":1},{"wait":2},{}]"""
+    )
       .foreach: raw =>
         Behaviors.fromJson(parse(raw)) match
           case Left(e) => assert(e.path.headOption.exists(_.forall(_.isDigit)), s"$raw: $e")
