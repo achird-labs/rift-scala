@@ -92,6 +92,23 @@ class RiftWireShapeSpec extends munit.FunSuite:
         case Left(e) => assertEquals(e.path, Vector("engine"), e.toString)
         case Right(src) => fail(s"$bad decoded to $src")
 
+  // Issue #164 — the engine removed Lua (rift#450) and refuses `"engine": "lua"` or a `.lua` file
+  // when the imposter is created, so no imposter with one is ever readable. The decode error says
+  // so, rather than calling a once-real engine merely "unknown".
+  test("a lua engine is refused with a message naming its removal and the replacements"):
+    ScriptEngine.fromJson(Json.Str("lua")) match
+      case Left(e) =>
+        assert(e.message.contains("removed"), e.message)
+        assert(e.message.contains("rift#450"), e.message)
+        assert(e.message.contains("\"rhai\"") && e.message.contains("\"javascript\""), e.message)
+      case Right(engine) => fail(s"lua decoded to $engine")
+
+  test("any other unknown engine keeps the generic message"):
+    assertEquals(
+      ScriptEngine.fromJson(Json.Str("cobol")).left.map(_.message),
+      Left("unknown script engine: cobol")
+    )
+
   test("an engine-less script survives the imposter-level registry and a response _rift block"):
     val registry = parse("""{"scripts":{"checkout":{"code":"respond(200)"}}}""")
     val cfg = RiftConfig.fromJson(registry).fold(e => fail(e.toString), identity)

@@ -17,6 +17,15 @@ object ScriptEngine:
   def fromJson(json: Json): Either[JsonError.Decode, ScriptEngine] = json match
     case Json.Str("rhai") => Right(Rhai)
     case Json.Str("js") | Json.Str("javascript") => Right(JavaScript)
+    // The engine removed Lua (rift#450) and refuses it when the imposter is created, so say that
+    // rather than calling a once-real engine merely unknown.
+    case Json.Str("lua") =>
+      Left(
+        JsonError.Decode(
+          "script engine \"lua\" was removed from the engine (rift#450); use \"rhai\" or \"javascript\"",
+          Vector.empty
+        )
+      )
     case Json.Str(other) => Left(JsonError.Decode(s"unknown script engine: $other", Vector.empty))
     case _ => Left(JsonError.Decode("expected a script engine string", Vector.empty))
 
@@ -24,13 +33,13 @@ object ScriptEngine:
   *
   * `engine = None` is legal wire input and means "let the engine resolve it" (the engine's
   * `RiftScriptConfig.engine` and rift-java's are both optional). An engine ≥ 0.18.0 resolves it
-  * from the `file` extension (`.rhai`, `.js`, `.lua`), then the imposter's
+  * from the `file` extension (`.rhai` or `.js`), then the imposter's
   * `_rift.scriptEngine.defaultEngine`, then Rhai; 0.17.0 and earlier always ran it as Rhai. It only
   * reaches this model from raw JSON: the `rift.dsl.Script` factories always name their engine.
   *
-  * The engine writes the resolved engine back, so `GET /imposters` returns it explicitly. A `.lua`
-  * file resolves to `"lua"`, which [[ScriptEngine]] does not model, so reading such an imposter
-  * back fails to decode.
+  * The engine writes the resolved engine back, so `GET /imposters` returns it explicitly. `.lua` is
+  * recognised only to be refused: the engine removed Lua (rift#450) and rejects `"engine": "lua"`
+  * or a `.lua` file when the imposter is created, so no imposter with one is ever readable.
   */
 enum ScriptSource:
   case Inline(engine: Option[ScriptEngine], code: String)
