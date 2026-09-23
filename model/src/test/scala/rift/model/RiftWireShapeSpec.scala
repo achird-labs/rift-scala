@@ -606,10 +606,12 @@ class RiftWireShapeSpec extends munit.FunSuite:
   private val stateOps = """[{"op":"increment","key":"hits"}]"""
   private val dataset = """{"name":"products","key":"$.id","keyColumn":"id","into":"${row}"}"""
 
-  test("response _rift: stateOps and dataset survive on extra, in order"):
+  // #172 types stateOps; dataset (a carrier the engine does not read) stays on extra.
+  test("response _rift: dataset survives on extra, beside typed stateOps"):
     val json = parse(s"""{"templated":true,"stateOps":$stateOps,"dataset":$dataset}""")
     val ext = RiftResponseExt.fromJson(json).fold(e => fail(e.toString), identity)
-    assertEquals(ext.extra, Vector("stateOps" -> parse(stateOps), "dataset" -> parse(dataset)))
+    assertEquals(ext.stateOps, Vector(StateOp.Increment("hits", None)))
+    assertEquals(ext.extra, Vector("dataset" -> parse(dataset)))
     assertEquals(ext.toJson.render, json.render)
 
   test("response _rift: an is-response carrying stateOps round-trips through Response"):

@@ -441,6 +441,8 @@ status(503).header("Retry-After", "30").json("""{"error":"unavailable"}""")
 // recorded fixture stays permissive: it reproduces whatever the wire actually carried.
 ok.binary(bytes)                                // _mode: binary, base64 on the wire
 ok.json("""{"path":"${request.path}"}""").templated
+// declarative flow-state writes after the response (_rift.stateOps, engine >= 0.18.0), run in order
+ok.setState("last", "{{ request.path }}").incrementState("hits").deleteState("tmp").clearFlowState
 
 // behaviors (Mountebank _behaviors)
 ok.after(150.millis)                            // wait, fixed
