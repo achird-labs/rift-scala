@@ -638,6 +638,58 @@ object FacadeCoverage:
     Coverage.Wrapped("VerificationTimes#exactly(int)", "rift.bridge.FacadeEncode#times"),
     Coverage.Wrapped("VerifyDetail#CLOSEST", "rift.bridge.FacadeEncode#verifyDetails"),
     Coverage.Wrapped("VerifyDetail#REQUESTS", "rift.bridge.FacadeEncode#verifyDetails"),
+    // rift-java 0.3.0 (issue #171-#178 audit). The behavior chainers moved onto a shared mixin; the
+    // IsSpec overrides keep their own rows above.
+    Coverage.ExcludedClass(
+      "BehaviorChain",
+      "the facade's behavior-chainer mixin shared by IsSpec, ProxySpec and InjectSpec (rift-java #224). rift-scala authors behaviors in rift.dsl and sends them across the D2 raw-JSON seam, and FacadeEncode.isSpec refuses behaviors because the intercept serve action cannot deliver them, so this mixin is never called; behaviors on proxy/inject/fault/script responses are tracked in #173"
+    ),
+    Coverage.Excluded("IsSpec#clearFlowState()", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#deleteState(String)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#incrementState(String)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#incrementState(String,long)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#setState(String,String)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#withBehavior(Behavior)", interceptServeActionDrops),
+    Coverage.Excluded(
+      "RecordedRequest#latencyMs()",
+      "rift-scala decodes a recorded request from raw() across the D2 seam, so the engine's latencyMs reaches RecordedRequest.raw today; the typed field is tracked in #174"
+    ),
+    Coverage.Excluded(
+      "RecordedRequest#status()",
+      "rift-scala decodes a recorded request from raw() across the D2 seam, so the engine's status reaches RecordedRequest.raw today; the typed field is tracked in #174"
+    ),
+    Coverage.Excluded(
+      "RecordedRequest#summary()",
+      "a rendering helper over status/latencyMs; rift-scala's own summary is tracked in #174"
+    ),
+    Coverage.Excluded(
+      "EngineInfo#serveOptions()",
+      "not yet surfaced on rift.model.EngineInfo; tracked in #176 with upstreamTrust, which it feature-detects"
+    ),
+    Coverage.Excluded(
+      "EmbeddedOptions#upstreamTrust()",
+      "outbound TLS trust for proxy stubs is not yet exposed on EmbeddedConfig; tracked in #176"
+    ),
+    Coverage.Excluded(
+      "EmbeddedOptions.Builder#upstreamTrust(UpstreamTrust)",
+      "outbound TLS trust for proxy stubs is not yet exposed on EmbeddedConfig; tracked in #176"
+    ),
+    Coverage.Excluded(
+      "SpawnOptions#upstreamTrust()",
+      "outbound TLS trust for proxy stubs is not yet exposed on SpawnConfig; tracked in #176"
+    ),
+    Coverage.Excluded(
+      "SpawnOptions.Builder#upstreamTrust(UpstreamTrust)",
+      "outbound TLS trust for proxy stubs is not yet exposed on SpawnConfig; tracked in #176"
+    ),
+    Coverage.Excluded(
+      "UpstreamTrust.CaFile#pem()",
+      "an accessor on the facade's trust type, which the bridge will construct but not read; tracked in #176"
+    ),
+    Coverage.Excluded(
+      "UpstreamTrust.CaPem#pem()",
+      "an accessor on the facade's trust type, which the bridge will construct but not read; tracked in #176"
+    ),
     Coverage.ExcludedClass(
       "CopySpec",
       "the copy behavior's spec type. FacadeEncode.isSpec explicitly refuses copy/lookup rather than degrading them (its own scaladoc records the residual), and redirectTo carries full stub fidelity instead, so this is never constructed"
