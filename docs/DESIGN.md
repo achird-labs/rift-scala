@@ -492,6 +492,10 @@ imposter("users")
   .stub(on(GET, "/api/users/1").reply(ok.json("""{"id":1}""")))
   .stubs(scenario("checkout").startingAt("Started")./*...*/.stubs)
 
+// deprecated (#158): recordMatches, metrics(port) and proxyConfig(...) emit keys no engine acts
+// on (engine >= 0.18.0 reports them as config_key_ignored in _rift.warnings). They still write the
+// same JSON. Use `record`, the engine's --metrics-port, and a per-stub proxyTo(...) instead.
+
 // ── escape hatches (issue #2: explicit requirement) ─────────────────────────
 imposterFromJson("""{ "port": 4545, "protocol": "http", ... }""")  // Either[JsonError, ImposterBuilder]
 stubFromJson("""{ "predicates": [...], "responses": [...] }""")
