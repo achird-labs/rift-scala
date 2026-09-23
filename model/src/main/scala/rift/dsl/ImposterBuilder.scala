@@ -186,8 +186,8 @@ final class ImposterBuilder private[dsl] (
     * The default engine (`defaultEngine`) is honoured by rift engine 0.18.0 and later. Engine
     * 0.17.0 and earlier parse it and ignore it, running a script that names no engine as Rhai. On
     * an engine that honours it, a script's engine is resolved in this order: the script's own
-    * `engine`, then its `file` extension (`.rhai`, `.js` or `.lua`), then this default, then Rhai.
-    * A `Script.ref` takes the engine of the script it names.
+    * `engine`, then its `file` extension (`.rhai` or `.js`), then this default, then Rhai. A
+    * `Script.ref` takes the engine of the script it names.
     *
     * The `Script` factories always name their engine, so this default only decides scripts that
     * reach the engine without one, such as raw-JSON `_rift.script` or `_rift.scripts` entries read
