@@ -53,28 +53,42 @@ object FlowStateBackend:
           )
     yield backend
 
+/** `_rift.flowState`. `extra` carries every key the model does not know, verbatim and in order —
+  * provider-store options since engine 0.17.0 — so a decode -> encode round trip never drops one.
+  */
 final case class FlowStateConfig(
     backend: FlowStateBackend = FlowStateBackend.InMemory,
     ttlSeconds: Option[Long] = None,
-    flowIdSource: Option[String] = None
+    flowIdSource: Option[String] = None,
+    extra: Vector[(String, Json)] = Vector.empty
 ):
   def toJson: Json =
     val backendFields = backend.toJson.asObject.getOrElse(Vector.empty)
-    Json.Obj(
+    buildObj(
+      FlowStateConfig.knownKeys(backend),
       backendFields ++ Vector(
         ttlSeconds.map(t => "ttlSeconds" -> Json.Num(BigDecimal(t))),
         flowIdSource.map(s => "flowIdSource" -> Json.Str(s))
-      ).flatten
+      ).flatten,
+      extra
     )
 
 object FlowStateConfig:
+  /** A `redis` block is modeled only on the redis backend; on any other it is carried, not dropped.
+    */
+  private def knownKeys(backend: FlowStateBackend): Set[String] =
+    val common = Set("backend", "ttlSeconds", "flowIdSource")
+    backend match
+      case FlowStateBackend.Redis(_) => common + "redis"
+      case FlowStateBackend.InMemory => common
+
   def fromJson(json: Json): Either[JsonError.Decode, FlowStateConfig] =
     for
       fields <- asObj(json, "flowState")
       backend <- FlowStateBackend.fromJson(json)
       ttlSeconds <- optLong(fields, "ttlSeconds")
       flowIdSource <- optString(fields, "flowIdSource")
-    yield FlowStateConfig(backend, ttlSeconds, flowIdSource)
+    yield FlowStateConfig(backend, ttlSeconds, flowIdSource, fields.remainder(knownKeys(backend)))
 
 /** `_rift.scriptEngine` — the wire key is `"defaultEngine"`, not `"default"` — types.rs:1008-1017,
   * `RiftScriptEngineConfig.java:8`.

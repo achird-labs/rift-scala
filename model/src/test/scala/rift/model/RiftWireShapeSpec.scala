@@ -600,6 +600,52 @@ class RiftWireShapeSpec extends munit.FunSuite:
     val bad = RiftConfig(extra = Vector("flowState" -> Json.Null))
     intercept[IllegalArgumentException](bad.toJson)
 
+  // Issue #171 — engine 0.18.0 added `stateOps` and `dataset` to a response's `_rift` block, and
+  // provider-store options under `_rift.flowState` date from 0.17.0. Each typed reader must carry
+  // what it does not model, or a stub read back and re-sent silently loses it.
+  private val stateOps = """[{"op":"increment","key":"hits"}]"""
+  private val dataset = """{"name":"products","key":"$.id","keyColumn":"id","into":"${row}"}"""
+
+  test("response _rift: stateOps and dataset survive on extra, in order"):
+    val json = parse(s"""{"templated":true,"stateOps":$stateOps,"dataset":$dataset}""")
+    val ext = RiftResponseExt.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(ext.extra, Vector("stateOps" -> parse(stateOps), "dataset" -> parse(dataset)))
+    assertEquals(ext.toJson.render, json.render)
+
+  test("response _rift: an is-response carrying stateOps round-trips through Response"):
+    val raw = s"""{"is":{"statusCode":200},"_rift":{"stateOps":$stateOps}}"""
+    val written = Response.fromJson(parse(raw)).fold(e => fail(e.toString), identity).toJson
+    assertEquals(written.render, parse(raw).render)
+
+  test("response _rift: a DSL-built block is unchanged"):
+    val written = rift.dsl.ok.templated.build.toJson
+    assertEquals(written.get("_rift").map(_.render), Some("""{"templated":true}"""))
+
+  test("response _rift: a modeled key smuggled through extra is refused on encode"):
+    intercept[IllegalArgumentException](
+      RiftResponseExt(extra = Vector("templated" -> Json.Bool(true))).toJson
+    )
+
+  test("_rift.flowState: an unknown store option survives on extra"):
+    val json = parse("""{"backend":"inmemory","ttlSeconds":60,"maxFlows":1000}""")
+    val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(cfg.extra, Vector("maxFlows" -> Json.Num(BigDecimal(1000))))
+    assertEquals(cfg.toJson.render, json.render)
+
+  test("_rift.flowState: a redis block is modeled, not carried twice"):
+    val json = parse(
+      """{"backend":"redis","redis":{"url":"redis://h:6379","poolSize":10,"keyPrefix":"rift:"},"futureOpt":true}"""
+    )
+    val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(cfg.extra, Vector("futureOpt" -> Json.Bool(true)))
+    assert(cfg.toJson.semanticEquals(json), cfg.toJson.render)
+
+  test("_rift.flowState: a redis key on an inmemory backend is carried, not dropped"):
+    val json = parse("""{"backend":"inmemory","redis":{"url":"redis://h:6379"}}""")
+    val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(cfg.extra.map(_._1), Vector("redis"))
+    assert(cfg.toJson.semanticEquals(json), cfg.toJson.render)
+
   // ── 13. _rift.proxy — imposter-level proxy config ────────────────────────────────────────────
   // Proof: engine types.rs:987-1029 @ v0.14.0; rift-java RiftProxyConfig/RiftUpstreamConfig/
   // RiftConnectionPoolConfig (defaults: protocol "http", maxIdlePerHost 100, idleTimeoutSecs 90).
