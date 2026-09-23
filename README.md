@@ -6,7 +6,7 @@ ZIO, Cats Effect 3 / FS2, or no effect system at all.
 
 📖 **Documentation site: [achird-labs.github.io/rift-scala](https://achird-labs.github.io/rift-scala/)**
 
-> **Available on Maven Central.** The current release is **0.2.0** under the
+> **Available on Maven Central.** The current release is **0.2.1** under the
 > `io.github.achird-labs` group ID. It runs the engine four ways — embedded (in-process over
 > Panama FFM, no Docker), connected to any running admin endpoint, as a managed spawned
 > binary, or in a container — with the full feature surface on each.
@@ -46,13 +46,13 @@ matches your effect system:
 
 ```scala
 // ZIO
-libraryDependencies += "io.github.achird-labs" %% "rift-scala-zio" % "0.2.0" % Test
+libraryDependencies += "io.github.achird-labs" %% "rift-scala-zio" % "0.2.1" % Test
 
 // Cats Effect 3
-libraryDependencies += "io.github.achird-labs" %% "rift-scala-cats" % "0.2.0" % Test
+libraryDependencies += "io.github.achird-labs" %% "rift-scala-cats" % "0.2.1" % Test
 
 // no effect system
-libraryDependencies += "io.github.achird-labs" %% "rift-scala-pure" % "0.2.0" % Test
+libraryDependencies += "io.github.achird-labs" %% "rift-scala-pure" % "0.2.1" % Test
 ```
 
 The **embedded** transport additionally needs the engine's native library and the JVM flag
@@ -132,7 +132,7 @@ arrange from inside that JVM. The `sbt-rift` plugin generates one and points the
 
 ```scala
 // project/plugins.sbt
-addSbtPlugin("io.github.achird-labs" % "sbt-rift" % "0.2.0")
+addSbtPlugin("io.github.achird-labs" % "sbt-rift" % "0.2.1")
 
 // build.sbt
 lazy val myTests = (project in file("my-tests")).enablePlugins(RiftTlsPlugin)
