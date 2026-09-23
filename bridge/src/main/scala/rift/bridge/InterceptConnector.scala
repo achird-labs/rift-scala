@@ -139,12 +139,14 @@ final class InterceptRuleBuilder private[bridge] (
       def predicates: Vector[Predicate] = matches.flatMap(_.predicates)
     underlying.when(FacadeEncode.requestMatch(combined))
 
-  /** Serve a canned response — a numeric status, single-valued headers, and a text or JSON body.
+  /** Serve a canned response — a numeric status, headers, and a text or JSON body. A header written
+    * several times is sent once per value (engine ≥ 0.18.0; rift-java refuses it on an older one),
+    * with case-variant spellings grouped under the first.
     *
     * That is the whole of what the engine's serve action carries, so anything else an `is` response
-    * can express (every `_behaviors` and `_rift` construct, a binary body, a repeated header name)
-    * is rejected by `FacadeEncode.isSpec` rather than accepted and then dropped in transit — use
-    * `redirectTo` for full stub fidelity there.
+    * can express (every `_behaviors` and `_rift` construct, a binary body) is rejected by
+    * `FacadeEncode.isSpec` rather than accepted and then dropped in transit — use `redirectTo` for
+    * full stub fidelity there.
     */
   def serve(response: ResponseBuilder): InterceptRule =
     FacadeBoundary.run(InterceptRule.fromJava(applied.serve(FacadeEncode.isSpec(response))))

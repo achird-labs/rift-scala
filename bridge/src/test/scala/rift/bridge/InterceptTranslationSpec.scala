@@ -248,74 +248,53 @@ class InterceptTranslationSpec extends FunSuite:
   test("serve rejects a binary body — the engine's serve action drops the binary marker"):
     assertRejects(ok.binary(Array[Byte](1, 2, 3, 4)), "binary")
 
-  test("serve rejects a repeated header name — the engine keeps only the first value"):
-    assertRejects(
-      ok.header("Set-Cookie", "cookie-a").header("Set-Cookie", "cookie-b").json("{}"),
-      // the offending name specifically: a generic "a header repeats" would silently weaken the
-      // names-the-offender guarantee the whole reject set is built on.
-      "Set-Cookie"
+  // Issue #177 — engine 0.18.0 serves a header with several values, one line each (what Set-Cookie
+  // needs), and rift-java 0.3.0 sends them as an array (refusing it on an older engine). So a
+  // repeated name is translated, not rejected. Names still group case-insensitively (RFC 9110 §5.1,
+  // #152), under the spelling written first, in first-seen order.
+  private def serveWire(response: ResponseBuilder): String =
+    FacadeEncode.isSpec(response).build.toJsonValue.toJson
+
+  test("serve carries every value of a repeated header, in order"):
+    val wire = serveWire(
+      ok.header("Set-Cookie", "cookie-a").header("Set-Cookie", "cookie-b").json("{}")
     )
+    assert(wire.contains(""""Set-Cookie":["cookie-a","cookie-b"]"""), wire)
 
-    // two *different* repeated names: naming only the first would leave the caller fixing one and
-    // being rejected again for the other.
-    val both = rejectMessage(
-      ok.header("Set-Cookie", "a")
-        .header("X-Trace", "1")
-        .header("Set-Cookie", "b")
-        .header("X-Trace", "2")
-        .json("{}")
-    )
-    assert(both.contains("Set-Cookie"), both)
-    assert(both.contains("X-Trace"), both)
+  test("serve keeps a single-valued header a plain value"):
+    val wire =
+      serveWire(ok.header("X-One", "1").header("Set-Cookie", "a").header("Set-Cookie", "b"))
+    assert(wire.contains(""""X-One":"1""""), wire)
 
-  // Issue #152 — HTTP field names are case-insensitive (RFC 9110 §5.1), and every other comparison
-  // on this path already agrees: `Headers.get`, the engine, and the #149 default's presence check.
-  // This guard compared with `==`, so a case-variant repeat slipped past it and both spellings
-  // reached the wire as distinct facade `LinkedHashMap` keys — the one thing `isSpecFromIs`'s
-  // per-entry `withHeader` fold relies on this guard to prevent.
-  test("serve rejects a case-variant repeated header name"):
-    assertRejects(
-      ok.header("Content-Type", "text/a").header("content-type", "text/b").json("{}"),
-      // first-seen casing — the caller has to be able to find the line they wrote
-      "Content-Type"
-    )
+  test("serve groups case-variant names under the spelling written first"):
+    val upperFirst =
+      serveWire(ok.header("Content-Type", "text/a").header("content-type", "text/b").json("{}"))
+    assert(upperFirst.contains(""""Content-Type":["text/a","text/b"]"""), upperFirst)
+    // one Content-Type key: the #149 default must see the caller's header and add none
+    assertEquals(contentTypeCount(upperFirst), 1, upperFirst)
+    val lowerFirst =
+      serveWire(ok.header("content-type", "text/a").header("Content-Type", "text/b").json("{}"))
+    assert(lowerFirst.contains(""""content-type":["text/a","text/b"]"""), lowerFirst)
+    assert(!lowerFirst.contains(""""Content-Type""""), lowerFirst)
 
-  test("serve names a case-variant repeat once, not once per spelling"):
-    val msg =
-      rejectMessage(ok.header("Content-Type", "text/a").header("content-type", "text/b").json("{}"))
-    assertEquals("repeated header '".r.findAllIn(msg).length, 1, msg)
-
-  // The other direction of "first-seen casing": every case-variant test above happens to write the
-  // capitalised spelling first, so all of them would still pass an implementation that canonicalised
-  // the reported name (title-cased it, or always picked the capitalised spelling) instead of
-  // reporting what the caller actually wrote first.
-  test("serve names a case-variant repeat in first-seen casing when lowercase comes first"):
-    val msg =
-      rejectMessage(ok.header("content-type", "text/a").header("Content-Type", "text/b").json("{}"))
-    assert(msg.contains("'content-type'"), msg)
-    assert(!msg.contains("'Content-Type'"), msg)
-
-  // N>2 spellings: the count-based logic generalises, but a refactor to pairwise comparison could
-  // report the name once per *pair* — which only shows up at three.
-  test("serve names a three-way case-variant repeat exactly once"):
-    val msg = rejectMessage(
+  test("serve groups a three-way case variant into one header"):
+    val wire = serveWire(
       ok.header("X-Trace", "a").header("x-trace", "b").header("X-TRACE", "c").json("{}")
     )
-    assertEquals("repeated header '".r.findAllIn(msg).length, 1, msg)
-    assert(msg.contains("'X-Trace'"), msg)
+    assert(wire.contains(""""X-Trace":["a","b","c"]"""), wire)
+    assertEquals("(?i)x-trace".r.findAllIn(wire).length, 1, wire)
 
-  test("serve keeps first-seen order when an exact and a case-variant repeat mix"):
-    val msg = rejectMessage(
+  test("serve keeps first-seen order when repeated names interleave"):
+    val wire = serveWire(
       ok.header("Set-Cookie", "a")
         .header("X-Trace", "1")
         .header("Set-Cookie", "b")
         .header("x-trace", "2")
         .json("{}")
     )
-    assertEquals("repeated header '".r.findAllIn(msg).length, 2, msg)
-    assert(msg.contains("Set-Cookie"), msg)
-    assert(msg.contains("X-Trace"), msg)
-    assert(msg.indexOf("Set-Cookie") < msg.indexOf("X-Trace"), msg)
+    assert(wire.contains(""""Set-Cookie":["a","b"]"""), wire)
+    assert(wire.contains(""""X-Trace":["1","2"]"""), wire)
+    assert(wire.indexOf("Set-Cookie") < wire.indexOf("X-Trace"), wire)
 
   test("serve rejects every wait spelling"):
     import scala.concurrent.duration.DurationInt

@@ -847,11 +847,12 @@ trait InterceptHandle:
                                                     // forward(target: String) is kept for facade parity; its host component
                                                     // is parsed and discarded upstream (deliberately, not a dropped field).
   def rule(): InterceptRuleBuilder                  // all-hosts (catch-all) form — matches every intercepted host
-  // `serve` carries a numeric status, single-valued headers and a text/JSON body — the whole of
-  // what the engine's intercept serve action delivers (#147). Every other construct an `is`
-  // response can express (all _behaviors and _rift constructs, a binary body, a repeated header
-  // name — case-insensitively, so Content-Type and content-type are one header) rejects loudly
-  // naming every offender — those need redirectTo(imposter), which keeps
+  // `serve` carries a numeric status, headers and a text/JSON body — the whole of what the
+  // engine's intercept serve action delivers (#147). A repeated header name (case-insensitively,
+  // so Content-Type and content-type are one header) is sent once per value, grouped under the
+  // first spelling (engine >= 0.18.0, #177). Every other construct an `is` response can express
+  // (all _behaviors and _rift constructs, a binary body) rejects loudly naming every offender —
+  // those need redirectTo(imposter), which keeps
   // full stub fidelity across the D2 raw-JSON seam.
   def rules: IO[RiftError, Chunk[InterceptRule]]
   def clearRules: IO[RiftError, Unit]
