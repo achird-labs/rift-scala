@@ -7,6 +7,7 @@ import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.json.{Json, JsonError}
 import rift.model.{
+  Behavior,
   Behaviors,
   ClosestMiss,
   FailedPredicate,
@@ -319,15 +320,13 @@ private[bridge] object FacadeEncode:
     val ext = riftExt.getOrElse(RiftResponseExt())
     val fault = ext.fault
     val dropped =
-      Vector(
-        Option.when(behaviors.waitFor.isDefined)("`_behaviors.wait`"),
-        Option.when(behaviors.decorate.isDefined)("`_behaviors.decorate`"),
-        Option.when(behaviors.copyEntries.nonEmpty)("`_behaviors.copy`"),
-        Option.when(behaviors.lookup.nonEmpty)("`_behaviors.lookup`"),
-        Option.when(behaviors.shellTransform.nonEmpty)("`_behaviors.shellTransform`"),
-        Option.when(behaviors.repeat.isDefined)("`_behaviors.repeat`")
-      ).flatten ++
-        behaviors.unknown.map((key, _) => s"`_behaviors.$key`") ++
+      // every entry, however it was spelled — block, `behaviors` array or response-level repeat —
+      // named once per key in first-seen order
+      behaviors.entries
+        .map:
+          case Behavior.Repeat(_, true) => "`repeat`"
+          case b => s"`_behaviors.${b.key}`"
+        .distinct ++
         Vector(
           Option.when(ext.templated)("`_rift.templated`"),
           Option.when(ext.script.isDefined)("`_rift.script`"),

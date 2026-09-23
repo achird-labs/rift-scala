@@ -54,210 +54,187 @@ object WaitBehavior:
         case _ => Left(JsonError.Decode(expected, Vector.empty))
     case _ => Left(JsonError.Decode(expected, Vector.empty))
 
-/** `_behaviors`. Unknown keys survive on `unknown` — the engine adds new behaviors over time and a
-  * decode -> encode round-trip must not drop them.
+/** One behavior step, as written on the wire. A response's behaviors are an ordered program of
+  * these (engine rift#1198): from engine 0.18.0 every element of a `behaviors` array runs, in array
+  * order, and a key may repeat.
   *
-  * `waitFor`/`copyEntries` are named around two collisions: `wait` is `final` on `Object`, and
-  * `copy` would shadow the case class's synthesized `copy` method.
+  * `bare` records a single `copy`/`lookup` entry spelled `{...}` rather than `[{...}]`, or a single
+  * `shellTransform` spelled `"cmd"` rather than `["cmd"]`. The engine writes both spellings, and
+  * `semanticEquals` tells `Obj` from `Arr`, so the spelling has to survive a round trip. It is only
+  * honoured for exactly one entry: a `bare` value with several entries still writes an array.
+  */
+enum Behavior:
+  case Wait(spec: WaitBehavior)
+  case Decorate(script: String)
+  case Copy(entries: Vector[Json], bare: Boolean)
+  case Lookup(entries: Vector[Json], bare: Boolean)
+  case ShellTransform(commands: Vector[String], bare: Boolean)
+
+  /** `responseLevel` marks Mountebank's spelling, beside `is` rather than inside the block. It is
+    * what the engine's `GET /imposters` writes, and it wins over a block `repeat`. Each spelling is
+    * written back where it came from.
+    */
+  case Repeat(count: Int, responseLevel: Boolean)
+
+  /** A behavior the model does not know. Kept verbatim so a newer engine's behavior survives. */
+  case Unknown(name: String, raw: Json)
+
+  def key: String = this match
+    case Wait(_) => "wait"
+    case Decorate(_) => "decorate"
+    case Copy(_, _) => "copy"
+    case Lookup(_, _) => "lookup"
+    case ShellTransform(_, _) => "shellTransform"
+    case Repeat(_, _) => "repeat"
+    case Unknown(name, _) => name
+
+  def value: Json = this match
+    case Wait(spec) => spec.toJson
+    case Decorate(script) => Json.Str(script)
+    case Copy(entries, bare) => Behavior.singleOrArray(entries, bare)
+    case Lookup(entries, bare) => Behavior.singleOrArray(entries, bare)
+    case ShellTransform(commands, bare) => Behavior.singleOrArray(commands.map(Json.Str(_)), bare)
+    case Repeat(count, _) => Json.Num(BigDecimal(count))
+    case Unknown(_, raw) => raw
+
+object Behavior:
+  private def singleOrArray(entries: Vector[Json], bare: Boolean): Json = entries match
+    case Vector(one) if bare => one
+    case many => Json.Arr(many)
+
+/** A response's behaviors: an ordered program of [[Behavior]] entries.
+  *
+  * Two wire shapes carry it. The `_behaviors` object is what fixtures and this DSL write; its keys
+  * run in the engine's fixed order (`wait`, `lookup`, `copy`, `shellTransform`, `decorate`) and
+  * none can repeat. The `behaviors` array, one single-key element per step, is what the engine's
+  * `GET /imposters` writes; its elements run in array order and keys may repeat. A response-level
+  * `repeat` beside `is` is carried here too, as a [[Behavior.Repeat]] with `responseLevel = true`.
+  *
+  * Writing keeps the spelling that was read (`spelling`) and falls back to the array whenever the
+  * object form would lose an entry, that is when a key repeats. Carrying a repeated key is not the
+  * same as an engine running it: engine 0.17.0 merges the array as it parses and applies only the
+  * last entry of a repeated key, and 0.18.0 runs every element. Writing the array keeps this SDK
+  * from being the component that destroys the entry.
   */
 final case class Behaviors(
-    waitFor: Option[WaitBehavior] = None,
-    decorate: Option[String] = None,
-    copyEntries: Vector[Json] = Vector.empty,
-    lookup: Vector[Json] = Vector.empty,
-    shellTransform: Vector[String] = Vector.empty,
-    repeat: Option[Int] = None,
-    unknown: Vector[(String, Json)] = Vector.empty,
-    /** Which of [[copyEntries]]/`lookup` were spelled as a bare single entry (`"copy": {...}`)
-      * rather than an array (`"copy": [{...}]`) on the wire. The engine emits both spellings for a
-      * single operation, and `semanticEquals` is strict about `Obj` vs `Arr`, so the shape has to
-      * survive the round trip rather than always normalizing to one of them.
-      */
-    singletonVectorKeys: Set[String] = Set.empty
+    entries: Vector[Behavior] = Vector.empty,
+    spelling: Behaviors.Spelling = Behaviors.Spelling.Object
 ):
-  def isEmpty: Boolean =
-    waitFor.isEmpty && decorate.isEmpty && copyEntries.isEmpty && lookup.isEmpty &&
-      shellTransform.isEmpty && repeat.isEmpty && unknown.isEmpty
+  def isEmpty: Boolean = entries.isEmpty
 
+  /** The steps written inside the block: every entry except a response-level `repeat`. */
+  def block: Vector[Behavior] = entries.filterNot(Behaviors.isResponseLevelRepeat)
+
+  /** The response-level `repeat`, written beside `is`, if one was read or set. */
+  def responseLevelRepeat: Option[Behavior.Repeat] =
+    entries.collectFirst { case r @ Behavior.Repeat(_, true) => r }
+
+  /** The `repeat` count the engine applies: the response-level one if present, else the last block
+    * one (engine 0.18.0: "the last element to set it wins"). Engine 0.17.0 reads only the block
+    * spelling.
+    */
+  def effectiveRepeat: Option[Int] =
+    responseLevelRepeat
+      .orElse(block.collect { case r: Behavior.Repeat => r }.lastOption)
+      .map(_.count)
+
+  /** Whether the block must be written as the `behaviors` array: it was read as one, or a key
+    * repeats and the `_behaviors` object would keep only one of them.
+    */
+  def writesArray: Boolean =
+    spelling == Behaviors.Spelling.Array || block.map(_.key).distinct.size != block.size
+
+  /** The block's wire value: the array form or the object form, per [[writesArray]]. */
   def toJson: Json =
-    val known = Vector(
-      waitFor.map(w => "wait" -> w.toJson),
-      decorate.map(d => "decorate" -> Json.Str(d)),
-      Behaviors.vectorField("copy", copyEntries, singletonVectorKeys),
-      Behaviors.vectorField("lookup", lookup, singletonVectorKeys),
-      if shellTransform.nonEmpty then
-        Some("shellTransform" -> Json.Arr(shellTransform.map(Json.Str(_))))
-      else None,
-      repeat.map(r => "repeat" -> Json.Num(BigDecimal(r)))
-    ).flatten
-    buildObj(Behaviors.knownKeys, known, unknown)
+    if writesArray then Json.Arr(block.map(b => Json.Obj(Vector(b.key -> b.value))))
+    else Json.Obj(block.map(b => b.key -> b.value))
 
 object Behaviors:
+  /** Which wire shape a block was read from, so a round trip writes the same one back. */
+  enum Spelling:
+    case Object, Array
+
   val empty: Behaviors = Behaviors()
 
-  private val knownKeys = Set("wait", "decorate", "copy", "lookup", "shellTransform", "repeat")
+  /** A block of `entries` in the object spelling — how the DSL and hand-built values start. */
+  def of(entries: Behavior*): Behaviors = Behaviors(entries.toVector)
 
-  /** The only keys the object form spells as an array, and therefore the only ones an array form
-    * may legally repeat — see [[flattenArray]] and [[coalesce]].
-    *
-    * Deliberately an allow-list of the *vector* keys rather than a deny-list of the scalar ones: an
-    * unknown key the engine grows later is not vector-valued just because we do not model it, and
-    * treating it as one would rewrite `{"futureThing":{...}}` into `{"futureThing":[{...}]}` — the
-    * exact corruption `unknown` exists to prevent.
+  private def isResponseLevelRepeat(b: Behavior): Boolean = b match
+    case Behavior.Repeat(_, true) => true
+    case _ => false
+
+  /** Decodes a block from either spelling. A response-level `repeat` is not part of the block; the
+    * enclosing [[Response]] decoder adds it.
     */
-  private val vectorKeys = Set("copy", "lookup", "shellTransform")
+  def fromJson(json: Json): Either[JsonError.Decode, Behaviors] = json match
+    case arr: Json.Arr => decodeArray(arr, element).map(Behaviors(_, Spelling.Array))
+    case other =>
+      for
+        fields <- asObj(other, "_behaviors")
+        entries <- fields.foldLeft[Either[JsonError.Decode, Vector[Behavior]]](Right(Vector.empty)):
+          case (acc, (key, value)) =>
+            for
+              seen <- acc
+              entry <- decode(key, value, inArray = false)
+            yield seen :+ entry
+      yield Behaviors(entries, Spelling.Object)
 
-  /** Re-emits a vector key: a single entry that was originally spelled bare (tracked in
-    * [[Behaviors.singletonVectorKeys]]) stays bare; everything else — several entries, or a single
-    * entry that arrived as a 1-element array — encodes as an array.
-    */
-  private def vectorField(
-      key: String,
-      entries: Vector[Json],
-      singletonKeys: Set[String]
-  ): Option[(String, Json)] = entries match
-    case Vector() => None
-    case Vector(one) if singletonKeys(key) => Some(key -> one)
-    case many => Some(key -> Json.Arr(many))
+  private def element(item: Json): Either[JsonError.Decode, Behavior] =
+    asObj(item, "behavior").flatMap:
+      case Vector((key, value)) => decode(key, value, inArray = true)
+      case other =>
+        Left(JsonError.Decode(s"expected exactly one key, got ${other.size}", Vector.empty))
 
-  /** `GET /imposters` renders `_behaviors` as an **array of single-key objects**
-    * (`[{"wait":100},{"decorate":"..."}]`, engine `behaviors_to_array`,
-    * `imposter/types.rs:451-472`) while `POST /imposters` takes the object form. Both decode;
-    * encoding always uses the object form — rift-java's policy verbatim (`Behaviors.java:13-17`),
-    * so a GET -> PUT normalizes spelling identically in both SDKs.
-    *
-    * Flattening is where the two forms genuinely differ: the array can repeat a key. Only
-    * [[vectorKeys]] accumulate, because only they have an array to accumulate *into* on the way
-    * out. Any other repeated key — scalar or unknown — has no object-form representation, so it is
-    * a decode error rather than a silent last-wins that would lose data on the very next encode.
-    */
-  private def flattenArray(items: Vector[Json]): Either[JsonError.Decode, Vector[(String, Json)]] =
-    items.zipWithIndex.foldLeft[Either[JsonError.Decode, Vector[(String, Json)]]](
-      Right(Vector.empty)
-    ):
-      case (acc, (item, i)) =>
-        for
-          seen <- acc
-          entry <- asObj(item, "behavior").left.map(_.under(s"[$i]").under("_behaviors"))
-          pair <- entry match
-            case Vector(one) => Right(one)
-            case other =>
-              Left(
-                JsonError
-                  .Decode(
-                    s"expected exactly one key, got ${other.size}",
-                    Vector.empty
-                  )
-                  .under(s"[$i]")
-                  .under("_behaviors")
-              )
-          _ <-
-            if !vectorKeys.contains(pair._1) && seen.exists(_._1 == pair._1) then
-              Left(
-                JsonError
-                  .Decode(s"'${pair._1}' appears more than once", Vector.empty)
-                  .under(s"[$i]")
-                  .under("_behaviors")
-              )
-            else Right(())
-        yield seen :+ pair
-
-  /** Merges an array's repeated [[vectorKeys]] into the single array the object form uses. Every
-    * other key — scalar or unknown — passes through with its value untouched, so a behavior the
-    * engine grows later round-trips byte-for-byte.
-    *
-    * A vector key's value may itself already be an array (`{"copy":[a,b]}`) or a single item
-    * (`{"copy":a}`) — both spellings appear for the same key, so elements are flattened one level
-    * rather than wrapped blindly, which would nest `[[a]]` and fail the element decoders.
-    */
-  private def coalesce(pairs: Vector[(String, Json)]): Vector[(String, Json)] =
-    def elementsOf(value: Json): Vector[Json] = value match
-      case Json.Arr(items) => items
-      case single => Vector(single)
-
-    pairs.foldLeft(Vector.empty[(String, Json)]): (acc, pair) =>
-      val (key, value) = pair
-      if !vectorKeys.contains(key) then acc :+ (key -> value)
-      else
-        acc.indexWhere(_._1 == key) match
-          case -1 => acc :+ (key -> Json.Arr(elementsOf(value)))
-          case at =>
-            val existing = acc(at)._2.asArray.getOrElse(Vector.empty)
-            acc.updated(at, key -> Json.Arr(existing ++ elementsOf(value)))
-
-  /** The required fields that mark a bare object as a legitimate single `copy`/`lookup` entry (the
-    * engine's untagged single-operation shorthand — `types.rs` `CopyBehavior`/`LookupBehavior`)
-    * rather than some unrelated malformed value. Content, not just shape, has to gate this: `copy`
-    * and `lookup` are otherwise raw, unvalidated `Json` in this model, so an "any object goes" rule
-    * would also swallow garbage like `{"copy":{"a":1}}` as if it were a real operation.
+  /** The fields that mark a bare object as a real single `copy`/`lookup` entry (the engine's
+    * untagged single-operation shorthand) in the object form. `copy` and `lookup` are otherwise raw
+    * `Json`, so an "any object goes" rule would swallow garbage like `{"copy":{"a":1}}` as if it
+    * were an operation. An array element has no such ambiguity: it is one step by construction.
     */
   private val singleEntryRequiredFields: Map[String, Set[String]] =
     Map("copy" -> Set("from", "into"), "lookup" -> Set("key", "fromDataSource"))
 
-  private def isSingleEntry(key: String, value: Json): Boolean =
-    singleEntryRequiredFields.get(key).exists { required =>
-      value.asObject.exists(fields => required.subsetOf(fields.map(_._1).toSet))
-    }
+  private def readEntries(
+      key: String,
+      value: Json,
+      inArray: Boolean
+  ): Either[JsonError.Decode, (Vector[Json], Boolean)] = value match
+    case Json.Arr(entries) => Right((entries, false))
+    case single @ Json.Obj(fields)
+        if inArray || singleEntryRequiredFields(key).subsetOf(fields.map(_._1).toSet) =>
+      Right((Vector(single), true))
+    case _ => Left(JsonError.Decode(s"expected an array or a single $key entry", Vector.empty))
 
-  /** Decodes a vector key's value along with whether it was spelled as a bare single entry rather
-    * than an array — see [[Behaviors.singletonVectorKeys]]. A value that is neither an array nor a
-    * recognized single-entry object used to be swallowed into an empty vector, silently dropping
-    * the behavior; the array form accepts the same input, so equivalence between the two forms is
-    * only true if this is loud.
+  private def decode(
+      key: String,
+      value: Json,
+      inArray: Boolean
+  ): Either[JsonError.Decode, Behavior] =
+    val decoded: Either[JsonError.Decode, Behavior] = key match
+      case "wait" => WaitBehavior.fromJson(value).map(Behavior.Wait(_))
+      case "decorate" =>
+        value match
+          case Json.Str(s) => Right(Behavior.Decorate(s))
+          case _ => Left(JsonError.Decode("expected a string", Vector.empty))
+      case "copy" => readEntries(key, value, inArray).map(Behavior.Copy(_, _))
+      case "lookup" => readEntries(key, value, inArray).map(Behavior.Lookup(_, _))
+      case "shellTransform" =>
+        value match
+          case Json.Str(s) => Right(Behavior.ShellTransform(Vector(s), bare = true))
+          case Json.Arr(commands) =>
+            commands
+              .foldLeft[Either[JsonError.Decode, Vector[String]]](Right(Vector.empty)):
+                case (acc, Json.Str(s)) => acc.map(_ :+ s)
+                case (_, _) => Left(JsonError.Decode("expected an array of strings", Vector.empty))
+              .map(Behavior.ShellTransform(_, bare = false))
+          case _ => Left(JsonError.Decode("expected a string or array of strings", Vector.empty))
+      case "repeat" => decodeRepeat(value).map(Behavior.Repeat(_, responseLevel = false))
+      case other => Right(Behavior.Unknown(other, value))
+    decoded.left.map(_.under(key))
+
+  /** A `repeat` count, block or response-level. The engine types it `u32`; a fractional or
+    * non-numeric count is loud rather than truncated.
     */
-  private def vectorEntries(
-      fields: Vector[(String, Json)],
-      key: String
-  ): Either[JsonError.Decode, (Vector[Json], Boolean)] = fields.field(key) match
-    case Some(Json.Arr(items)) => Right((items, false))
-    case Some(single) if isSingleEntry(key, single) => Right((Vector(single), true))
-    case Some(_) =>
-      Left(JsonError.Decode(s"expected an array or a single $key entry", Vector.empty).under(key))
-    case None => Right((Vector.empty, false))
-
-  def fromJson(json: Json): Either[JsonError.Decode, Behaviors] =
-    for
-      fields <- json match
-        case Json.Arr(items) => flattenArray(items).map(coalesce)
-        case other => asObj(other, "_behaviors")
-      waitFor <- fields.field("wait") match
-        case Some(w) => WaitBehavior.fromJson(w).map(Some(_)).left.map(_.under("wait"))
-        case None => Right(None)
-      decorate <- optString(fields, "decorate")
-      copyResult <- vectorEntries(fields, "copy")
-      (copyEntries, copySingleton) = copyResult
-      lookupResult <- vectorEntries(fields, "lookup")
-      (lookup, lookupSingleton) = lookupResult
-      shellTransform <- fields.field("shellTransform") match
-        case Some(Json.Arr(items)) =>
-          items.foldLeft[Either[JsonError.Decode, Vector[String]]](Right(Vector.empty)) {
-            case (acc, Json.Str(s)) => acc.map(_ :+ s)
-            case (_, _) =>
-              Left(
-                JsonError
-                  .Decode("expected an array of strings", Vector.empty)
-                  .under("shellTransform")
-              )
-          }
-        case Some(Json.Str(s)) => Right(Vector(s))
-        case Some(_) =>
-          Left(
-            JsonError
-              .Decode("expected a string or array of strings", Vector.empty)
-              .under("shellTransform")
-          )
-        case None => Right(Vector.empty)
-      repeat <- optInt(fields, "repeat")
-    yield Behaviors(
-      waitFor,
-      decorate,
-      copyEntries,
-      lookup,
-      shellTransform,
-      repeat,
-      fields.remainder(knownKeys),
-      Set(
-        Option.when(copySingleton)("copy"),
-        Option.when(lookupSingleton)("lookup")
-      ).flatten
-    )
+  private[model] def decodeRepeat(value: Json): Either[JsonError.Decode, Int] = value match
+    case Json.Num(n) if n.isValidInt => Right(n.toInt)
+    case Json.Num(_) => Left(JsonError.Decode("expected an integer", Vector.empty))
+    case _ => Left(JsonError.Decode("expected a number", Vector.empty))

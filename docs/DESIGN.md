@@ -333,8 +333,15 @@ enum ScriptEngine:
   case Rhai, JavaScript
 ```
 
-`Behaviors` models `wait` (fixed/range/inject/script), `decorate`, `copy`, `lookup` (CSV),
-`shellTransform`, `repeat`, plus `Unknown(key, raw)` for forward compatibility. `RiftConfig`
+`Behaviors` is an ordered program of `Behavior` entries (#159, engine rift#1198): `Wait`
+(fixed/range/inject/script), `Decorate`, `Copy`, `Lookup` (CSV), `ShellTransform`, `Repeat`,
+plus `Unknown(name, raw)` for forward compatibility. It reads both wire shapes: the `_behaviors`
+object (keys run in the engine's fixed order, none repeat) and the `behaviors` array that
+`GET /imposters` writes (elements run in order, keys may repeat), plus a response-level `repeat`
+beside `is`. Writing keeps the spelling it read, and uses the array whenever a key repeats, since
+the object form would lose one. Engine 0.17.0 still folds an array and runs only the last of a
+repeated key; 0.18.0 runs every element. The DSL writes one entry per key in the `_behaviors`
+object, as before. `RiftConfig`
 models the imposter-level `_rift` block: `flowState` (backend inmemory/redis, `ttlSeconds`,
 `flowIdSource`), `scriptEngine` (default engine + `timeoutMs`), named `scripts` registry,
 `metrics`. `FaultConfig` models `latency {probability, ms | minMs..maxMs}`,

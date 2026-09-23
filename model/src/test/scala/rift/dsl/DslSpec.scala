@@ -156,6 +156,39 @@ class DslSpec extends munit.FunSuite:
     assert(r.toJson.get("_behaviors", "wait").contains(Json.Num(BigDecimal(150))))
     assert(ok.repeat(2).build.toJson.get("_behaviors", "repeat").contains(Json.Num(BigDecimal(2))))
 
+  // Issue #159 — the DSL still writes the `_behaviors` object in the order it always did (wait,
+  // decorate, copy, lookup, shellTransform, repeat), whatever order the chainers were called in,
+  // and repeated chainers accumulate into one entry rather than repeating the key.
+  test("the DSL writes the same _behaviors object whatever order the chainers run in"):
+    val sel = rift.dsl.path
+    val built = ok
+      .repeat(2)
+      .shellTransform("a")
+      .copy(sel, "${x}", regex(".+"))
+      .decorate("f")
+      .after(5.millis)
+      .copy(sel, "${y}", regex(".+"))
+      .shellTransform("b")
+      .build
+    val copyEntry = (into: String) =>
+      s"""{"from":"path","into":"$into","using":{"method":"regex","selector":".+"}}"""
+    assertEquals(
+      built.toJson.get("_behaviors").map(_.render),
+      Some(
+        s"""{"wait":5,"decorate":"f","copy":[${copyEntry("${x}")},${copyEntry(
+            "${y}"
+          )}],"shellTransform":["a","b"],"repeat":2}"""
+      )
+    )
+    assertEquals(built.toJson.get("behaviors"), None)
+
+  test("a later wait or decorate replaces the earlier one, as before"):
+    val built = ok.after(1.milli).decorate("a").after(2.millis).decorate("b").build
+    assertEquals(
+      built.toJson.get("_behaviors").map(_.render),
+      Some("""{"wait":2,"decorate":"b"}""")
+    )
+
   /** `afterBetween` used to compile to a JS `inject` (`function () { return min + random*spread
     * }`), which needs the engine's injection support at serve time. The engine has a native
     * `{min,max}` wait, so the DSL emits that instead — no script, nothing to enable.
@@ -531,7 +564,7 @@ class DslSpec extends munit.FunSuite:
     val r = ok.shellTransform("a").shellTransform("b").build
     r match
       case Response.Is(_, behaviors, _, _) =>
-        assertEquals(behaviors.shellTransform, Vector("a", "b"))
+        assertEquals(behaviors.entries, Vector(Behavior.ShellTransform(Vector("a", "b"), false)))
       case other => fail(s"expected an is-response, got $other")
 
   // Zero args is a no-op, not an error: an empty shellTransform is omitted by `toJson`, so there
@@ -545,7 +578,10 @@ class DslSpec extends munit.FunSuite:
     val decoded = Response.fromJson(encoded).fold(e => fail(e.toString), identity)
     decoded match
       case Response.Is(_, behaviors, _, _) =>
-        assertEquals(behaviors.shellTransform, Vector("tr a-z A-Z"))
+        assertEquals(
+          behaviors.entries,
+          Vector(Behavior.ShellTransform(Vector("tr a-z A-Z"), false))
+        )
       case other => fail(s"expected an is-response, got $other")
 
   // ── issue #91: ImposterSpec parity fields ─────────────────────────────────
