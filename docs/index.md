@@ -3,7 +3,7 @@
 Official Scala 3 SDK for [Rift](https://github.com/achird-labs/rift) — a high-performance,
 Mountebank-compatible HTTP/HTTPS mock server written in Rust.
 
-Effect-library-native: **ZIO**, **Cats Effect 3 / FS2**, **Kyo**, or no effect system at all. One
+Effect-library-native: **ZIO**, **Cats Effect 3 / FS2**, or no effect system at all. One
 DSL and one typed wire model underneath all of them, so the surface you import is a matter of taste
 rather than capability.
 
@@ -90,9 +90,11 @@ which also requires `--enable-preview`. The SDK itself targets JDK 21+.
 
 ## Feature surface
 
-Stubs and predicates, response cycling, behaviors, proxy record/replay, fault injection, stateful
-scenarios, spaces/flow-state, request verification, a cursor-based request tail (`ZStream` on ZIO,
-`fs2.Stream` on Cats), and TLS-MITM intercept — available on every transport.
+Stubs and predicates, response cycling, behaviors on every response type, proxy record/replay,
+fault injection, stateful scenarios, spaces/flow-state with declarative state writes (`setState`,
+`incrementState`, `deleteState`, `clearFlowState`), request verification that reports each
+request's status and latency, a cursor-based request tail (`ZStream` on ZIO, `fs2.Stream` on
+Cats), HTTPS client-certificate auth, and TLS-MITM intercept — available on every transport.
 
 The engine version is pinned transitively by
 [rift-java](https://github.com/achird-labs/rift-java); it is never pinned separately.

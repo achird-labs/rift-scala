@@ -2,7 +2,7 @@
 
 Official Scala 3 SDK for [Rift](https://github.com/achird-labs/rift) — a high-performance,
 Mountebank-compatible HTTP/HTTPS mock server written in Rust. Effect-library-native:
-ZIO, Cats Effect 3 / FS2, Kyo, or no effect system at all.
+ZIO, Cats Effect 3 / FS2, or no effect system at all.
 
 📖 **Documentation site: [achird-labs.github.io/rift-scala](https://achird-labs.github.io/rift-scala/)**
 
@@ -79,13 +79,14 @@ SDK itself targets **JDK 21+**.
 | `rift-scala-zio` / `rift-scala-zio-testkit` | ZIO service + ZLayer lifecycles, `ZStream` request tail, zio-test glue |
 | `rift-scala-cats` / `rift-scala-cats-testkit` | Cats Effect 3 `Rift[F]`, `Resource` lifecycles, munit/weaver glue |
 | `rift-scala-fs2` | `Stream[F, RecordedRequest]` tailing + verification pipes |
-| `rift-scala-kyo` | ops as `A < (Async & Abort[RiftError] & Resource)` |
+| `rift-scala-kyo` | reserved for a Kyo surface; not implemented yet, so the artifact is empty (#11) |
 | `rift-scala-pure` | `Either`-based sync surface, `Using`-friendly |
 | `rift-scala-zio-json` / `rift-scala-circe` | `JsonBody[A]` codec side-cars (typed request/response bodies) |
 | `rift-scala-zio-bdd` | [zio-bdd](https://github.com/EtaCassiopeia/zio-bdd) `MockControl` adapter backed by rift-scala |
 
-One DSL, every effect system — full feature surface on each, including stateful scenarios,
-fault injection, spaces/flow-state, proxy record/replay and TLS-MITM intercept.
+One DSL, every effect system above — full feature surface on each, including stateful scenarios,
+fault injection, spaces/flow-state with declarative state writes, behaviors on every response type,
+proxy record/replay, HTTPS client-certificate auth and TLS-MITM intercept.
 
 ### Testing a client you cannot configure
 
@@ -129,8 +130,8 @@ Tier 3 additionally needs a CA in a truststore on disk *before* the JVM forks, w
 arrange from inside that JVM. The `sbt-rift` plugin generates one and points the fork at it:
 
 ```scala
-// project/plugins.sbt — sbt-rift is new in 0.1.5; the library artifacts above ship at 0.1.4
-addSbtPlugin("io.github.achird-labs" % "sbt-rift" % "0.1.5")
+// project/plugins.sbt
+addSbtPlugin("io.github.achird-labs" % "sbt-rift" % "0.2.0")
 
 // build.sbt
 lazy val myTests = (project in file("my-tests")).enablePlugins(RiftTlsPlugin)

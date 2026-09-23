@@ -46,10 +46,10 @@ The full SPI set: `Faults`, `StatefulScenarios`, `StateInspection`, `Scripting`,
 
 Known edges (all fail with a **typed** `MockError.InvalidDefinition`, never silently):
 
-- On a **Correlated** space, scenario `define` (with the default `Started` initial state) and
-  `currentState` work per-flow; only the state *writes* (`reset`/`setState`) and a **custom initial
-  state** remain gapped — they need a per-flow `setState` the `rift.zio` surface doesn't expose yet
-  (tracked upstream in rift-java#151). Use `PerInstance` isolation for those. A later rule mutation
+- On a **Correlated** space, scenarios are full-service and scoped to the space's flow: `define`
+  (including a custom initial state), `currentState`, and the writes `setState`/`reset`, through
+  the per-flow `Scenarios.setState(name, state, flowId)`. A write to a scenario the space never
+  declared is a typed `InvalidDefinition`, not a silent engine no-op. A later rule mutation
   rebuilds the space and re-registers the scenario stubs, but (like any correlated rebuild) resets
   the flow's scenario state to its start — so run rule mutations before defining scenarios, or on a
   separate space.
@@ -70,7 +70,7 @@ Known edges (all fail with a **typed** `MockError.InvalidDefinition`, never sile
 - `RiftScalaBackendLiveSpec` runs the MockControl contract against a real embedded engine; it is
   guarded on `RiftConnector.isEmbeddedAvailable` (the repo-standard skip) and executes on the JDK 22 CI
   job, where the embedded jars are wired.
-
-zio-bdd's cross-backend conformance scenario sets are not published as an artifact (they live in
-zio-bdd's test sources); when they are, running them against this adapter is a test-wiring
-follow-up, not an adapter change.
+- `RiftScalaConformanceSpec` runs zio-bdd's own published conformance catalogue
+  (`zio-bdd-mock-conformance`: core, negotiation errors, faults, scripting, templating and
+  stateful scenarios) against the adapter, under the same embedded-engine guard. Every scenario its
+  capabilities cover must pass.

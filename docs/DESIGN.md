@@ -1,13 +1,18 @@
 # rift-scala — Library Design
 
 **Status:** accepted design, implementation phase (M3/M4/M5).
-**Informed by:** rift engine **v0.15.0** wire surface, **rift-java v0.1.3** (released 2026-07), the
-`sdk-conformance` contract (RFC-003 §9.2), and **zio-bdd v1.4.2**'s `MockControl` SPI.
+**Informed by:** rift engine **v0.18.0** wire surface, **rift-java v0.3.0** (the current pin), the
+`sdk-conformance` contract (RFC-003 §9.2), and **zio-bdd v1.4.4**'s `MockControl` SPI.
 (Originally authored against v0.13.5 / rift-java 0.1.1; re-verified against v0.14.0 — the
 imposter-definition wire surface is unchanged, and the engine now carries the `Inject` wait
 variant natively, closing the rift#608 gap this design already modeled. Re-verified again against
 v0.15.0: the conformance corpus fixtures are byte-identical to v0.14.0's, so nothing this design
-models moved.)
+models moved. Updated for engine 0.18.0 / rift-java 0.3.0 in release 0.2.0: ordered behaviors,
+behaviors on every response type, `stateOps`, client-certificate auth, upstream TLS trust,
+recorded status and latency, and multi-value intercept serve headers.)
+
+**Kyo:** the `kyo` module and its §5.10 surface are designed but not implemented. Issue #11 is
+parked, and the published `rift-scala-kyo` artifact is empty.
 
 This document is the single source of truth for the public API of every rift-scala module. Each
 feature issue (#2–#13 and the M5 issues) links to its section here; scope changes land here first.
@@ -47,7 +52,10 @@ over the blocking bridge, so a facade-level `CompletableFuture` surface would be
 
 Facts the design is built on (verified against the released artifacts):
 
-### rift-java 0.1.1
+### rift-java
+
+(First verified against 0.1.1. The artifact set and facade facts below still hold at the current
+pin, 0.3.0.)
 
 | Artifact (`io.github.achird-labs`) | JDK | Role for rift-scala |
 |---|---|---|
@@ -68,8 +76,9 @@ Key facade facts:
 - Errors: `sealed RiftException permits InvalidDefinition, EngineUnavailable,
   CommunicationError, ImposterNotFound, EngineError` (all unchecked), plus
   `VerificationException extends AssertionError`.
-- Engine pin: rift-java 0.1.3 → engine **0.15.0**; compatibility floor 0.13.1; version
-  preflight on `connect` (configurable `FAIL | WARN | OFF`).
+- Engine pin: rift-java 0.3.0 → engine **0.18.0**; version preflight on `connect`
+  (configurable `FAIL | WARN | OFF`). A feature that needs a newer engine is refused by rift-java
+  at create time on an older one.
 - Embedded needs `--enable-native-access=ALL-UNNAMED` and a natives classifier jar (or
   `-Drift.ffi.lib`); on JDK 21 additionally `--enable-preview` with the `-jdk21` artifact.
 
@@ -253,7 +262,7 @@ final case class ImposterDefinition(
   serviceName: Option[String]        = None,
   serviceInfo: Option[Json]          = None,   // stored by the engine verbatim
   recordRequests: Boolean            = false,
-  recordMatches: Boolean             = false,
+  recordMatches: Boolean             = false,  // deprecated (#158): no engine acts on it
   enabled: Boolean                   = true,   // rift#818; emitted only when false
   stubs: Vector[Stub]                = Vector.empty,
   defaultResponse: Option[IsResponse]= None,
@@ -261,6 +270,7 @@ final case class ImposterDefinition(
   allowCors: Boolean                 = false,
   strictBehaviors: Boolean           = false,
   tls: Option[TlsMaterial]           = None,   // cert + key PEM for https
+  clientAuth: ClientAuth             = ClientAuth.none, // mutualAuth + CA PEM (#175, engine >= 0.18.0)
   rift: Option[RiftConfig]           = None,   // the _rift extension block
   extra: Vector[(String, Json)]      = Vector.empty
 )
@@ -323,7 +333,9 @@ enum TcpFaultKind:
 final case class RiftResponseExt(
   fault: Option[FaultConfig]   = None,   // probabilistic latency/error/tcp
   script: Option[ScriptSource] = None,   // rhai | js, inline | file | ref
-  templated: Boolean           = false   // ${request.*} interpolation
+  templated: Boolean           = false,  // ${request.*} interpolation
+  stateOps: Vector[StateOp]    = Vector.empty, // flow-state writes after the response (#172)
+  extra: Vector[(String, Json)] = Vector.empty // unknown _rift keys, e.g. dataset (#171)
 )
 
 enum ScriptSource:
@@ -341,12 +353,15 @@ plus `Unknown(name, raw)` for forward compatibility. It reads both wire shapes: 
 object (keys run in the engine's fixed order, none repeat) and the `behaviors` array that
 `GET /imposters` writes (elements run in order, keys may repeat), plus a response-level `repeat`
 beside `is`. Writing keeps the spelling it read, and uses the array whenever a key repeats, since
-the object form would lose one. Engine 0.17.0 still folds an array and runs only the last of a
-repeated key; 0.18.0 runs every element. The DSL writes one entry per key in the `_behaviors`
-object, as before. `RiftConfig`
-models the imposter-level `_rift` block: `flowState` (backend inmemory/redis, `ttlSeconds`,
-`flowIdSource`), `scriptEngine` (default engine + `timeoutMs`), named `scripts` registry,
-`metrics`. `FaultConfig` models `latency {probability, ms | minMs..maxMs}`,
+the object form would lose one. Engine 0.18.0, the pinned engine, runs every element; an engine
+older than 0.18.0 folds the array and runs only the last of a repeated key. A multi-key array
+element is expanded into one step per key in the engine's run order, and a `null` value for a
+modeled key is refused. The DSL writes one entry per key in the `_behaviors` object, as before.
+`RiftConfig` models the imposter-level `_rift` block: `flowState` (backend inmemory/redis,
+`ttlSeconds`, `flowIdSource`), `scriptEngine` (default engine + `timeoutMs`), named `scripts`
+registry, and the deprecated `metrics` and `proxy` (#158). `RiftConfig` and `FlowStateConfig`
+each carry an `extra` for keys the model does not type, such as the engine's `_rift.warnings`
+(#160, #171). `FaultConfig` models `latency {probability, ms | minMs..maxMs}`,
 `error {probability, status, body, headers}`, `tcp` (bare or probabilistic — probabilistic
 requires engine ≥ 0.13.2, documented on the method).
 
@@ -362,7 +377,9 @@ final case class RecordedRequest(
   def status: Option[Int]; def latencyMs: Option[Long]
   def summary: String   // "GET /orders → 201 in 12 ms", as rift-java renders it
 
-final case class EngineInfo(version: String, commit: String, features: Set[String])
+final case class EngineInfo(version: String, commit: String, features: Set[String],
+  serveOptions: Set[String] = Set.empty)  // serve keys the embedded engine accepts, to
+                                          // feature-detect e.g. upstream TLS trust (#176)
 final case class ApplyResult(created: Int, replaced: Int, stubPatched: Int,
                              deleted: Int, failed: Vector[Json])
 final case class ScenarioStatus(name: String, state: String)
@@ -1351,7 +1368,7 @@ rift-java 0.1.1 is released — nothing in M3 is blocked anymore.
    type** D6 reserved for it — `rift.bridge.RiftEvent`, wrapped per-surface as `rift.zio.Rift.events`
    (`ZStream`), `rift.cats.Rift[F].eventSource` (`Resource[F, EventSource]`, no fs2 dependency in
    `cats`), `rift.fs2.syntax.events` (`Stream`), and `rift.pure.Rift.events`/`eventsUnsafe`
-   (issue #87). (`Dependencies.scala` pins `riftJava = "0.2.1"` → engine 0.16.0.)
+   (issue #87).
 3. **`rift-scala-bom` / sbt natives helper** — if classifier selection proves to be a support
    burden, ship `RiftNatives.currentClassifier` as a tiny sbt plugin or documented snippet
    first (bridge README), promote to an artifact on demand.

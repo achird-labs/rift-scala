@@ -65,8 +65,9 @@ matching every intercepted host. Everything downstream of the rule (`.when`, `se
 `redirectTo`) is identical.
 
 `redirectTo` earns its place here because this pattern hot-swaps a whole imposter's stubs — and it
-is also what you need for a behavior or a fault. A `serve` rule carries a status, single-valued
-headers, and a text or JSON body, and nothing else: the engine's intercept serve action has no room
+is also what you need for a behavior or a fault. A `serve` rule carries a status (an integer, or a
+numeric string such as a migrated Mountebank mock's `"404"`), headers, and a text or JSON body,
+and nothing else. A header given several values, such as `Set-Cookie`, is sent once per value. The engine's intercept serve action has no room
 for the rest (issue #147). So a slow gateway or a dropped connection goes through an imposter —
 
 ```scala
@@ -87,11 +88,10 @@ ic.rule().serve(ok.withTcpFault(TcpFaultKind.ConnectionResetByPeer))  // RiftErr
 That is deliberate. Before #147 both lines were accepted and then answered as a plain `200` with the
 wait and the fault quietly discarded — so a resilience test written this way passed against a
 success response nobody asked for. The full reject set is every `_behaviors` and `_rift` construct
-(waits, `decorate`, `repeat`, `shellTransform`, `copy`, `lookup`, templating, every fault kind, an
-embedded `_rift.script`), a binary body, and a repeated header name — repeated compared the way HTTP
-compares field names, so `Content-Type` and `content-type` are one header, not two. All of them
-survive intact on
-an imposter stub, which is why the error points you here.
+(waits, `decorate`, `repeat`, `shellTransform`, `copy`, `lookup`, templating, `stateOps`, every
+fault kind, an embedded `_rift.script`), a binary body, and a `statusCode` string that is not an
+integer from 0 to 65535. All of them survive intact on an imposter stub, which is why the error
+points you here.
 
 ### 3 — the SUT's client, routed through the intercept
 
