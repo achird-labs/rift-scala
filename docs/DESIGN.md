@@ -1,7 +1,7 @@
 # rift-scala — Library Design
 
 **Status:** accepted design, implementation phase (M3/M4/M5).
-**Informed by:** rift engine **v0.18.0** wire surface, **rift-java v0.3.0** (the current pin), the
+**Informed by:** rift engine **v0.18.0** wire surface, **rift-java v0.3.1** (the current pin), the
 `sdk-conformance` contract (RFC-003 §9.2), and **zio-bdd v1.4.4**'s `MockControl` SPI.
 (Originally authored against v0.13.5 / rift-java 0.1.1; re-verified against v0.14.0 — the
 imposter-definition wire surface is unchanged, and the engine now carries the `Inject` wait
@@ -55,7 +55,7 @@ Facts the design is built on (verified against the released artifacts):
 ### rift-java
 
 (First verified against 0.1.1. The artifact set and facade facts below still hold at the current
-pin, 0.3.0.)
+pin, 0.3.1.)
 
 | Artifact (`io.github.achird-labs`) | JDK | Role for rift-scala |
 |---|---|---|
@@ -76,7 +76,7 @@ Key facade facts:
 - Errors: `sealed RiftException permits InvalidDefinition, EngineUnavailable,
   CommunicationError, ImposterNotFound, EngineError` (all unchecked), plus
   `VerificationException extends AssertionError`.
-- Engine pin: rift-java 0.3.0 → engine **0.18.0**; version preflight on `connect`
+- Engine pin: rift-java 0.3.1 → engine **0.18.0**; version preflight on `connect`
   (configurable `FAIL | WARN | OFF`). A feature that needs a newer engine is refused by rift-java
   at create time on an older one.
 - Embedded needs `--enable-native-access=ALL-UNNAMED` and a natives classifier jar (or
@@ -675,18 +675,24 @@ upstreamTrust)`,
 `SpawnConfig(binaryPath, version, host, adminPort, allowInjection, localOnly, logLevel, env,
 workingDir, mirrorUrl, startupTimeout = 15.seconds, shutdownTimeout = 5.seconds, inheritLog,
 upstreamTrust)`,
-`ContainerConfig(image, imposterPorts, apiKey, gateway, interceptPort)`). The facade's
+`ContainerConfig(image, imposterPorts, apiKey, gateway, interceptPort, allowInjection,
+upstreamTrust)`). The facade's
 `SpawnOptions.version()` defaults to the **live** `RiftVersion.engineVersion()` (not a static
 literal), so a `SpawnConfig` that leaves `version` unset spawns the engine pinned by this build.
 `upstreamTrust` (`UpstreamTrust.CaFile | CaPem | SkipVerify`, #176) is how the engine trusts an
-HTTPS origin a proxy stub dials (engine ≥ 0.18.0); spawn takes no inline PEM, and
+HTTPS origin a proxy stub dials (engine ≥ 0.18.0), on the embedded, spawn and container
+transports. Spawn takes no inline PEM; the container takes all three, since rift-java 0.3.1's
+`RiftContainer.withUpstreamTrust` (#248) copies the PEM into the container and names it through
+`RIFT_UPSTREAM_CA_FILE` (`SkipVerify` sets `RIFT_UPSTREAM_TLS_SKIP_VERIFY`) (#194).
 `EngineInfo.serveOptions` is how a caller feature-detects it. rift-java refuses a bad config
-(a PEM with no certificate block, an inline PEM on spawn, trust on a pre-0.18.0 spawn `version`,
-an out-of-range admin port) with a bare `IllegalArgumentException` while its options are built.
-`RiftConnector.embedded`/`spawn` catch exactly that step — no engine is involved yet, so it can
-only be the caller's mistake — and raise `RiftError.InvalidDefinition`, keeping it in every
-backend's typed channel instead of a defect (#193). The transport start itself is not covered;
-rift-java's rules are not duplicated.
+(a PEM with no certificate block, an inline PEM on spawn, trust on a pre-0.18.0 spawn `version`
+or container image tag, an out-of-range admin port) with a bare `IllegalArgumentException` while
+its options are built — for the container, while `RiftContainer` is configured, before `start()`.
+`RiftConnector.embedded`/`spawn`/`container` catch exactly that step — no engine is involved yet,
+so it can only be the caller's mistake — and raise `RiftError.InvalidDefinition`, keeping it in
+every backend's typed channel instead of a defect (#193, #194). The transport start itself is not
+covered (an unreadable `CaFile` fails the container's start); rift-java's rules are not
+duplicated.
 
 Verification detail (D5): `verify` calls the facade; on `VerificationException` the bridge reads
 its structured `result()` (`requests` for the matched calls, `closest` with `failedPredicates`

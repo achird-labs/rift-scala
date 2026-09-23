@@ -33,13 +33,21 @@ enum VersionCheck:
   * engine applies it when its admin plane starts, and an imposter keeps the client it was created
   * with, so it is a transport setting rather than a per-imposter one.
   *
+  * It applies to the embedded, spawn and container transports (`EmbeddedConfig`, `SpawnConfig`,
+  * `ContainerConfig`); a connected engine is configured by whoever started it. In a container,
+  * rift-java copies a [[CaFile]] or [[CaPem]] into the container when it starts and names it to the
+  * engine (`RIFT_UPSTREAM_CA_FILE`); [[SkipVerify]] sets `RIFT_UPSTREAM_TLS_SKIP_VERIFY` (rift-java
+  * 0.3.1 #248). A [[CaFile]] is read when the engine or container starts.
+  *
   * rift-java sends it only to an engine that supports it: the embedded transport checks the
   * engine's advertised `serveOptions` (an engine without it fails with
-  * `RiftError.EngineUnavailable`), and spawn checks the declared `version`. An inline PEM without a
-  * certificate block, [[CaPem]] on spawn (the engine CLI has no inline form — write the PEM to a
-  * file and use [[CaFile]]), and any trust on a spawn `version` older than 0.18.0 are refused
-  * before an engine starts: `RiftConnector.embedded`/`spawn`, and every effect surface over them,
-  * fail with the typed `RiftError.InvalidDefinition` (#193).
+  * `RiftError.EngineUnavailable`), spawn checks the declared `version`, and the container checks
+  * its image tag (a tag that is not a version, such as `latest`, cannot be checked). An inline PEM
+  * without a certificate block, [[CaPem]] on spawn (the engine CLI has no inline form — write the
+  * PEM to a file and use [[CaFile]]), and any trust on a spawn `version` or container image tag
+  * older than 0.18.0 are refused before an engine starts: `RiftConnector.embedded`/`spawn`/
+  * `container`, and every effect surface over them, fail with the typed
+  * `RiftError.InvalidDefinition` (#193, #194).
   */
 enum UpstreamTrust:
   case CaFile(pem: Path)
@@ -132,7 +140,9 @@ final case class SpawnConfig(
     builder.build()
 
 /** `RiftConnector.container` config. No `toOptions`: the testcontainers transport is configured
-  * directly on `RiftContainer`, not through one of rift-java's `*Options` builders.
+  * directly on `RiftContainer`, not through one of rift-java's `*Options` builders. rift-java's
+  * refusals while it is configured surface as `RiftError.InvalidDefinition`, as for the other
+  * transports' options.
   */
 final case class ContainerConfig(
     image: Option[String] = None,
@@ -143,7 +153,12 @@ final case class ContainerConfig(
     // Enable the engine's script-injection surface (`_rift.script`, `_behaviors.decorate`). The
     // engine gates it behind `--allowInjection` (env `MB_ALLOW_INJECTION`) and defaults it OFF for
     // safety, so this stays opt-in; a consumer that drives the scripting capability sets it true.
-    allowInjection: Boolean = false
+    allowInjection: Boolean = false,
+    /** Outbound TLS trust for proxy stubs; see [[UpstreamTrust]]. Takes every variant, including
+      * [[UpstreamTrust.CaPem]] (the transport writes the file into the container). Needs an image
+      * of engine 0.18.0 or later: a version tag older than that is refused.
+      */
+    upstreamTrust: Option[UpstreamTrust] = None
 )
 
 /** Mirrors rift-java's `RecordMode` — how a proxy-capture session records matched requests. */

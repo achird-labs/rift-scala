@@ -4,7 +4,7 @@ import zio.*
 import zio.test.*
 
 import rift.RiftError
-import rift.bridge.{EmbeddedConfig, SpawnConfig, UpstreamTrust}
+import rift.bridge.{ContainerConfig, EmbeddedConfig, SpawnConfig, UpstreamTrust}
 
 /** #193 — a trust setting rift-java refuses is a caller's configuration mistake, so the layer must
   * fail with a typed `RiftError`, not die. Every refusal fires while the options are built, before
@@ -30,4 +30,10 @@ object UpstreamTrustSpec extends ZIOSpecDefault:
     ,
     test("spawn with an inline PEM fails as InvalidDefinition"):
       failsTyped(Rift.spawn(SpawnConfig(upstreamTrust = Some(UpstreamTrust.CaPem(pem)))))
+    ,
+    // #194 — refused while the container is configured, before Docker is touched.
+    test("container with an inline PEM without a certificate block fails as InvalidDefinition"):
+      failsTyped(
+        Rift.container(ContainerConfig(upstreamTrust = Some(UpstreamTrust.CaPem("not a pem"))))
+      )
   )

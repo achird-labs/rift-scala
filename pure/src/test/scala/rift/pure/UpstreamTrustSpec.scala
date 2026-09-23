@@ -3,7 +3,7 @@ package rift.pure
 import munit.FunSuite
 
 import rift.RiftError
-import rift.bridge.{EmbeddedConfig, SpawnConfig, UpstreamTrust}
+import rift.bridge.{ContainerConfig, EmbeddedConfig, SpawnConfig, UpstreamTrust}
 
 /** #193 — a trust setting rift-java refuses is a caller's configuration mistake, so it must come
   * back as a `Left`, not escape `catchRiftError` as a thrown `IllegalArgumentException`. Every
@@ -25,3 +25,9 @@ class UpstreamTrustSpec extends FunSuite:
 
   test("spawn with an inline PEM is Left(InvalidDefinition)"):
     assertInvalid(Rift.spawn(SpawnConfig(upstreamTrust = Some(UpstreamTrust.CaPem(pem)))))
+
+  // #194 — refused while the container is configured, before Docker is touched.
+  test("container with an inline PEM without a certificate block is Left(InvalidDefinition)"):
+    assertInvalid(
+      Rift.container(ContainerConfig(upstreamTrust = Some(UpstreamTrust.CaPem("not a pem"))))
+    )

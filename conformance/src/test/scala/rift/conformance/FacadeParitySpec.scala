@@ -9,6 +9,7 @@ import scala.jdk.CollectionConverters.*
 import munit.FunSuite
 
 import io.github.achirdlabs.rift.Rift as JRift
+import io.github.achirdlabs.rift.testcontainers.RiftContainer
 
 /** CI-safe facade-diff parity gate over rift-java-core's public API (issue #98, split out of #86).
   *
@@ -30,6 +31,10 @@ import io.github.achirdlabs.rift.Rift as JRift
   *     (`FacadeEncode`/`FacadeDecode`) and `RiftError.fromThrowable`'s total mapping, both gated by
   *     the existing translation and conformance suites.
   *   - `transport`, `spawn`, `codec` — facade-internal plumbing rift-scala never calls directly.
+  *
+  * `RiftContainer` IS enumerated, from the separate rift-java-testcontainers jar (#194): the
+  * container transport is configured through its setters, which play the role a core
+  * `*Options.Builder` plays for the other transports.
   *
   * `dsl` and `verify` ARE enumerated (#130), because the D2 argument never covered them:
   * `FacadeEncode.isSpec` is an explicitly typed value translation with a residual it refuses rather
@@ -99,14 +104,24 @@ class FacadeParitySpec extends FunSuite:
     * keep in sync.
     */
   private def facadeCapabilities: Set[String] =
-    val location = classOf[JRift].getProtectionDomain.getCodeSource.getLocation
+    jarCapabilities(classOf[JRift], "io/github/achirdlabs/rift/(?:dsl/|verify/)?[^/]+\\.class") ++
+      // The container transport's setters (#194): `RiftConnector.container` configures
+      // `RiftContainer` directly rather than through a core `*Options` builder, so without this a
+      // setter a rift-java bump adds there (`withUpstreamTrust` in 0.3.1) is invisible to the gate.
+      jarCapabilities(
+        classOf[RiftContainer],
+        "io/github/achirdlabs/rift/testcontainers/[^/]+\\.class"
+      )
+
+  private def jarCapabilities(anchor: Class[?], entryPattern: String): Set[String] =
+    val location = anchor.getProtectionDomain.getCodeSource.getLocation
     val jarFile = new JarFile(Paths.get(location.toURI).toFile)
     try
       jarFile
         .entries()
         .asScala
         .map(_.getName)
-        .filter(n => n.matches("io/github/achirdlabs/rift/(?:dsl/|verify/)?[^/]+\\.class"))
+        .filter(_.matches(entryPattern))
         .map(n => Class.forName(n.stripSuffix(".class").replace('/', '.')))
         .filter(c => Modifier.isPublic(c.getModifiers) && !c.getSimpleName.endsWith("Impl"))
         .flatMap(c => publicCapabilityMethods(c) ++ enumConstantCapabilities(c))
