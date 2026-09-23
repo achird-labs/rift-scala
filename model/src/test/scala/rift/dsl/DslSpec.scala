@@ -3,6 +3,7 @@ package rift.dsl
 import rift.json.Json
 import rift.model.*
 import rift.model.Method.*
+import scala.annotation.nowarn
 import scala.concurrent.duration.*
 
 class DslSpec extends munit.FunSuite:
@@ -451,7 +452,11 @@ class DslSpec extends munit.FunSuite:
     assertEquals(json.get("injectHeaders"), None)
     assertEquals(json.get("pathRewrite"), None)
 
+  // Issue #158 — proxyConfig, metrics and recordMatches are deprecated: no engine acts on the keys
+  // they emit. Each call below is deliberate and suppresses exactly that warning; the wire they
+  // write must not change.
   test("imposter.proxyConfig builds the _rift.proxy block"):
+    @nowarn("cat=deprecation")
     val d = imposter("api")
       .proxyConfig(upstream("origin.internal", 8443, "https"), connectionPool(50, 30))
       .build
@@ -466,6 +471,7 @@ class DslSpec extends munit.FunSuite:
     )
 
   test("imposter.proxyConfig composes with the other _rift blocks"):
+    @nowarn("cat=deprecation")
     val d = imposter("api").flowState(inMemoryFlowState).proxyConfig(upstream("h", 80)).build
     assert(d.rift.flatMap(_.flowState).isDefined)
     assert(d.rift.flatMap(_.proxy).flatMap(_.upstream).isDefined)
@@ -561,9 +567,25 @@ class DslSpec extends munit.FunSuite:
     assert(rendered.contains("payments"), rendered)
 
   test("metrics sets the _rift.metrics block"):
-    val rendered = imposter("api").metrics(9091).build.toJson.render
-    assert(rendered.contains("metrics"), rendered)
-    assert(rendered.contains("9091"), rendered)
+    @nowarn("cat=deprecation")
+    val built = imposter("api").metrics(9091).build
+    assertEquals(
+      built.toJson.get("_rift", "metrics").map(_.render),
+      Some("""{"enabled":true,"port":9091}""")
+    )
+
+  test("recordMatches still writes recordMatches: true"):
+    @nowarn("cat=deprecation")
+    val built = imposter("api").recordMatches.build
+    assertEquals(built.toJson.get("recordMatches"), Some(Json.Bool(true)))
+
+  // The deprecation is of the builders, not of the keys: a document that carries them still reads
+  // and writes back unchanged, and doing so goes through no deprecated method.
+  test("imposterFromJson keeps recordMatches, _rift.metrics and _rift.proxy unchanged"):
+    val raw =
+      """{"port":4545,"protocol":"http","recordMatches":true,"_rift":{"metrics":{"enabled":true,"port":9091},"proxy":{"upstream":{"host":"origin","port":8443,"protocol":"https"},"connectionPool":{"maxIdlePerHost":50,"idleTimeoutSecs":30}}}}"""
+    val written = imposterFromJson(raw).fold(e => fail(e.toString), _.build.toJson)
+    assert(written.semanticEquals(parse(raw)), written.render)
 
   test("the new fields decode into typed fields and no longer land in extra"):
     val doc = Json.obj(

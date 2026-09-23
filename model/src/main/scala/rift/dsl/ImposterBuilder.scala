@@ -129,6 +129,19 @@ final class ImposterBuilder private[dsl] (
         case Left(msg) => throw new IllegalArgumentException(msg)
 
   def record: ImposterBuilder = withState(recordRequestsFlag = true)
+
+  /** Sets `recordMatches: true`, which no engine acts on: it does not record which stub matched.
+    *
+    * The engine parses the key and does not act on it. Engine 0.18.0 and later report it as a
+    * `config_key_ignored` entry in the imposter's `_rift.warnings` and log a WARN when the imposter
+    * loads; the imposter is still created. There is no capability flag for this, so check the
+    * engine version. The key itself stays in the model, so `imposterFromJson` keeps reading and
+    * writing it unchanged.
+    */
+  @deprecated(
+    "has no effect on the engine; use `record` (recordRequests) and read the imposter's recorded requests instead",
+    "0.1.5"
+  )
   def recordMatches: ImposterBuilder = withState(recordMatchesFlag = true)
 
   def https(certPem: String, keyPem: String): ImposterBuilder =
@@ -189,24 +202,46 @@ final class ImposterBuilder private[dsl] (
   def script(name: String, source: ScriptSource): ImposterBuilder =
     withState(riftValue = Some(rift.copy(scripts = rift.scripts :+ (name -> source))))
 
-  /** Expose the imposter's metrics endpoint on `port`. Sets the `_rift.metrics` block, whose wire
-    * type already round-tripped — only the setter was missing.
+  /** Sets the `_rift.metrics` block, which no engine acts on: it exposes no metrics endpoint.
+    *
+    * The engine parses the key and does not act on it. Engine 0.18.0 and later report it as a
+    * `config_key_ignored` entry in the imposter's `_rift.warnings` and log a WARN when the imposter
+    * loads; the imposter is still created. There is no capability flag for this, so check the
+    * engine version. The key itself stays in the model, so `imposterFromJson` keeps reading and
+    * writing it unchanged.
     */
+  @deprecated(
+    "has no effect on the engine; configure metrics on the engine process with --metrics-port",
+    "0.1.5"
+  )
   def metrics(port: Int): ImposterBuilder =
     withState(riftValue =
       Some(rift.copy(metrics = Some(MetricsConfig(enabled = true, port = port))))
     )
 
-  /** The imposter-level `_rift.proxy` block — where this imposter proxies to, and how it pools
-    * those connections. Distinct from a per-stub `proxyTo(...)` response.
+  /** Sets the imposter-level `_rift.proxy` block, which no engine acts on: the imposter does not
+    * proxy to `upstream` and pools nothing. A per-stub `proxyTo(...)` response is what proxies.
     *
-    * Overloaded rather than defaulted so an omitted `connectionPool` stays absent on the wire: the
-    * engine supplies its own defaults, and emitting `{"maxIdlePerHost":100,...}` the author never
-    * wrote would be a gratuitous divergence.
+    * The engine parses the key and does not act on it. Engine 0.18.0 and later report it as a
+    * `config_key_ignored` entry in the imposter's `_rift.warnings` and log a WARN when the imposter
+    * loads; the imposter is still created. There is no capability flag for this, so check the
+    * engine version. The key itself stays in the model, so `imposterFromJson` keeps reading and
+    * writing it unchanged.
+    *
+    * Overloaded rather than defaulted so an omitted `connectionPool` stays absent on the wire.
     */
+  @deprecated(
+    "has no effect on the engine; there is no replacement block, use a per-stub proxyTo(...) response",
+    "0.1.5"
+  )
   def proxyConfig(upstream: UpstreamConfig): ImposterBuilder =
     withState(riftValue = Some(rift.copy(proxy = Some(ProxyConfig(Some(upstream), None)))))
 
+  /** As the one-argument overload, with a `_rift.proxy.connectionPool` that no engine acts on. */
+  @deprecated(
+    "has no effect on the engine; there is no replacement block, use a per-stub proxyTo(...) response",
+    "0.1.5"
+  )
   def proxyConfig(upstream: UpstreamConfig, connectionPool: ConnectionPoolConfig): ImposterBuilder =
     withState(riftValue =
       Some(rift.copy(proxy = Some(ProxyConfig(Some(upstream), Some(connectionPool)))))
