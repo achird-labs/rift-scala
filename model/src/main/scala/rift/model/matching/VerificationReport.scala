@@ -15,7 +15,7 @@ final case class VerificationReport(
     if missed.isEmpty then s"All ${matched.size} recorded request(s) matched."
     else
       val rows = missed.map { m =>
-        val header = s"  ${m.request.method} ${m.request.path}"
+        val header = s"  ${m.request.summary}"
         val lines = m.failures.map { f =>
           s"    ${f.field}: expected ${f.expected}, got ${f.actual.getOrElse("<missing>")}"
         }

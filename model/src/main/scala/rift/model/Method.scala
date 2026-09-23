@@ -6,9 +6,12 @@ enum Method:
   case GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS
   case Custom(name: String)
 
-  def toJson: Json = this match
-    case Method.Custom(name) => Json.Str(name)
-    case known => Json.Str(known.toString)
+  /** The method as it appears on the wire — `PURGE`, not `Custom(PURGE)`. */
+  def wireName: String = this match
+    case Method.Custom(name) => name
+    case known => known.toString
+
+  def toJson: Json = Json.Str(wireName)
 
 object Method:
   def fromJson(json: Json): Either[JsonError.Decode, Method] = json match
