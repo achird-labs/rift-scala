@@ -6,6 +6,7 @@ import rift.RiftError
 import rift.dsl.*
 import rift.json.Json
 import rift.model.{
+  Behavior,
   Behaviors,
   ErrorFault,
   FaultConfig,
@@ -327,7 +328,7 @@ class InterceptTranslationSpec extends FunSuite:
       Fixed(
         Response.Is(
           IsResponse(statusCode = Some(200)),
-          behaviors = Behaviors(waitFor = Some(WaitBehavior.Script("function () { return 7; }")))
+          behaviors = Behaviors.of(Behavior.Wait(WaitBehavior.Script("function () { return 7; }")))
         )
       ),
       "wait"
@@ -339,6 +340,26 @@ class InterceptTranslationSpec extends FunSuite:
     // Straight off the response DSL since #93 — this is the builder -> model -> facade path a
     // user actually takes, not a hand-assembled model value.
     assertRejects(ok.json("{}").shellTransform("sed s/a/b/"), "shellTransform")
+
+  // Issue #159 — behaviors read from the engine's array form (as `GET /imposters` writes them) are
+  // typed entries now, so the guard sees them and names each kind once, in first-seen order.
+  test("serve rejects behaviors that arrived as the engine's array form"):
+    val decoded = Response
+      .fromJson(
+        Json
+          .parse(
+            """{"is":{"statusCode":200},"repeat":2,"behaviors":[{"decorate":"a"},{"wait":1},{"decorate":"b"}]}"""
+          )
+          .fold(e => fail(e.toString), identity)
+      )
+      .fold(e => fail(e.toString), identity)
+    val msg = rejectMessage(Fixed(decoded))
+    assertEquals("`_behaviors.decorate`".r.findAllIn(msg).length, 1, msg)
+    assert(msg.contains("`_behaviors.wait`"), msg)
+    // the response-level repeat is named where it lives, beside `is`
+    assert(msg.contains("`repeat`"), msg)
+    assert(!msg.contains("`_behaviors.repeat`"), msg)
+    assert(msg.indexOf("decorate") < msg.indexOf("_behaviors.wait"), msg)
 
   test("serve rejects the _rift templated flag"):
     assertRejects(ok.json("{}").templated, "templated")
@@ -407,7 +428,7 @@ class InterceptTranslationSpec extends FunSuite:
       Fixed(
         Response.Is(
           IsResponse(statusCode = Some(200)),
-          behaviors = Behaviors(lookup = Vector(Json.obj("key" -> Json.Str("k"))))
+          behaviors = Behaviors.of(Behavior.Lookup(Vector(Json.obj("key" -> Json.Str("k"))), false))
         )
       )
     )
@@ -446,7 +467,7 @@ class InterceptTranslationSpec extends FunSuite:
       Fixed(
         Response.Is(
           IsResponse(statusCode = Some(200)),
-          behaviors = Behaviors(unknown = Vector("futureThing" -> Json.Bool(true)))
+          behaviors = Behaviors.of(Behavior.Unknown("futureThing", Json.Bool(true)))
         )
       )
     )

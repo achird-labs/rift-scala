@@ -4,7 +4,7 @@ import rift.json.Json
 
 /** Targeted round-trip/rejection guards for the non-canonical wire forms fixed in issue #54, beyond
   * what the corpus fixtures happen to carry: the bare-vs-array `copy` disambiguation (the reason
-  * `Behaviors.singletonVectorKeys` exists), and the loud-rejection branches added to the
+  * `Behavior.Copy` carries `bare`), and the loud-rejection branches added to the
   * `statusCode`/header decoders. A regression in these would otherwise ship silently — no corpus
   * fixture exercises the 1-element-array `copy` form or the invalid inputs.
   */

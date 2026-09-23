@@ -49,7 +49,7 @@ object AspectsSpec extends ZIOSpecDefault:
           )
         val response: Response.Is = Response.Is(
           response = IsResponse(statusCode = Some(200)),
-          behaviors = Behaviors(waitFor = Some(WaitBehavior.Fixed(50))),
+          behaviors = Behaviors.of(Behavior.Wait(WaitBehavior.Fixed(50))),
           rift = Some(RiftResponseExt(fault = Some(existingFault))),
           extra = Vector("x-custom" -> Json.Str("kept"))
         )

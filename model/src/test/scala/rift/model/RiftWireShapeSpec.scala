@@ -303,41 +303,64 @@ class RiftWireShapeSpec extends munit.FunSuite:
       val b = Behaviors.fromJson(json).fold(e => fail(s"$raw: $e"), identity)
       assert(b.toJson.semanticEquals(json), s"$raw did not round-trip: ${b.toJson.render}")
 
-  // ── 11. Behaviors array form — what the engine EMITS on GET /imposters ───────────────────────
-  // Proof: engine `behaviors_to_array` (imposter/types.rs:702-723 @ v0.14.0) renders `_behaviors` as an array
-  // of single-key objects on read-back; rift-java `Behaviors.readArray` accepts it and always
-  // serializes the object form back. This is the read path #3's `definition()` will take.
-  test("behaviors: the engine's array-of-single-key-objects form decodes"):
-    val json = parse("""[{"wait":100},{"decorate":"function () {}"},{"repeat":3}]""")
-    val b = Behaviors.fromJson(json).fold(e => fail(e.toString), identity)
-    assertEquals(b.waitFor, Some(WaitBehavior.Fixed(100L)))
-    assertEquals(b.decorate, Some("function () {}"))
-    assertEquals(b.repeat, Some(3))
+  // ── 11. Behaviors — an ordered program (issue #159, engine rift#1198) ─────────────────────────
+  // From engine 0.18.0 a `behaviors` array runs as a program: every element, in array order, with
+  // repeated keys all running. `GET /imposters` writes that array form. The model keeps one entry
+  // per element, in order, and re-encodes the spelling it read: folding the array into the object
+  // form (the pre-#159 model) changed what the engine runs when the imposter was re-sent.
+  private val copyA = """{"from":"path","into":"$1","using":{"method":"regex","selector":"."}}"""
+  private val copyB = """{"from":"body","into":"$2","using":{"method":"regex","selector":"."}}"""
 
-  test("behaviors: the object form still decodes identically"):
-    val arr = parse("""[{"wait":100},{"repeat":3}]""")
-    val obj = parse("""{"wait":100,"repeat":3}""")
-    assertEquals(Behaviors.fromJson(arr), Behaviors.fromJson(obj))
+  private def decoded(raw: String): Behaviors =
+    Behaviors.fromJson(parse(raw)).fold(e => fail(s"$raw: $e"), identity)
 
-  /** Encoding always uses the object form — rift-java's stated policy verbatim, so a GET -> PUT
-    * normalizes spelling identically in both SDKs.
-    */
-  test("behaviors: an array decodes and re-encodes as the object form"):
-    val b = Behaviors
-      .fromJson(parse("""[{"wait":100},{"repeat":3}]"""))
-      .fold(e => fail(e.toString), identity)
-    assert(b.toJson.semanticEquals(parse("""{"wait":100,"repeat":3}""")))
+  private def roundTripsExactly(raw: String)(using munit.Location): Unit =
+    assertEquals(decoded(raw).toJson.render, parse(raw).render)
 
-  test("behaviors: repeated vector-valued keys in an array accumulate"):
-    val json = parse(
-      """[{"copy":{"from":"path","into":"$1","using":{"method":"regex","selector":"."}}},
-                        |{"copy":{"from":"body","into":"$2","using":{"method":"regex","selector":"."}}}]""".stripMargin
-        .replace("\n", "")
+  test("behaviors: the engine's array-of-single-key-objects form decodes entry by entry"):
+    assertEquals(
+      decoded("""[{"wait":100},{"decorate":"function () {}"},{"repeat":3}]""").entries,
+      Vector(
+        Behavior.Wait(WaitBehavior.Fixed(100L)),
+        Behavior.Decorate("function () {}"),
+        Behavior.Repeat(3, responseLevel = false)
+      )
     )
-    val b = Behaviors.fromJson(json).fold(e => fail(e.toString), identity)
-    assertEquals(b.copyEntries.size, 2)
-    // and they survive the round-trip into the object form's single `copy` array
-    assertEquals(b.toJson.get("copy").flatMap(_.asArray).map(_.size), Some(2))
+
+  test("behaviors: the object form decodes to the same entries in its own key order"):
+    assertEquals(
+      decoded("""{"wait":100,"repeat":3}""").entries,
+      decoded("""[{"wait":100},{"repeat":3}]""").entries
+    )
+
+  test("behaviors: an array re-encodes as an array, never folded into the object form"):
+    roundTripsExactly("""[{"wait":100},{"repeat":3}]""")
+
+  test("behaviors: repeated decorate and wait elements all survive, in order"):
+    assertEquals(
+      decoded("""[{"decorate":"a"},{"wait":1},{"decorate":"b"}]""").entries,
+      Vector(
+        Behavior.Decorate("a"),
+        Behavior.Wait(WaitBehavior.Fixed(1L)),
+        Behavior.Decorate("b")
+      )
+    )
+    roundTripsExactly("""[{"decorate":"a"},{"wait":1},{"decorate":"b"}]""")
+
+  test("behaviors: a copy is not pulled forward past the steps between its elements"):
+    roundTripsExactly(s"""[{"copy":$copyA},{"wait":1},{"copy":$copyB}]""")
+    roundTripsExactly(s"""[{"copy":$copyA},{"decorate":"f"},{"copy":$copyB}]""")
+    assertEquals(
+      decoded(s"""[{"copy":$copyA},{"decorate":"f"},{"copy":$copyB}]""").entries.map(_.key),
+      Vector("copy", "decorate", "copy")
+    )
+
+  test("behaviors: the object form stays an object"):
+    roundTripsExactly("""{"wait":1,"decorate":"f"}""")
+
+  test("behaviors: a repeated repeat or unknown key is kept, not rejected"):
+    roundTripsExactly("""[{"repeat":1},{"repeat":2}]""")
+    roundTripsExactly("""[{"futureThing":1},{"futureThing":2}]""")
 
   test("behaviors: an array entry with zero or several keys is a decode error"):
     assert(Behaviors.fromJson(parse("""[{}]""")).isLeft)
@@ -346,67 +369,76 @@ class RiftWireShapeSpec extends munit.FunSuite:
   test("behaviors: a non-object array entry is a decode error"):
     assert(Behaviors.fromJson(parse("""["wait"]""")).isLeft)
 
-  /** A repeated scalar key has no object-form representation, so silently keeping the last would
-    * lose data on the very next encode. Fail loudly instead.
-    */
-  test("behaviors: a repeated scalar key in an array is a decode error, not last-wins"):
-    assert(Behaviors.fromJson(parse("""[{"wait":100},{"wait":200}]""")).isLeft)
-    assert(Behaviors.fromJson(parse("""[{"repeat":1},{"repeat":2}]""")).isLeft)
+  test("behaviors: an empty array decodes to no entries"):
+    assert(decoded("[]").isEmpty)
 
-  test("behaviors: an empty array is an empty Behaviors"):
-    assertEquals(Behaviors.fromJson(parse("[]")), Right(Behaviors.empty))
-
-  /** Forward compatibility, the array-form half. Asserting only that the *key* survived would miss
-    * the failure that matters: an unknown key is not vector-valued just because the model does not
-    * know it, so array-wrapping its value would hand the engine back `{"futureThing":[{...}]}` on
-    * the next PUT — a document the author never wrote.
+  /** Forward compatibility, the array-form half. An unknown key is not vector-valued just because
+    * the model does not know it, so its value must come back exactly as it went in.
     */
   test("behaviors: an unknown key's value round-trips unchanged through the array form"):
-    val b = Behaviors
-      .fromJson(parse("""[{"wait":100},{"futureThing":{"x":1}}]"""))
-      .fold(e => fail(e.toString), identity)
-    assertEquals(b.unknown, Vector("futureThing" -> parse("""{"x":1}""")))
-    assert(
-      b.toJson.semanticEquals(parse("""{"wait":100,"futureThing":{"x":1}}""")),
-      s"unknown key was reshaped: ${b.toJson.render}"
+    assertEquals(
+      decoded("""[{"wait":100},{"futureThing":{"x":1}}]""").entries,
+      Vector(
+        Behavior.Wait(WaitBehavior.Fixed(100L)),
+        Behavior.Unknown("futureThing", parse("""{"x":1}"""))
+      )
     )
+    roundTripsExactly("""[{"wait":100},{"futureThing":{"x":1}}]""")
 
   test("behaviors: the two forms agree on an unknown key"):
     assertEquals(
-      Behaviors.fromJson(parse("""[{"futureThing":{"x":1}}]""")),
-      Behaviors.fromJson(parse("""{"futureThing":{"x":1}}"""))
+      decoded("""[{"futureThing":{"x":1}}]""").entries,
+      decoded("""{"futureThing":{"x":1}}""").entries
     )
 
   test("behaviors: an unknown scalar value is not promoted to an array"):
-    val b =
-      Behaviors.fromJson(parse("""[{"futureThing":5}]""")).fold(e => fail(e.toString), identity)
-    assert(b.toJson.semanticEquals(parse("""{"futureThing":5}""")), b.toJson.render)
+    roundTripsExactly("""[{"futureThing":5}]""")
+    roundTripsExactly("""{"futureThing":5}""")
 
-  test("behaviors: a repeated unknown key is a decode error, not a silent merge"):
-    assert(Behaviors.fromJson(parse("""[{"futureThing":1},{"futureThing":2}]""")).isLeft)
+  test("behaviors: an element whose value is already an array stays one entry"):
+    assertEquals(
+      decoded(s"""[{"copy":[$copyA,$copyB]}]""").entries,
+      Vector(Behavior.Copy(Vector(parse(copyA), parse(copyB)), bare = false))
+    )
+    roundTripsExactly(s"""[{"copy":[$copyA,$copyB]}]""")
 
-  test("behaviors: an array entry whose value is already an array is not double-wrapped"):
-    val one = """{"from":"path","into":"$1","using":{"method":"regex","selector":"."}}"""
-    val two = """{"from":"body","into":"$2","using":{"method":"regex","selector":"."}}"""
-    val b = Behaviors
-      .fromJson(parse(s"""[{"copy":[$one,$two]}]"""))
-      .fold(e => fail(e.toString), identity)
-    assertEquals(b.copyEntries, Vector(parse(one), parse(two)))
+  test("behaviors: single and array copy elements keep their own spelling"):
+    assertEquals(
+      decoded(s"""[{"copy":$copyA},{"copy":[$copyB]}]""").entries,
+      Vector(
+        Behavior.Copy(Vector(parse(copyA)), bare = true),
+        Behavior.Copy(Vector(parse(copyB)), bare = false)
+      )
+    )
+    roundTripsExactly(s"""[{"copy":$copyA},{"copy":[$copyB]}]""")
 
-  test("behaviors: a vector key mixes single and array entries across the array form"):
-    val one = """{"from":"path","into":"$1","using":{"method":"regex","selector":"."}}"""
-    val two = """{"from":"body","into":"$2","using":{"method":"regex","selector":"."}}"""
-    val b = Behaviors
-      .fromJson(parse(s"""[{"copy":$one},{"copy":[$two]}]"""))
-      .fold(e => fail(e.toString), identity)
-    assertEquals(b.copyEntries, Vector(parse(one), parse(two)))
+  private val lookupRow =
+    """{"key":{"from":"path","using":{"method":"regex","selector":".+"}},"fromDataSource":{"csv":{"path":"p.csv","keyColumn":"id"}},"into":"${row}"}"""
 
-  test("behaviors: shellTransform's bare-string spelling works through the array form"):
-    val b =
-      Behaviors
-        .fromJson(parse("""[{"shellTransform":"cmd"}]"""))
-        .fold(e => fail(e.toString), identity)
-    assertEquals(b.shellTransform, Vector("cmd"))
+  test("behaviors: lookup keeps its bare and array spellings in both forms"):
+    assertEquals(
+      decoded(s"""{"lookup":$lookupRow}""").entries,
+      Vector(Behavior.Lookup(Vector(parse(lookupRow)), bare = true))
+    )
+    roundTripsExactly(s"""{"lookup":$lookupRow}""")
+    roundTripsExactly(s"""{"lookup":[$lookupRow]}""")
+    roundTripsExactly(s"""[{"lookup":$lookupRow},{"lookup":[$lookupRow]}]""")
+
+  test("behaviors: an object-form lookup missing its required fields is a decode error"):
+    assert(Behaviors.fromJson(parse("""{"lookup":{"key":{}}}""")).isLeft)
+
+  test("behaviors: a fractional or non-numeric block repeat is a decode error"):
+    assert(Behaviors.fromJson(parse("""{"repeat":1.5}""")).isLeft)
+    assert(Behaviors.fromJson(parse("""[{"repeat":"3"}]""")).isLeft)
+
+  test("behaviors: shellTransform's bare-string spelling survives both forms"):
+    assertEquals(
+      decoded("""[{"shellTransform":"cmd"}]""").entries,
+      Vector(Behavior.ShellTransform(Vector("cmd"), bare = true))
+    )
+    roundTripsExactly("""[{"shellTransform":"cmd"}]""")
+    roundTripsExactly("""{"shellTransform":"cmd"}""")
+    roundTripsExactly("""{"shellTransform":["a","b"]}""")
 
   test("behaviors: a non-array copy is a decode error rather than a silent drop"):
     assert(
@@ -417,10 +449,10 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assert(Behaviors.fromJson(parse("""[{"copy":{"a":1}}]""")).isRight)
 
   test("behaviors: an array decode error names the offending entry index"):
-    List("""[{"wait":100},{}]""", """[{"wait":1},{"wait":2}]""", """[{"a":1,"b":2}]""").foreach:
-      raw =>
+    List("""[{"wait":100},{}]""", """[{"wait":1},{"wait":{"min":1}}]""", """[{"a":1,"b":2}]""")
+      .foreach: raw =>
         Behaviors.fromJson(parse(raw)) match
-          case Left(e) => assert(e.toString.contains("["), s"$raw: error did not name an entry: $e")
+          case Left(e) => assert(e.path.headOption.exists(_.forall(_.isDigit)), s"$raw: $e")
           case Right(b) => fail(s"$raw should not decode, got $b")
 
   // ── 12. ProxyResponse write-side fields ─────────────────────────────────────────────────────
