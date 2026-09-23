@@ -361,6 +361,18 @@ class InterceptTranslationSpec extends FunSuite:
     assert(!msg.contains("`_behaviors.repeat`"), msg)
     assert(msg.indexOf("decorate") < msg.indexOf("_behaviors.wait"), msg)
 
+  // Issue #171 — an unmodeled response `_rift` key (stateOps, dataset) cannot be served either.
+  test("serve rejects an unmodeled _rift key, naming it"):
+    val msg = rejectMessage(
+      Fixed(
+        Response.Is(
+          IsResponse(statusCode = Some(200)),
+          rift = Some(RiftResponseExt(extra = Vector("stateOps" -> Json.arr())))
+        )
+      )
+    )
+    assert(msg.contains("`_rift.stateOps`"), msg)
+
   test("serve rejects the _rift templated flag"):
     assertRejects(ok.json("{}").templated, "templated")
 

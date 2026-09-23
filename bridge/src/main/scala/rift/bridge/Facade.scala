@@ -336,6 +336,8 @@ private[bridge] object FacadeEncode:
           Option.when(fault.exists(_.tcp.isDefined))("`_rift.fault.tcp` (withTcpFault)"),
           Option.when(is.extra.contains(binaryMarker))("a binary body (`_mode=binary`)")
         ).flatten ++
+        // every `_rift` key the model does not type (stateOps, dataset, a newer engine's key)
+        ext.extra.map((key, _) => s"`_rift.$key`") ++
         repeatedHeaderNames(is.headers).map(name => s"repeated header '$name'")
 
     if dropped.nonEmpty then
