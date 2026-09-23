@@ -258,12 +258,11 @@ private[bridge] object FacadeEncode:
 
   /** Translates a rift-scala response into the facade's `IsSpec` for an intercept `serve` rule.
     *
-    * The accepted set is what the engine's serve action delivers: a numeric `statusCode`,
-    * single-valued `headers`, and a text or JSON `body`. `InterceptImpl.toServeStub`
-    * (rift-java-core 0.2.3) builds that action from those three fields alone — it reads neither
-    * `Response.Is.behaviors()` nor `.rift()` nor `IsResponse.mode()`, and keeps only the first
-    * value of each header — so everything else an `IsSpec` can carry is discarded there, whatever
-    * this translation puts into it.
+    * The accepted set is what the engine's serve action delivers: a numeric `statusCode`, `headers`
+    * (several values per name since engine 0.18.0, #177), and a text or JSON `body`.
+    * `InterceptImpl.toServeStub` builds that action from those three fields alone — it reads
+    * neither `Response.Is.behaviors()` nor `.rift()` nor `IsResponse.mode()` — so everything else
+    * an `IsSpec` can carry is discarded there, whatever this translation puts into it.
     *
     * So the undeliverable set is **rejected** here rather than translated (issue #147): passing it
     * on would register a rule that answers a response the caller never asked for, and a
@@ -338,8 +337,7 @@ private[bridge] object FacadeEncode:
           Option.when(is.extra.contains(binaryMarker))("a binary body (`_mode=binary`)")
         ).flatten ++
         // every `_rift` key the model does not type (dataset, a newer engine's key)
-        ext.extra.map((key, _) => s"`_rift.$key`") ++
-        repeatedHeaderNames(is.headers).map(name => s"repeated header '$name'")
+        ext.extra.map((key, _) => s"`_rift.$key`")
 
     if dropped.nonEmpty then
       throw invalid(
@@ -348,25 +346,18 @@ private[bridge] object FacadeEncode:
           "answer a response you did not ask for. Use redirectTo(imposter) for full stub fidelity."
       )
 
-  /** Header names carrying more than one value under HTTP's case-insensitive name equality (RFC
-    * 9110 §5.1), reported once per logical header in first-seen order and first-seen casing. The
-    * engine's serve action emits only `values.get(0)` per name, so the rest would vanish.
-    *
-    * Folded with `Locale.ROOT` rather than compared pairwise with `equalsIgnoreCase`: one relation
-    * decides both the grouping and the count, and it is immune to the Turkish-I trap a
-    * default-locale fold carries. Over the ASCII tokens RFC 9110 §5.6.2 allows as field names the
-    * fold and `Headers.get`'s `equalsIgnoreCase` agree exactly, so the two ends of this path — this
-    * guard and the #149 Content-Type default — cannot disagree about what repeats.
-    *
-    * Quadratic, over a header list: the alternative that reads as cheaper (`groupBy`) returns hash
-    * order, which would reorder the names in the error message run to run.
+  /** The response's headers grouped by name, case-insensitively (RFC 9110 §5.1 — the fold
+    * `Headers.get` and the engine use), in first-seen order, each under the spelling written first,
+    * with its values in order. Engine 0.18.0 serves a name with several values as one line each
+    * (what `Set-Cookie` needs), and rift-java 0.3.0 sends them as an array, refusing it on an older
+    * engine (#177). Before that the facade kept only the first value, so repeats were rejected.
     */
-  private def repeatedHeaderNames(headers: Headers): Vector[String] =
+  private def groupedHeaders(headers: Headers): Vector[(String, Vector[String])] =
     def fold(name: String): String = name.toLowerCase(java.util.Locale.ROOT)
-    val names = headers.entries.map(_._1)
-    names.distinctBy(fold).filter { name =>
-      val f = fold(name)
-      names.count(fold(_) == f) > 1
+    headers.entries.foldLeft(Vector.empty[(String, Vector[String])]) { case (acc, (name, value)) =>
+      acc.indexWhere((seen, _) => fold(seen) == fold(name)) match
+        case -1 => acc :+ (name -> Vector(value))
+        case i => acc.updated(i, acc(i)._1 -> (acc(i)._2 :+ value))
     }
 
   private def isPlainIsExtra(extra: Vector[(String, Json)]): Boolean =
@@ -382,12 +373,11 @@ private[bridge] object FacadeEncode:
           "status takes an Int) — use redirectTo(imposter) for full stub fidelity"
       )
     val withStatus = JRiftDsl.status(is.statusCode.getOrElse(200))
-    // One call per entry rather than a varargs-per-name collapse: `requireDeliverable` has already
-    // rejected any repeated name, so no entry here shares a name with another. That guard is what
-    // makes this safe — the facade's `withHeader` is a `LinkedHashMap.put`, so a repeated name
-    // would quietly keep the last value rather than fail.
-    val withHeaders = is.headers.entries.foldLeft(withStatus) { case (spec, (name, value)) =>
-      spec.withHeader(name, value)
+    // One call per *name* with all its values: the facade's `withHeader` is a `LinkedHashMap.put`,
+    // so a second call for a name would replace the first rather than add to it.
+    val withHeaders = groupedHeaders(is.headers).foldLeft(withStatus) {
+      case (spec, (name, values)) =>
+        spec.withHeader(name, values*)
     }
     is.body match
       case Some(Json.Str(s)) => withHeaders.withTextBody(s)
