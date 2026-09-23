@@ -301,9 +301,9 @@ private[bridge] object FacadeEncode:
   /** Names **every** construct in this guard's own set, in one error rather than the first one
     * found: first-wins would send a caller round the loop once per construct, each time reporting a
     * rule they had already been told was unusable. (The two rejections outside this set — an
-    * unknown key in `isSpec`, a non-numeric `statusCode` in `isSpecFromIs` — are still first-wins;
-    * they are "cannot express" rather than "would be dropped", and pairing one with a construct
-    * from this set is not a shape the DSL builds.)
+    * unknown key in `isSpec`, a `statusCode` string outside 0..65535 in `isSpecFromIs` — are still
+    * first-wins; they are "cannot express" rather than "would be dropped", and pairing one with a
+    * construct from this set is not a shape the DSL builds.)
     *
     * These are not translation gaps — `IsSpec` expresses most of them, and this module used to
     * translate them faithfully. They are dropped one hop later, by `InterceptImpl.toServeStub`
@@ -364,15 +364,28 @@ private[bridge] object FacadeEncode:
     extra.isEmpty || extra == Vector(binaryMarker)
 
   private def isSpecFromIs(is: IsResponse): JIsSpec =
-    // `rawStatusCode` is a *modeled* field (the non-numeric wire form, e.g. a migrated mock's `"404"`), so it
-    // never lands in `is.extra` and the unknown-key guard cannot see it. `RiftDsl.status` takes an
-    // Int, so translating would silently answer 200 for a response that named some other status.
-    if is.rawStatusCode.isDefined then
-      throw invalid(
-        "intercept serve: a non-numeric `statusCode` has no facade IsSpec entry point (RiftDsl." +
-          "status takes an Int) — use redirectTo(imposter) for full stub fidelity"
-      )
-    val withStatus = JRiftDsl.status(is.statusCode.getOrElse(200))
+    // `rawStatusCode` is a *modeled* field (the string spelling a migrated mock uses, e.g. `"404"`),
+    // so it never lands in `is.extra` and the unknown-key guard cannot see it. Engine 0.18.0 accepts
+    // a numeric string on a serve rule, parsed as a `u16` (#936), and `RiftDsl.status` takes an Int —
+    // so a string that parses the same way is translated with nothing lost (#189), and anything else
+    // is refused rather than silently answering 200.
+    val code: Int = is.rawStatusCode match
+      case Some(Json.Str(s)) =>
+        s.toIntOption
+          .filter(n => n >= 0 && n <= 0xffff)
+          .getOrElse(
+            throw invalid(
+              s"intercept serve: statusCode \"$s\" is not an integer in 0..65535, which is all the " +
+                "engine's serve action accepts — use redirectTo(imposter) for full stub fidelity"
+            )
+          )
+      case Some(other) =>
+        throw invalid(
+          s"intercept serve: statusCode ${other.render} is not an integer in 0..65535 — use " +
+            "redirectTo(imposter) for full stub fidelity"
+        )
+      case None => is.statusCode.getOrElse(200)
+    val withStatus = JRiftDsl.status(code)
     // One call per *name* with all its values: the facade's `withHeader` is a `LinkedHashMap.put`,
     // so a second call for a name would replace the first rather than add to it.
     val withHeaders = groupedHeaders(is.headers).foldLeft(withStatus) {
