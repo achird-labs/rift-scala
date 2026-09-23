@@ -8,7 +8,7 @@ import sbt.*
 object Dependencies {
 
   /** Pins the engine (0.18.0) and the conformance corpus transitively. */
-  val riftJava = "0.3.0"
+  val riftJava = "0.3.1"
 
   /** `bridge` compile scope (D2): the JDK-17+ facade
     * (`Rift`/`Imposter`/`RiftException`/`JsonValue`/ `RiftVersion`) is all the bridge links against
@@ -28,6 +28,16 @@ object Dependencies {
     */
   val riftJavaTestcontainersDeps: Seq[ModuleID] = Seq(
     "io.github.achird-labs" % "rift-java-testcontainers" % riftJava % Optional
+  )
+
+  /** The same artifact at `Test` scope, for the modules that depend on `bridge` (#194): a
+    * dependency's `Optional` deps do not reach a module that depends on it, so without this
+    * `container()` in `zio`/`cats`/`pure` tests stops at the missing-artifact `EngineUnavailable`
+    * before it reaches the config it is testing, and `conformance`'s `FacadeParitySpec` cannot
+    * enumerate `RiftContainer`'s public methods.
+    */
+  val riftJavaTestcontainersTestDeps: Seq[ModuleID] = Seq(
+    "io.github.achird-labs" % "rift-java-testcontainers" % riftJava % Test
   )
 
   /** Embedded transport (in-process engine via stable FFM) + its native library, both `Test`-only.

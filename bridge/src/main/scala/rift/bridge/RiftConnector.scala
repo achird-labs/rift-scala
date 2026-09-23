@@ -145,17 +145,19 @@ object RiftConnector:
     */
   def isEmbeddedAvailable: Boolean = FacadeBoundary.run(JRift.isEmbeddedAvailable())
 
-  /** Builds a transport's facade options, typing the builder's refusals.
+  /** Builds a transport's facade options (for the container transport: configures its not-yet-
+    * started `RiftContainer`), typing the builder's refusals.
     *
     * rift-java validates a config while its options are built — an inline CA PEM without a
-    * certificate block, an inline PEM on spawn, trust on a pre-0.18.0 spawn version, an admin port
-    * outside `0..65535`, a blank API key — and refuses with a bare `IllegalArgumentException`,
-    * which is not a `RiftException` and so would escape `FacadeBoundary` as a defect (#193). This
-    * step only turns the caller's config into options, with no engine involved, so a refusal here
-    * is always the caller's configuration mistake: `InvalidDefinition`, the same treatment
-    * `FacadeEncode.matchClause` gives a malformed filter. The rules stay rift-java's; nothing is
-    * re-checked here. The catch is deliberately this narrow — the transport start that follows is
-    * not covered, so an `IllegalArgumentException` from inside the facade stays the defect it is.
+    * certificate block, an inline PEM on spawn, trust on a pre-0.18.0 spawn version or container
+    * image tag, an admin port outside `0..65535`, a blank API key — and refuses with a bare
+    * `IllegalArgumentException`, which is not a `RiftException` and so would escape
+    * `FacadeBoundary` as a defect (#193). This step only turns the caller's config into options,
+    * with no engine involved, so a refusal here is always the caller's configuration mistake:
+    * `InvalidDefinition`, the same treatment `FacadeEncode.matchClause` gives a malformed filter.
+    * The rules stay rift-java's; nothing is re-checked here. The catch is deliberately this narrow
+    * — the transport start that follows is not covered, so an `IllegalArgumentException` from
+    * inside the facade stays the defect it is.
     */
   private def options[A](config: Product)(build: => A): A =
     try build
@@ -187,6 +189,9 @@ object RiftConnector:
     * build (project/Dependencies.scala) so consumers who never call `container` don't inherit
     * org.testcontainers. Its absence surfaces as `EngineUnavailable` naming the missing artifact
     * rather than a `NoClassDefFoundError` leaking out of this API.
+    *
+    * Fails with `RiftError.InvalidDefinition` if rift-java refuses `config` while the container is
+    * configured (see [[UpstreamTrust]]), before Docker is touched.
     */
   def container(config: ContainerConfig = ContainerConfig()): RiftConnector =
     // Probe only the entry class up front, so ONLY its genuine absence maps to the friendly
@@ -207,20 +212,7 @@ object RiftConnector:
           None
         )
 
-    val container = config.image match
-      case Some(image) =>
-        new io.github.achirdlabs.rift.testcontainers.RiftContainer(
-          org.testcontainers.utility.DockerImageName.parse(image)
-        )
-      case None => new io.github.achirdlabs.rift.testcontainers.RiftContainer()
-    config.apiKey.foreach(container.withApiKey)
-    if config.imposterPorts.nonEmpty then container.withImposterPorts(config.imposterPorts.toArray*)
-    if config.gateway then container.withGateway()
-    config.interceptPort.foreach(p => container.withInterceptPort(p))
-    // The engine reads `MB_ALLOW_INJECTION` as the env form of `--allowInjection` (rift
-    // rift-http-proxy/server.rs). `RiftContainer` has no dedicated setter, but it extends
-    // testcontainers' GenericContainer, so set the env directly rather than needing a rift-java bump.
-    if config.allowInjection then container.withEnv("MB_ALLOW_INJECTION", "true")
+    val container = options(config)(configuredContainer(config))
 
     // stop() the container if anything after start() fails (notably client(), which opens a real
     // connection and can throw under versionCheck=FAIL) — otherwise the started Docker container is
@@ -236,3 +228,31 @@ object RiftConnector:
         try container.stop()
         catch case _: Throwable => () // best-effort cleanup; never mask the original failure
         throw RiftError.fromThrowable(t).getOrElse(t)
+
+  /** The not-yet-started `RiftContainer` for `config` — the container transport's counterpart of
+    * the other transports' `toOptions`, and so what `container` runs under [[options]]. No Docker
+    * call happens here: rift-java refuses a bad setting (an inline PEM with no certificate block,
+    * an image tag older than 0.18.0 with trust set) as the setter runs, and the container only
+    * reads a `CaFile` or talks to Docker at `start()`, which stays outside the typed-refusal catch.
+    */
+  private[bridge] def configuredContainer(
+      config: ContainerConfig
+  ): io.github.achirdlabs.rift.testcontainers.RiftContainer =
+    val container = config.image match
+      case Some(image) =>
+        new io.github.achirdlabs.rift.testcontainers.RiftContainer(
+          org.testcontainers.utility.DockerImageName.parse(image)
+        )
+      case None => new io.github.achirdlabs.rift.testcontainers.RiftContainer()
+    config.apiKey.foreach(container.withApiKey)
+    if config.imposterPorts.nonEmpty then container.withImposterPorts(config.imposterPorts.toArray*)
+    if config.gateway then container.withGateway()
+    config.interceptPort.foreach(p => container.withInterceptPort(p))
+    // The engine reads `MB_ALLOW_INJECTION` as the env form of `--allowInjection` (rift
+    // rift-http-proxy/server.rs). `RiftContainer` has no dedicated setter, but it extends
+    // testcontainers' GenericContainer, so set the env directly rather than needing a rift-java bump.
+    if config.allowInjection then container.withEnv("MB_ALLOW_INJECTION", "true")
+    // `toJava` itself refuses an inline PEM with no certificate block, and `withUpstreamTrust` an
+    // image tag older than 0.18.0 — both IllegalArgumentExceptions that `options` types.
+    config.upstreamTrust.foreach(t => container.withUpstreamTrust(t.toJava))
+    container

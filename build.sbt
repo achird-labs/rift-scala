@@ -145,7 +145,9 @@ lazy val zio = riftModule("zio", "zio")
   // reflective null-engine builder, rather than a `package rift.bridge` cheat-file per module (#101).
   .dependsOn(bridge % "compile->compile;test->test")
   .settings(
-    libraryDependencies ++= Dependencies.zioDeps ++ Dependencies.zioTestDeps,
+    libraryDependencies ++=
+      Dependencies.zioDeps ++ Dependencies.zioTestDeps ++
+        Dependencies.riftJavaTestcontainersTestDeps,
     testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework")
   )
   // The test->test edge above also inherits bridge's Test-scope deps, which on JDK 22 include the
@@ -202,7 +204,8 @@ lazy val cats = riftModule("cats", "cats")
   .dependsOn(bridge % "compile->compile;test->test")
   .settings(
     libraryDependencies ++=
-      Dependencies.catsEffectDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps
+      Dependencies.catsEffectDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps ++
+        Dependencies.riftJavaTestcontainersTestDeps
   )
   .settings(embeddedSmokeSettings)
 
@@ -228,7 +231,9 @@ lazy val pure = riftModule("pure", "pure")
   // test->test: same reason as zio/cats above — the intercept builder gate shares bridge's
   // InterceptGate rather than re-deriving the reflective null-engine builder here (#120).
   .dependsOn(bridge % "compile->compile;test->test")
-  .settings(libraryDependencies ++= Dependencies.munitDeps)
+  .settings(
+    libraryDependencies ++= Dependencies.munitDeps ++ Dependencies.riftJavaTestcontainersTestDeps
+  )
   .settings(embeddedSmokeSettings)
 
 // Test-only conformance corpus replay (#6, extended to the cats surface + parity table by #13):
@@ -243,7 +248,7 @@ lazy val conformance = riftModule("conformance", "conformance")
     publish / skip := true,
     libraryDependencies ++=
       Dependencies.zioTestDeps ++ Dependencies.munitDeps ++ Dependencies.munitCatsEffectDeps ++
-        Dependencies.asmTestDeps,
+        Dependencies.asmTestDeps ++ Dependencies.riftJavaTestcontainersTestDeps,
     // G3 replay runs against a live engine: embedded (in-process FFM) on JDK 22+, spawn (out-of-process
     // child) on JDK 21. The embedded jars + `--enable-native-access` are wired only on a JDK that can
     // load them; the forked test JVM inherits the runner's env, so `RIFT_G3_REQUIRE` reaches the

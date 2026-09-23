@@ -680,6 +680,27 @@ object FacadeCoverage:
       "rift.bridge.SpawnConfig#toOptions"
     ),
     Coverage.Excluded(
+      "UpstreamTrust#supportedBy(String)",
+      "rift-java's own engine-version gate, which SpawnOptions.Builder and RiftContainer#withUpstreamTrust already call; the bridge passes trust through and lets rift-java refuse it (as RiftError.InvalidDefinition, #193/#194) rather than re-checking the version Scala-side"
+    ),
+    // The container transport (#194): `RiftContainer`'s own public methods, enumerated from the
+    // rift-java-testcontainers jar. `RiftConnector.container` configures and starts it.
+    Coverage.Wrapped("RiftContainer#withApiKey(String)", "rift.bridge.RiftConnector#container"),
+    Coverage
+      .Wrapped("RiftContainer#withImposterPorts(int[])", "rift.bridge.RiftConnector#container"),
+    Coverage.Wrapped("RiftContainer#withGateway()", "rift.bridge.RiftConnector#container"),
+    Coverage.Wrapped("RiftContainer#withInterceptPort(int)", "rift.bridge.RiftConnector#container"),
+    Coverage.Wrapped(
+      "RiftContainer#withUpstreamTrust(UpstreamTrust)",
+      "rift.bridge.RiftConnector#configuredContainer"
+    ),
+    Coverage.Wrapped("RiftContainer#interceptOptions()", "rift.bridge.RiftConnector#container"),
+    Coverage.Wrapped("RiftContainer#client()", "rift.bridge.RiftConnector#container"),
+    Coverage.Excluded(
+      "RiftContainer#adminUri()",
+      "the container's mapped admin URI; RiftConnector.adminUri reads it from the connected client (Rift#adminUri), which container() builds with RiftContainer#client, so the container's own accessor is never called"
+    ),
+    Coverage.Excluded(
       "UpstreamTrust.CaFile#pem()",
       "an accessor on the facade trust type; UpstreamTrust.toJava constructs it and nothing reads it back"
     ),

@@ -60,8 +60,8 @@ The **embedded** transport additionally needs the engine's native library and th
 
 ```scala
 libraryDependencies ++= Seq(
-  "io.github.achird-labs" % "rift-java-embedded" % "0.3.0" % Test,
-  ("io.github.achird-labs" % "rift-java-natives" % "0.3.0" % Test)
+  "io.github.achird-labs" % "rift-java-embedded" % "0.3.1" % Test,
+  ("io.github.achird-labs" % "rift-java-natives" % "0.3.1" % Test)
     .classifier(RiftNatives.currentClassifier)   // linux-x86_64, darwin-aarch64, …
 )
 ```
@@ -86,7 +86,8 @@ SDK itself targets **JDK 21+**.
 
 One DSL, every effect system above — full feature surface on each, including stateful scenarios,
 fault injection, spaces/flow-state with declarative state writes, behaviors on every response type,
-proxy record/replay, HTTPS client-certificate auth and TLS-MITM intercept.
+proxy record/replay, HTTPS client-certificate auth and TLS-MITM intercept. Proxy stubs can reach an
+HTTPS origin behind a private CA via `upstreamTrust` on the embedded, spawn and container configs.
 
 ### Testing a client you cannot configure
 

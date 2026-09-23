@@ -20,6 +20,12 @@ rather than capability.
 
 The test body is identical on all four — swapping transports is a one-line change to the layer.
 
+To let a proxy stub record an HTTPS origin behind a private CA, set `upstreamTrust`
+(`UpstreamTrust.CaFile`, `CaPem` or `SkipVerify`; engine 0.18.0+) on `EmbeddedConfig`,
+`SpawnConfig` or `ContainerConfig`. Spawn takes no inline `CaPem`; a container takes all three,
+copying the PEM into the container. A connected engine is configured by whoever started it
+(`--upstream-ca-file`).
+
 ## A first test
 
 ```scala
@@ -79,8 +85,8 @@ For the embedded transport, add the engine's native library:
 
 ```scala
 libraryDependencies ++= Seq(
-  "io.github.achird-labs" % "rift-java-embedded" % "0.3.0" % Test,
-  ("io.github.achird-labs" % "rift-java-natives" % "0.3.0" % Test)
+  "io.github.achird-labs" % "rift-java-embedded" % "0.3.1" % Test,
+  ("io.github.achird-labs" % "rift-java-natives" % "0.3.1" % Test)
     .classifier(RiftNatives.currentClassifier)   // linux-x86_64, darwin-aarch64, …
 )
 ```

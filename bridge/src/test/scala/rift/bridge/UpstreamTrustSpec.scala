@@ -2,7 +2,7 @@ package rift.bridge
 
 import munit.FunSuite
 
-import java.nio.file.Paths
+import java.nio.file.{Files, Paths}
 
 import scala.jdk.OptionConverters.*
 
@@ -11,6 +11,7 @@ import rift.json.Json
 import rift.model.EngineInfo
 
 import io.github.achirdlabs.rift.UpstreamTrust as JUpstreamTrust
+import io.github.achirdlabs.rift.testcontainers.RiftContainerProbe
 
 /** Issue #176 — outbound TLS trust for proxy stubs (engine 0.18.0; rift-java 0.3.0 #225). The
   * bridge configs carry it to the facade's options unchanged, and `EngineInfo` exposes the
@@ -93,6 +94,64 @@ class UpstreamTrustSpec extends FunSuite:
     assertInvalid(
       RiftConnector.spawn(
         SpawnConfig(version = "0.17.0", upstreamTrust = Some(UpstreamTrust.SkipVerify))
+      ),
+      "0.18.0"
+    )
+
+  // #194 — the container transport (rift-java 0.3.1 #248). `configuredContainer` is exactly what
+  // `container` starts, so reading its env and CA copy shows what the engine would get, with no
+  // Docker involved.
+  private def configured(trust: Option[UpstreamTrust]): RiftContainerProbe.Configured =
+    RiftContainerProbe.configured(
+      RiftConnector.configuredContainer(ContainerConfig(upstreamTrust = trust))
+    )
+
+  private val CaFileEnv = "RIFT_UPSTREAM_CA_FILE"
+  private val SkipVerifyEnv = "RIFT_UPSTREAM_TLS_SKIP_VERIFY"
+
+  test("ContainerConfig with a CA file copies it into the container and names it to the engine"):
+    val file = Files.createTempFile("rift-upstream-ca", ".pem")
+    try
+      Files.writeString(file, pem)
+      val c = configured(Some(UpstreamTrust.CaFile(file)))
+      assertEquals(c.env.get(CaFileEnv), Some(RiftContainerProbe.UpstreamCaPath))
+      assertEquals(c.env.get(SkipVerifyEnv), None)
+      assertEquals(c.caCopy, Some(pem))
+    finally Files.deleteIfExists(file)
+
+  test("ContainerConfig with an inline PEM writes it into the container"):
+    val c = configured(Some(UpstreamTrust.CaPem(pem)))
+    assertEquals(c.env.get(CaFileEnv), Some(RiftContainerProbe.UpstreamCaPath))
+    assertEquals(c.env.get(SkipVerifyEnv), None)
+    assertEquals(c.caCopy, Some(pem))
+
+  test("ContainerConfig with skip-verify sets the engine flag and copies nothing"):
+    val c = configured(Some(UpstreamTrust.SkipVerify))
+    assertEquals(c.env.get(SkipVerifyEnv), Some("true"))
+    assertEquals(c.env.get(CaFileEnv), None)
+    assertEquals(c.caCopy, None)
+
+  test("ContainerConfig without trust leaves the container untouched"):
+    val c = configured(None)
+    assertEquals(c.env.get(CaFileEnv), None)
+    assertEquals(c.env.get(SkipVerifyEnv), None)
+    assertEquals(c.caCopy, None)
+
+  test("container with an inline PEM without a certificate block fails as InvalidDefinition"):
+    assertInvalid(
+      RiftConnector.container(
+        ContainerConfig(upstreamTrust = Some(UpstreamTrust.CaPem("not a pem")))
+      ),
+      "BEGIN CERTIFICATE"
+    )
+
+  test("container with trust on an image tag older than 0.18.0 fails as InvalidDefinition"):
+    assertInvalid(
+      RiftConnector.container(
+        ContainerConfig(
+          image = Some("zainalpour/rift-proxy:v0.17.0"),
+          upstreamTrust = Some(UpstreamTrust.SkipVerify)
+        )
       ),
       "0.18.0"
     )
