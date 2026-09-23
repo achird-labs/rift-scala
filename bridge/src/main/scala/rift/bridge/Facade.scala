@@ -330,13 +330,14 @@ private[bridge] object FacadeEncode:
         Vector(
           Option.when(ext.templated)("`_rift.templated`"),
           Option.when(ext.script.isDefined)("`_rift.script`"),
+          Option.when(ext.stateOps.nonEmpty)("`_rift.stateOps`"),
           Option
             .when(fault.exists(_.latency.isDefined))("`_rift.fault.latency` (withLatencyFault)"),
           Option.when(fault.exists(_.error.isDefined))("`_rift.fault.error` (withErrorFault)"),
           Option.when(fault.exists(_.tcp.isDefined))("`_rift.fault.tcp` (withTcpFault)"),
           Option.when(is.extra.contains(binaryMarker))("a binary body (`_mode=binary`)")
         ).flatten ++
-        // every `_rift` key the model does not type (stateOps, dataset, a newer engine's key)
+        // every `_rift` key the model does not type (dataset, a newer engine's key)
         ext.extra.map((key, _) => s"`_rift.$key`") ++
         repeatedHeaderNames(is.headers).map(name => s"repeated header '$name'")
 

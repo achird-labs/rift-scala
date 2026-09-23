@@ -58,7 +58,8 @@ final class IsResponseBuilder private[dsl] (
     private val behaviorsValue: Behaviors = Behaviors.empty,
     private val faultValue: Option[FaultConfig] = None,
     private val scriptValue: Option[ScriptSource] = None,
-    private val templatedValue: Boolean = false
+    private val templatedValue: Boolean = false,
+    private val stateOpsValue: Vector[StateOp] = Vector.empty
 ) extends ResponseBuilder:
 
   private def withState(
@@ -69,7 +70,8 @@ final class IsResponseBuilder private[dsl] (
       behaviorsValue: Behaviors = this.behaviorsValue,
       faultValue: Option[FaultConfig] = this.faultValue,
       scriptValue: Option[ScriptSource] = this.scriptValue,
-      templatedValue: Boolean = this.templatedValue
+      templatedValue: Boolean = this.templatedValue,
+      stateOpsValue: Vector[StateOp] = this.stateOpsValue
   ): IsResponseBuilder =
     new IsResponseBuilder(
       statusCodeValue,
@@ -79,7 +81,8 @@ final class IsResponseBuilder private[dsl] (
       behaviorsValue,
       faultValue,
       scriptValue,
-      templatedValue
+      templatedValue,
+      stateOpsValue
     )
 
   def json(raw: String): IsResponseBuilder = withState(bodyValue = Some(parseJsonOrThrow(raw)))
@@ -99,6 +102,30 @@ final class IsResponseBuilder private[dsl] (
     withState(headersValue = headersValue :+ (requireHeaderName(name) -> value))
 
   def templated: IsResponseBuilder = withState(templatedValue = true)
+
+  /** After this response is sent, stores `value` under `key` in the request's flow state
+    * (`_rift.stateOps`, engine ≥ 0.18.0; an older engine drops the block, and rift-java refuses the
+    * imposter there). `value` is a template: `{{ request.* }}`, `{{ state.* }}` and `{{
+    * previousValue }}` render. Ops run in the order the calls were made, and an imposter with state
+    * ops but no `flowState` gets an in-memory store.
+    */
+  def setState(key: String, value: String): IsResponseBuilder =
+    withStateOp(StateOp.Set(key, value))
+
+  /** After this response, adds `by` (which may be negative) to the integer under `key`; see
+    * [[setState]].
+    */
+  def incrementState(key: String, by: Long = 1L): IsResponseBuilder =
+    withStateOp(StateOp.Increment(key, Some(by)))
+
+  /** After this response, removes `key` from the request's flow state; see [[setState]]. */
+  def deleteState(key: String): IsResponseBuilder = withStateOp(StateOp.Delete(key))
+
+  /** After this response, removes every key of the request's flow; see [[setState]]. */
+  def clearFlowState: IsResponseBuilder = withStateOp(StateOp.ClearFlow)
+
+  private def withStateOp(op: StateOp): IsResponseBuilder =
+    withState(stateOpsValue = stateOpsValue :+ op)
 
   /** Sets or merges one behavior into the `_behaviors` object this builder writes. The DSL keeps
     * one entry per key, in the order it has always written them, whatever order the chainers are
@@ -225,8 +252,8 @@ final class IsResponseBuilder private[dsl] (
 
   def build: Response =
     val rift =
-      if faultValue.isDefined || scriptValue.isDefined || templatedValue then
-        Some(RiftResponseExt(faultValue, scriptValue, templatedValue))
+      if faultValue.isDefined || scriptValue.isDefined || templatedValue || stateOpsValue.nonEmpty
+      then Some(RiftResponseExt(faultValue, scriptValue, templatedValue, stateOpsValue))
       else None
     Response.Is(buildIs, behaviorsValue, rift)
 
