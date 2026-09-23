@@ -116,13 +116,14 @@ object Behavior:
   * last entry of a repeated key, and 0.18.0 runs every element. Writing the array keeps this SDK
   * from being the component that destroys the entry.
   *
-  * Two shapes the engine accepts are refused on purpose, because the engine never writes either
-  * back and rift-java refuses both too. A `null` behavior value is absent in the object form but,
-  * in the array form, removes every earlier step of its key: dropping it on decode would change
-  * what runs once the document is re-sent, and keeping it would need a model case whose only job is
-  * to carry a shape the engine discards on read. A multi-key array element runs in the engine's
-  * fixed order rather than the order written, and `rift-lint` flags it (W018). Both errors say how
-  * to rewrite the document.
+  * A `null` behavior value is refused on purpose: the engine never writes one back and rift-java
+  * refuses it too. It is absent in the object form but, in the array form, removes every earlier
+  * step of its key, so dropping it on decode would change what runs once the document is re-sent,
+  * and keeping it would need a model case whose only job is to carry a shape the engine discards on
+  * read. The error says how to rewrite the document.
+  *
+  * A multi-key array element is read, expanded into one step per key in the engine's run order
+  * (issue #178), and written back one key per element: the spelling changes, what runs does not.
   */
 final case class Behaviors(
     entries: Vector[Behavior] = Vector.empty,
@@ -175,7 +176,8 @@ object Behaviors:
     * enclosing [[Response]] decoder adds it.
     */
   def fromJson(json: Json): Either[JsonError.Decode, Behaviors] = json match
-    case arr: Json.Arr => decodeArray(arr, element).map(Behaviors(_, Spelling.Array))
+    case arr: Json.Arr =>
+      decodeArray(arr, element).map(steps => Behaviors(steps.flatten, Spelling.Array))
     case other =>
       for
         fields <- asObj(other, "_behaviors")
@@ -192,18 +194,33 @@ object Behaviors:
     */
   private val knownKeys = Set("wait", "decorate", "copy", "lookup", "shellTransform", "repeat")
 
-  private def element(item: Json): Either[JsonError.Decode, Behavior] =
+  /** One array element as steps. An element that sets several keys runs them in the engine's fixed
+    * order, not the order written (rift-lint W018), so it is expanded into one step per key in that
+    * order — what runs is unchanged, and the block writes them back one key per element. Mirrors
+    * rift-java 0.3.0 (#240).
+    */
+  private def element(item: Json): Either[JsonError.Decode, Vector[Behavior]] =
     asObj(item, "behavior").flatMap:
-      case Vector((key, value)) => decode(key, value, inArray = true)
-      case other =>
-        Left(
-          JsonError.Decode(
-            s"expected exactly one key, got ${other.size} (the engine runs a multi-key element in " +
-              "its fixed order, not the order written; give each behavior its own element — " +
-              "rift-lint W018)",
-            Vector.empty
-          )
-        )
+      case Vector() => Left(JsonError.Decode("expected at least one key", Vector.empty))
+      case fields =>
+        fields
+          .sortBy((key, _) => (engineRank(key), key))
+          .foldLeft[Either[JsonError.Decode, Vector[Behavior]]](Right(Vector.empty)):
+            case (acc, (key, value)) =>
+              for
+                seen <- acc
+                step <- decode(key, value, inArray = true)
+              yield seen :+ step
+
+  /** The engine's run order for the keys of one behaviors object: `wait`, `lookup`, `copy`,
+    * `shellTransform`, `decorate`, then every other key (`repeat` and unknown ones) alphabetically.
+    */
+  private def engineRank(key: String): Int =
+    runOrder.indexOf(key) match
+      case -1 => runOrder.size
+      case rank => rank
+
+  private val runOrder = Vector("wait", "lookup", "copy", "shellTransform", "decorate")
 
   /** The fields that mark a bare object as a real single `copy`/`lookup` entry (the engine's
     * untagged single-operation shorthand) in the object form. `copy` and `lookup` are otherwise raw
