@@ -26,6 +26,8 @@ final case class ImposterDefinition(
     allowCors: Boolean = false,
     strictBehaviors: Boolean = false,
     tls: Option[TlsMaterial] = None,
+    /** HTTPS client-certificate settings (engine 0.18.0); see [[ClientAuth]]. */
+    clientAuth: ClientAuth = ClientAuth.none,
     rift: Option[RiftConfig] = None,
     extra: Vector[(String, Json)] = Vector.empty
 ):
@@ -53,7 +55,7 @@ final case class ImposterDefinition(
     // `cert`/`key` are flat top-level fields on the imposter object.
     val tlsFields: Vector[(String, Json)] =
       tls.toVector.flatMap(_.toJson.asObject.getOrElse(Vector.empty))
-    buildObj(ImposterDefinition.modeledKeys, fixed.flatten ++ tlsFields, extra)
+    buildObj(ImposterDefinition.modeledKeys, fixed.flatten ++ tlsFields ++ clientAuth.fields, extra)
 
 object ImposterDefinition:
   private val modeledKeys = Set(
@@ -74,7 +76,7 @@ object ImposterDefinition:
     "cert",
     "key",
     "_rift"
-  )
+  ) ++ ClientAuth.keys
 
   def fromJson(json: Json): Either[JsonError.Decode, ImposterDefinition] =
     for
@@ -113,6 +115,7 @@ object ImposterDefinition:
       tls <- (fields.field("cert"), fields.field("key")) match
         case (None, None) => Right(None)
         case _ => TlsMaterial.fromJson(json).map(Some(_)).left.map(_.under("cert/key"))
+      clientAuth <- ClientAuth.fromFields(fields)
       rift <- fields.field("_rift") match
         case Some(r) => RiftConfig.fromJson(r).map(Some(_)).left.map(_.under("_rift"))
         case None => Right(None)
@@ -132,6 +135,7 @@ object ImposterDefinition:
       allowCors = allowCors,
       strictBehaviors = strictBehaviors,
       tls = tls,
+      clientAuth = clientAuth,
       rift = rift,
       extra = fields.remainder(modeledKeys)
     )
