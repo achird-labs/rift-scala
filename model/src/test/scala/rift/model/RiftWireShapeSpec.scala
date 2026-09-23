@@ -1,6 +1,6 @@
 package rift.model
 
-import rift.json.Json
+import rift.json.{Json, JsonError}
 
 /** Round-trip coverage for the nine wire-shape bugs fixed in this change: each fixture below is the
   * exact wire JSON the authoritative Rust engine, rift-java, and zio-bdd agree on — asserted
@@ -447,6 +447,41 @@ class RiftWireShapeSpec extends munit.FunSuite:
   test("behaviors: a fractional or non-numeric block repeat is a decode error"):
     assert(Behaviors.fromJson(parse("""{"repeat":1.5}""")).isLeft)
     assert(Behaviors.fromJson(parse("""[{"repeat":"3"}]""")).isLeft)
+
+  // Issue #167 — two shapes the engine accepts are refused on purpose, because the engine never
+  // writes either back: a null behavior value (absent in the object form, "remove every earlier
+  // step of this key" in the array form) and a multi-key array element (run in the engine's fixed
+  // order, flagged by rift-lint W018). The refusal has to say why and what to do instead.
+  private def decodeError(raw: String)(using munit.Location): JsonError.Decode =
+    Behaviors.fromJson(parse(raw)) match
+      case Left(e) => e
+      case Right(b) => fail(s"$raw should be refused, got $b")
+
+  test("behaviors: a null value for a known key is refused, naming the key and the rule"):
+    List(
+      """{"decorate":null}""" -> Vector("decorate"),
+      """{"copy":null}""" -> Vector("copy"),
+      """{"wait":1,"repeat":null}""" -> Vector("repeat"),
+      """[{"wait":1},{"wait":null}]""" -> Vector("1", "wait")
+    ).foreach: (raw, path) =>
+      val e = decodeError(raw)
+      assertEquals(e.path, path, raw)
+      assert(e.message.contains("null is not read"), e.message)
+      assert(e.message.contains("never writes one back"), e.message)
+
+  test("behaviors: a multi-key array element is refused, pointing at rift-lint W018"):
+    val e = decodeError("""[{"wait":100,"decorate":"f"}]""")
+    assertEquals(e.path, Vector("0"))
+    assert(e.message.contains("got 2"), e.message)
+    assert(e.message.contains("W018"), e.message)
+    assert(e.message.contains("its own element"), e.message)
+
+  test("behaviors: a null value for an unknown key is still kept verbatim"):
+    assertEquals(
+      decoded("""{"futureThing":null}""").entries,
+      Vector(Behavior.Unknown("futureThing", Json.Null))
+    )
+    roundTripsExactly("""{"futureThing":null}""")
 
   test("behaviors: shellTransform's bare-string spelling survives both forms"):
     assertEquals(

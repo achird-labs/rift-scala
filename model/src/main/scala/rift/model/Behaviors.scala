@@ -115,6 +115,14 @@ object Behavior:
   * same as an engine running it: engine 0.17.0 merges the array as it parses and applies only the
   * last entry of a repeated key, and 0.18.0 runs every element. Writing the array keeps this SDK
   * from being the component that destroys the entry.
+  *
+  * Two shapes the engine accepts are refused on purpose, because the engine never writes either
+  * back and rift-java refuses both too. A `null` behavior value is absent in the object form but,
+  * in the array form, removes every earlier step of its key: dropping it on decode would change
+  * what runs once the document is re-sent, and keeping it would need a model case whose only job is
+  * to carry a shape the engine discards on read. A multi-key array element runs in the engine's
+  * fixed order rather than the order written, and `rift-lint` flags it (W018). Both errors say how
+  * to rewrite the document.
   */
 final case class Behaviors(
     entries: Vector[Behavior] = Vector.empty,
@@ -179,11 +187,23 @@ object Behaviors:
             yield seen :+ entry
       yield Behaviors(entries, Spelling.Object)
 
+  /** The keys this model types. A `null` for one of them is refused (see [[Behaviors]]); a `null`
+    * for any other key is an [[Behavior.Unknown]] value like any other, kept verbatim.
+    */
+  private val knownKeys = Set("wait", "decorate", "copy", "lookup", "shellTransform", "repeat")
+
   private def element(item: Json): Either[JsonError.Decode, Behavior] =
     asObj(item, "behavior").flatMap:
       case Vector((key, value)) => decode(key, value, inArray = true)
       case other =>
-        Left(JsonError.Decode(s"expected exactly one key, got ${other.size}", Vector.empty))
+        Left(
+          JsonError.Decode(
+            s"expected exactly one key, got ${other.size} (the engine runs a multi-key element in " +
+              "its fixed order, not the order written; give each behavior its own element — " +
+              "rift-lint W018)",
+            Vector.empty
+          )
+        )
 
   /** The fields that mark a bare object as a real single `copy`/`lookup` entry (the engine's
     * untagged single-operation shorthand) in the object form. `copy` and `lookup` are otherwise raw
@@ -210,6 +230,15 @@ object Behaviors:
       inArray: Boolean
   ): Either[JsonError.Decode, Behavior] =
     val decoded: Either[JsonError.Decode, Behavior] = key match
+      case known if value == Json.Null && knownKeys(known) =>
+        Left(
+          JsonError.Decode(
+            "null is not read: the engine treats a null behavior as absent (and, in an array, as " +
+              "removing earlier steps of that key) and never writes one back; delete the key or " +
+              "the element",
+            Vector.empty
+          )
+        )
       case "wait" => WaitBehavior.fromJson(value).map(Behavior.Wait(_))
       case "decorate" =>
         value match
