@@ -449,13 +449,30 @@ class InterceptTranslationSpec extends FunSuite:
     )
     assert(insideIs.contains("futureIsKey"), insideIs)
 
-  // `rawStatusCode` is a modeled field, so the unknown-key guard cannot see it, and RiftDsl.status
-  // takes an Int — translating would silently answer 200 for a response that named another status.
-  test("serve rejects a non-numeric statusCode rather than silently answering 200"):
-    val msg = rejectMessage(
-      Fixed(Response.Is(IsResponse(rawStatusCode = Some(Json.Str("404")))))
+  // Issue #189 — engine 0.18.0 accepts a numeric-string `statusCode` on a serve rule (#936), parsed
+  // as a `u16`. A migrated Mountebank mock's `"404"` converts to 404 with nothing lost, so it is
+  // translated; anything the engine's own parse would refuse still is, rather than silently
+  // answering 200 (RiftDsl.status takes an Int, and `rawStatusCode` is invisible to the key guard).
+  private def rawStatus(raw: String): ResponseBuilder =
+    Fixed(Response.Is(IsResponse(rawStatusCode = Some(Json.Str(raw)))))
+
+  test("serve translates a numeric-string statusCode to that status"):
+    val wire = FacadeEncode.isSpec(rawStatus("404")).build.toJsonValue.toJson
+    // the facade's IsSpec renders its status as a string either way; what matters is that 404 got
+    // through rather than a refusal or the 200 default
+    assertEquals(
+      rift.json.Json.parse(wire).toOption.flatMap(_.get("is", "statusCode")).map(_.render),
+      Some("\"404\"")
     )
-    assert(msg.contains("statusCode"), msg)
+
+  test("serve accepts the engine's whole u16 range, as its own parse does"):
+    List("0", "65535", "+418").foreach(s => FacadeEncode.isSpec(rawStatus(s)))
+
+  test("serve still refuses a statusCode the engine's parse would refuse, saying why"):
+    List("abc", "4.5", " 404", "65536", "-1", "").foreach: raw =>
+      val msg = rejectMessage(rawStatus(raw))
+      assert(msg.contains("statusCode"), s"$raw: $msg")
+      assert(msg.contains("0..65535"), s"$raw: $msg")
 
   test("serve still rejects an unknown behavior key — a forward-compat behavior must not vanish"):
     val msg = rejectMessage(
