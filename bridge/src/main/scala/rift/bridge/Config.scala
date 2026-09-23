@@ -11,6 +11,7 @@ import rift.model.Port
 
 import io.github.achirdlabs.rift.{ConnectOptions, EmbeddedOptions, SpawnOptions}
 import io.github.achirdlabs.rift.VersionCheck as JVersionCheck
+import io.github.achirdlabs.rift.UpstreamTrust as JUpstreamTrust
 import io.github.achirdlabs.rift.{RecordMode as JRecordMode, RecordSpec as JRecordSpec}
 import io.github.achirdlabs.rift.dsl.RequestField as JRequestField
 import io.github.achirdlabs.rift.EventStreamOptions as JEventStreamOptions
@@ -26,6 +27,27 @@ enum VersionCheck:
     case VersionCheck.Fail => JVersionCheck.FAIL
     case VersionCheck.Warn => JVersionCheck.WARN
     case VersionCheck.Off => JVersionCheck.OFF
+
+/** How the engine trusts an HTTPS origin a proxy stub dials (engine 0.18.0; rift-java 0.3.0 #225):
+  * a private CA from a PEM file on the engine's host, an inline PEM, or no verification at all. The
+  * engine applies it when its admin plane starts, and an imposter keeps the client it was created
+  * with, so it is a transport setting rather than a per-imposter one.
+  *
+  * rift-java sends it only to an engine that supports it: the embedded transport checks the
+  * engine's advertised `serveOptions`, and spawn checks the declared `version`. An inline PEM
+  * without a certificate block, and [[CaPem]] on spawn (the engine CLI has no inline form — write
+  * the PEM to a file and use [[CaFile]]), are refused with `IllegalArgumentException` when the
+  * transport starts.
+  */
+enum UpstreamTrust:
+  case CaFile(pem: Path)
+  case CaPem(pem: String)
+  case SkipVerify
+
+  private[bridge] def toJava: JUpstreamTrust = this match
+    case UpstreamTrust.CaFile(pem) => JUpstreamTrust.CaFile(pem)
+    case UpstreamTrust.CaPem(pem) => JUpstreamTrust.CaPem(pem)
+    case UpstreamTrust.SkipVerify => JUpstreamTrust.SkipVerify()
 
 /** Scala-idiomatic mirror of `ConnectOptions` — connecting to an already-running engine. */
 final case class ConnectConfig(
@@ -52,7 +74,11 @@ final case class EmbeddedConfig(
     adminPort: Int = 0,
     serveAdminEagerly: Boolean = false,
     apiKey: Option[String] = None,
-    versionCheck: VersionCheck = VersionCheck.Fail
+    versionCheck: VersionCheck = VersionCheck.Fail,
+    /** Outbound TLS trust for proxy stubs; see [[UpstreamTrust]]. Setting it makes rift-java serve
+      * the embedded admin plane eagerly, since that is when the engine applies it.
+      */
+    upstreamTrust: Option[UpstreamTrust] = None
 ):
   private[bridge] def toOptions: EmbeddedOptions =
     val builder = EmbeddedOptions.builder()
@@ -62,6 +88,7 @@ final case class EmbeddedConfig(
     builder.serveAdminEagerly(serveAdminEagerly)
     apiKey.foreach(builder.apiKey)
     builder.versionCheck(versionCheck.toJava)
+    upstreamTrust.foreach(t => builder.upstreamTrust(t.toJava))
     builder.build()
 
 /** Scala-idiomatic mirror of `SpawnOptions` — launching the engine binary as a child process. */
@@ -78,7 +105,11 @@ final case class SpawnConfig(
     mirrorUrl: Option[URI] = None,
     startupTimeout: FiniteDuration = 15.seconds,
     shutdownTimeout: FiniteDuration = 5.seconds,
-    inheritLog: Boolean = false
+    inheritLog: Boolean = false,
+    /** Outbound TLS trust for proxy stubs; see [[UpstreamTrust]]. Needs a declared `version` of
+      * 0.18.0 or later, and not [[UpstreamTrust.CaPem]].
+      */
+    upstreamTrust: Option[UpstreamTrust] = None
 ):
   private[bridge] def toOptions: SpawnOptions =
     val builder = SpawnOptions.builder()
@@ -95,6 +126,7 @@ final case class SpawnConfig(
     builder.startupTimeout(startupTimeout.toJava)
     builder.shutdownTimeout(shutdownTimeout.toJava)
     builder.inheritLog(inheritLog)
+    upstreamTrust.foreach(t => builder.upstreamTrust(t.toJava))
     builder.build()
 
 /** `RiftConnector.container` config. No `toOptions`: the testcontainers transport is configured
