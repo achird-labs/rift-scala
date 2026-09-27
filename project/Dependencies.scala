@@ -7,13 +7,8 @@ import sbt.*
   */
 object Dependencies {
 
-  /** Pins the engine (0.18.0) and the conformance corpus transitively.
-    *
-    * TEMPORARY: 0.3.2-SNAPSHOT from the local Maven repository (`mvnw install` of rift-java master
-    * at a67bc71, which carries rift-java#251's `HostResolver`). Replace with "0.3.2" and drop the
-    * `Resolver.mavenLocal` line in build.sbt once rift-java 0.3.2 is released.
-    */
-  val riftJava = "0.3.2-SNAPSHOT"
+  /** Pins the engine (0.18.0) and the conformance corpus transitively. */
+  val riftJava = "0.3.2"
 
   /** `bridge` compile scope (D2): the JDK-17+ facade
     * (`Rift`/`Imposter`/`RiftException`/`JsonValue`/ `RiftVersion`) is all the bridge links against

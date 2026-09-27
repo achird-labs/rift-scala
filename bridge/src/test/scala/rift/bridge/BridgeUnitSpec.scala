@@ -161,7 +161,7 @@ class EventStreamConfigSpec extends FunSuite:
   */
 class RiftVersionsSpec extends FunSuite:
   test("riftJava and engine come from the pinned rift-java jar"):
-    assertEquals(RiftVersions.riftJava, "0.3.2-SNAPSHOT")
+    assertEquals(RiftVersions.riftJava, "0.3.2")
     assertEquals(RiftVersions.engine, "0.18.0")
   test("riftScala is non-empty"):
     assert(RiftVersions.riftScala.nonEmpty)
