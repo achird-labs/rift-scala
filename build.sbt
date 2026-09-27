@@ -32,7 +32,9 @@ inThisBuild(
     ),
     // sbt-ci-release 1.11+ publishes to the Sonatype Central Portal by default
     // (io.github.achird-labs) from CI on a v* tag — the legacy OSSRH host was sunset.
-    versionScheme := Some("early-semver")
+    versionScheme := Some("early-semver"),
+    // TEMPORARY: resolves rift-java 0.3.2-SNAPSHOT (Dependencies.riftJava) until 0.3.2 is released.
+    resolvers += Resolver.mavenLocal
   )
 )
 
