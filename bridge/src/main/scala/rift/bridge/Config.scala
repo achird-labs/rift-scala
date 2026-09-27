@@ -7,9 +7,10 @@ import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 import scala.jdk.DurationConverters.*
 
-import rift.model.Port
+import rift.model.{Port, Protocol}
 
 import io.github.achirdlabs.rift.{ConnectOptions, EmbeddedOptions, SpawnOptions}
+import io.github.achirdlabs.rift.HostResolver as JHostResolver
 import io.github.achirdlabs.rift.VersionCheck as JVersionCheck
 import io.github.achirdlabs.rift.UpstreamTrust as JUpstreamTrust
 import io.github.achirdlabs.rift.{RecordMode as JRecordMode, RecordSpec as JRecordSpec}
@@ -69,20 +70,51 @@ enum UpstreamTrust:
     case UpstreamTrust.CaPem(pem) => JUpstreamTrust.CaPem(pem)
     case UpstreamTrust.SkipVerify => JUpstreamTrust.SkipVerify()
 
+/** Where the system under test reaches an imposter on a connected engine: the seam behind an
+  * imposter handle's `uri` (rift-java 0.3.2's `HostResolver`, rift-java#251). Leave
+  * `ConnectConfig.hostResolver` unset for the default, the admin host with the imposter's port and
+  * the imposter's protocol as the scheme.
+  *
+  * The two cases differ in who owns the scheme, which only the resolver can know because it depends
+  * on the path the traffic takes:
+  *
+  *   - [[ByProtocol]] — straight to the imposter's own listener, so the scheme follows the
+  *     imposter's [[Protocol]]: an `https` imposter must come back as `https://`.
+  *   - [[ByPort]] — through a hop that speaks its own scheme, such as the engine's `/__rift/<port>`
+  *     gateway on the admin listener. The URI is used verbatim, scheme included, whatever the
+  *     imposter's protocol.
+  */
+enum HostResolver:
+  case ByProtocol(resolve: (Protocol, Int) => URI)
+  case ByPort(resolve: Int => URI)
+
+  private[bridge] def toJava: JHostResolver = this match
+    case HostResolver.ByProtocol(f) =>
+      (protocol, port) => f(HostResolver.protocolOf(protocol), port)
+    case HostResolver.ByPort(f) => (_, port) => f(port)
+
+object HostResolver:
+  // rift-java hands over the imposter's engine protocol as a string. The engine refuses anything
+  // but http/https on create (see `Protocol`), so another value is a broken invariant, not input.
+  private def protocolOf(name: String): Protocol = name match
+    case "http" => Protocol.Http
+    case "https" => Protocol.Https
+    case other => throw IllegalStateException(s"imposter reported an unknown protocol: $other")
+
 /** Scala-idiomatic mirror of `ConnectOptions` — connecting to an already-running engine. */
 final case class ConnectConfig(
     adminUri: URI,
     apiKey: Option[String] = None,
     requestTimeout: FiniteDuration = 30.seconds,
     versionCheck: VersionCheck = VersionCheck.Fail,
-    hostResolver: Option[Int => URI] = None
+    hostResolver: Option[HostResolver] = None
 ):
   private[bridge] def toOptions: ConnectOptions =
     val builder = ConnectOptions.builder(adminUri)
     apiKey.foreach(builder.apiKey)
     builder.requestTimeout(requestTimeout.toJava)
     builder.versionCheck(versionCheck.toJava)
-    hostResolver.foreach(f => builder.hostResolver((i: Int) => f(i)))
+    hostResolver.foreach(r => builder.hostResolver(r.toJava))
     builder.build()
 
 /** Scala-idiomatic mirror of `EmbeddedOptions` — an in-process engine (requires the natives

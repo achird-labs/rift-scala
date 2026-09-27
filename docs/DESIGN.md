@@ -676,7 +676,13 @@ upstreamTrust)`,
 workingDir, mirrorUrl, startupTimeout = 15.seconds, shutdownTimeout = 5.seconds, inheritLog,
 upstreamTrust)`,
 `ContainerConfig(image, imposterPorts, apiKey, gateway, interceptPort, allowInjection,
-upstreamTrust)`). The facade's
+upstreamTrust)`). `ConnectConfig.hostResolver` is a `HostResolver` (#199), mirroring rift-java
+0.3.2's protocol-aware seam (rift-java#251): `HostResolver.ByProtocol((protocol, port) => uri)`
+is told the imposter's `Protocol`, so an `https` imposter can be reported as `https://`, while
+`HostResolver.ByPort(port => uri)` keeps the verbatim-URI contract for a hop that owns the scheme,
+such as the `/__rift/<port>` gateway. Left unset, rift-java's default is the admin host with the
+imposter's port and the imposter's protocol as the scheme. This replaced the 0.2.x
+`Option[Int => URI]`, a source and binary break of `ConnectConfig`. The facade's
 `SpawnOptions.version()` defaults to the **live** `RiftVersion.engineVersion()` (not a static
 literal), so a `SpawnConfig` that leaves `version` unset spawns the engine pinned by this build.
 `upstreamTrust` (`UpstreamTrust.CaFile | CaPem | SkipVerify`, #176) is how the engine trusts an
