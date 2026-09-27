@@ -3,6 +3,8 @@ package rift.cats
 import _root_.cats.effect.IO
 import munit.CatsEffectSuite
 
+import java.nio.file.Paths
+
 import rift.RiftError
 import rift.bridge.{ContainerConfig, EmbeddedConfig, SpawnConfig, UpstreamTrust}
 
@@ -38,6 +40,20 @@ class UpstreamTrustSpec extends CatsEffectSuite:
     assertInvalid(
       Rift
         .container[IO](ContainerConfig(upstreamTrust = Some(UpstreamTrust.CaPem("not a pem"))))
+        .use_
+        .attempt
+    )
+
+  // #197 — rift-java reads a CaFile only at container start, where an unreadable one used to raise
+  // a raw ContainerLaunchException.
+  test("container with a CaFile that does not exist fails as InvalidDefinition"):
+    assertInvalid(
+      Rift
+        .container[IO](
+          ContainerConfig(upstreamTrust =
+            Some(UpstreamTrust.CaFile(Paths.get("/definitely/not/here/rift-ca.pem")))
+          )
+        )
         .use_
         .attempt
     )

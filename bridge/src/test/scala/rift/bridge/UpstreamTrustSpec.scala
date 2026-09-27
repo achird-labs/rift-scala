@@ -21,14 +21,23 @@ class UpstreamTrustSpec extends FunSuite:
 
   private val pem = "-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----"
 
+  /** A readable PEM file for the CA-file cases: #197 refuses a `CaFile` that is not one. */
+  private def withCaFile[A](body: java.nio.file.Path => A): A =
+    val file = Files.createTempFile("rift-upstream-ca", ".pem")
+    try
+      Files.writeString(file, pem)
+      body(file)
+    finally Files.deleteIfExists(file)
+
   test("EmbeddedConfig carries every trust kind to EmbeddedOptions"):
-    val file = Paths.get("/etc/rift/ca.pem")
-    assertEquals(
-      EmbeddedConfig(upstreamTrust =
-        Some(UpstreamTrust.CaFile(file))
-      ).toOptions.upstreamTrust.toScala,
-      Some(JUpstreamTrust.CaFile(file))
-    )
+    withCaFile { file =>
+      assertEquals(
+        EmbeddedConfig(upstreamTrust =
+          Some(UpstreamTrust.CaFile(file))
+        ).toOptions.upstreamTrust.toScala,
+        Some(JUpstreamTrust.CaFile(file))
+      )
+    }
     assertEquals(
       EmbeddedConfig(upstreamTrust =
         Some(UpstreamTrust.CaPem(pem))
@@ -43,11 +52,14 @@ class UpstreamTrustSpec extends FunSuite:
     )
 
   test("SpawnConfig carries a CA file and skip-verify to SpawnOptions"):
-    val file = Paths.get("/etc/rift/ca.pem")
-    assertEquals(
-      SpawnConfig(upstreamTrust = Some(UpstreamTrust.CaFile(file))).toOptions.upstreamTrust.toScala,
-      Some(JUpstreamTrust.CaFile(file))
-    )
+    withCaFile { file =>
+      assertEquals(
+        SpawnConfig(upstreamTrust =
+          Some(UpstreamTrust.CaFile(file))
+        ).toOptions.upstreamTrust.toScala,
+        Some(JUpstreamTrust.CaFile(file))
+      )
+    }
     assertEquals(
       SpawnConfig(upstreamTrust = Some(UpstreamTrust.SkipVerify)).toOptions.upstreamTrust.toScala,
       Some(JUpstreamTrust.SkipVerify())
@@ -154,6 +166,71 @@ class UpstreamTrustSpec extends FunSuite:
         )
       ),
       "0.18.0"
+    )
+
+  // #197 — rift-java reads a CaFile only when the engine or container starts, and on the container
+  // transport throws an UncheckedIOException that escapes as a defect. The bridge refuses a CaFile
+  // that is not a readable regular file while the options are built, on every transport, before an
+  // engine, a process or Docker is involved.
+  private val missingCa = Paths.get("/definitely/not/here/rift-ca.pem")
+  private val missingMessage =
+    "upstreamTrust CaFile is not a readable file: /definitely/not/here/rift-ca.pem"
+
+  test("embedded with a CaFile that does not exist fails as InvalidDefinition"):
+    assertInvalid(
+      RiftConnector.embedded(EmbeddedConfig(upstreamTrust = Some(UpstreamTrust.CaFile(missingCa)))),
+      missingMessage
+    )
+
+  test("spawn with a CaFile that does not exist fails as InvalidDefinition"):
+    assertInvalid(
+      RiftConnector.spawn(SpawnConfig(upstreamTrust = Some(UpstreamTrust.CaFile(missingCa)))),
+      missingMessage
+    )
+
+  test("container with a CaFile that does not exist fails as InvalidDefinition"):
+    assertInvalid(
+      RiftConnector.container(
+        ContainerConfig(upstreamTrust = Some(UpstreamTrust.CaFile(missingCa)))
+      ),
+      missingMessage
+    )
+
+  test("the refusal names the config it came from"):
+    val err = intercept[RiftError.InvalidDefinition](
+      RiftConnector.container(
+        ContainerConfig(upstreamTrust = Some(UpstreamTrust.CaFile(missingCa)))
+      )
+    )
+    assertEquals(err.getMessage, s"invalid ContainerConfig: $missingMessage")
+
+  // The check lives in the shared `UpstreamTrust.toJava`, so one transport covers each file kind.
+  test("a CaFile that exists but cannot be read fails as InvalidDefinition"):
+    assume(System.getProperty("user.name") != "root", "root reads a file whatever its mode")
+    val file = Files.createTempFile("rift-upstream-ca-unreadable", ".pem")
+    try
+      Files.writeString(file, pem)
+      Files.setPosixFilePermissions(file, java.util.Set.of())
+      assertInvalid(
+        RiftConnector.embedded(EmbeddedConfig(upstreamTrust = Some(UpstreamTrust.CaFile(file)))),
+        s"upstreamTrust CaFile is not a readable file: $file"
+      )
+    finally Files.deleteIfExists(file)
+
+  test("a CaFile that is a directory fails as InvalidDefinition"):
+    val dir = Files.createTempDirectory("rift-upstream-ca-dir")
+    try
+      assertInvalid(
+        RiftConnector.spawn(SpawnConfig(upstreamTrust = Some(UpstreamTrust.CaFile(dir)))),
+        s"upstreamTrust CaFile is not a readable file: $dir"
+      )
+    finally Files.deleteIfExists(dir)
+
+  test("a relative CaFile is checked, and named, as the absolute path rift-java would read"):
+    val relative = Paths.get("no-such-dir-197", "ca.pem")
+    assertInvalid(
+      RiftConnector.embedded(EmbeddedConfig(upstreamTrust = Some(UpstreamTrust.CaFile(relative)))),
+      s"upstreamTrust CaFile is not a readable file: ${relative.toAbsolutePath}"
     )
 
   test("EngineInfo reads and writes serveOptions, absent meaning none"):
