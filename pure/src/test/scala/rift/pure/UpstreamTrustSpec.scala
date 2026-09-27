@@ -2,6 +2,8 @@ package rift.pure
 
 import munit.FunSuite
 
+import java.nio.file.Paths
+
 import rift.RiftError
 import rift.bridge.{ContainerConfig, EmbeddedConfig, SpawnConfig, UpstreamTrust}
 
@@ -30,4 +32,15 @@ class UpstreamTrustSpec extends FunSuite:
   test("container with an inline PEM without a certificate block is Left(InvalidDefinition)"):
     assertInvalid(
       Rift.container(ContainerConfig(upstreamTrust = Some(UpstreamTrust.CaPem("not a pem"))))
+    )
+
+  // #197 — rift-java reads a CaFile only at container start, where an unreadable one used to escape
+  // this Either as a thrown ContainerLaunchException.
+  test("container with a CaFile that does not exist is Left(InvalidDefinition)"):
+    assertInvalid(
+      Rift.container(
+        ContainerConfig(upstreamTrust =
+          Some(UpstreamTrust.CaFile(Paths.get("/definitely/not/here/rift-ca.pem")))
+        )
+      )
     )

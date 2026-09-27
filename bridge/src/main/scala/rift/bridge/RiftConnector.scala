@@ -155,9 +155,11 @@ object RiftConnector:
     * `FacadeBoundary` as a defect (#193). This step only turns the caller's config into options,
     * with no engine involved, so a refusal here is always the caller's configuration mistake:
     * `InvalidDefinition`, the same treatment `FacadeEncode.matchClause` gives a malformed filter.
-    * The rules stay rift-java's; nothing is re-checked here. The catch is deliberately this narrow
-    * — the transport start that follows is not covered, so an `IllegalArgumentException` from
-    * inside the facade stays the defect it is.
+    * The rules stay rift-java's; nothing is re-checked here, with one exception: `UpstreamTrust`
+    * refuses a `CaFile` that is not a readable regular file, because rift-java reads it only when
+    * the transport starts, and on the container transport outside its typed errors (#197). The
+    * catch is deliberately this narrow — the transport start that follows is not covered, so an
+    * `IllegalArgumentException` from inside the facade stays the defect it is.
     */
   private def options[A](config: Product)(build: => A): A =
     try build
@@ -232,8 +234,9 @@ object RiftConnector:
   /** The not-yet-started `RiftContainer` for `config` — the container transport's counterpart of
     * the other transports' `toOptions`, and so what `container` runs under [[options]]. No Docker
     * call happens here: rift-java refuses a bad setting (an inline PEM with no certificate block,
-    * an image tag older than 0.18.0 with trust set) as the setter runs, and the container only
-    * reads a `CaFile` or talks to Docker at `start()`, which stays outside the typed-refusal catch.
+    * an image tag older than 0.18.0 with trust set) as the setter runs, and `UpstreamTrust.toJava`
+    * refuses a `CaFile` that is not a readable file (#197). The container itself reads that file
+    * and talks to Docker only at `start()`, which stays outside the typed-refusal catch.
     */
   private[bridge] def configuredContainer(
       config: ContainerConfig
@@ -252,7 +255,8 @@ object RiftConnector:
     // rift-http-proxy/server.rs). `RiftContainer` has no dedicated setter, but it extends
     // testcontainers' GenericContainer, so set the env directly rather than needing a rift-java bump.
     if config.allowInjection then container.withEnv("MB_ALLOW_INJECTION", "true")
-    // `toJava` itself refuses an inline PEM with no certificate block, and `withUpstreamTrust` an
-    // image tag older than 0.18.0 — both IllegalArgumentExceptions that `options` types.
+    // `toJava` itself refuses an inline PEM with no certificate block or a `CaFile` that is not a
+    // readable file (#197), and `withUpstreamTrust` an image tag older than 0.18.0 — all
+    // IllegalArgumentExceptions that `options` types.
     config.upstreamTrust.foreach(t => container.withUpstreamTrust(t.toJava))
     container

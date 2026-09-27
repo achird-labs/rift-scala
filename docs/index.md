@@ -23,8 +23,9 @@ The test body is identical on all four — swapping transports is a one-line cha
 To let a proxy stub record an HTTPS origin behind a private CA, set `upstreamTrust`
 (`UpstreamTrust.CaFile`, `CaPem` or `SkipVerify`; engine 0.18.0+) on `EmbeddedConfig`,
 `SpawnConfig` or `ContainerConfig`. Spawn takes no inline `CaPem`; a container takes all three,
-copying the PEM into the container. A connected engine is configured by whoever started it
-(`--upstream-ca-file`).
+copying the PEM into the container. A `CaFile` that is not a readable file fails with
+`RiftError.InvalidDefinition` naming its path, before any engine starts. A connected engine is
+configured by whoever started it (`--upstream-ca-file`).
 
 ## A first test
 

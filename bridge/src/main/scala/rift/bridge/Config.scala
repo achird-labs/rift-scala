@@ -1,7 +1,7 @@
 package rift.bridge
 
 import java.net.URI
-import java.nio.file.Path
+import java.nio.file.{Files, Path}
 
 import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
@@ -37,7 +37,11 @@ enum VersionCheck:
   * `ContainerConfig`); a connected engine is configured by whoever started it. In a container,
   * rift-java copies a [[CaFile]] or [[CaPem]] into the container when it starts and names it to the
   * engine (`RIFT_UPSTREAM_CA_FILE`); [[SkipVerify]] sets `RIFT_UPSTREAM_TLS_SKIP_VERIFY` (rift-java
-  * 0.3.1 #248). A [[CaFile]] is read when the engine or container starts.
+  * 0.3.1 #248). A [[CaFile]] is read when the engine or container starts, so the bridge first
+  * checks, when the config is turned into options, that its absolute path is a readable regular
+  * file: one that is not fails with `RiftError.InvalidDefinition` naming that path, on every
+  * transport and before any engine, process or container starts (#197). A file removed after that
+  * check still fails the start itself.
   *
   * rift-java sends it only to an engine that supports it: the embedded transport checks the
   * engine's advertised `serveOptions` (an engine without it fails with
@@ -55,7 +59,13 @@ enum UpstreamTrust:
   case SkipVerify
 
   private[bridge] def toJava: JUpstreamTrust = this match
-    case UpstreamTrust.CaFile(pem) => JUpstreamTrust.CaFile(pem)
+    case UpstreamTrust.CaFile(pem) =>
+      // rift-java reads the file only at start, and in a container outside its typed errors
+      // (#197). Check the absolute path it resolves, so the message names the file it would read.
+      val path = pem.toAbsolutePath
+      if !(Files.isRegularFile(path) && Files.isReadable(path)) then
+        throw IllegalArgumentException(s"upstreamTrust CaFile is not a readable file: $path")
+      JUpstreamTrust.CaFile(path)
     case UpstreamTrust.CaPem(pem) => JUpstreamTrust.CaPem(pem)
     case UpstreamTrust.SkipVerify => JUpstreamTrust.SkipVerify()
 

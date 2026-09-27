@@ -690,9 +690,11 @@ or container image tag, an out-of-range admin port) with a bare `IllegalArgument
 its options are built — for the container, while `RiftContainer` is configured, before `start()`.
 `RiftConnector.embedded`/`spawn`/`container` catch exactly that step — no engine is involved yet,
 so it can only be the caller's mistake — and raise `RiftError.InvalidDefinition`, keeping it in
-every backend's typed channel instead of a defect (#193, #194). The transport start itself is not
-covered (an unreadable `CaFile` fails the container's start); rift-java's rules are not
-duplicated.
+every backend's typed channel instead of a defect (#193, #194). rift-java's rules are not
+duplicated, with one exception: a `CaFile` is read only when the transport starts — and in a
+container, outside rift-java's typed errors — so `UpstreamTrust` checks at that same options step
+that its absolute path is a readable regular file, refusing it as `InvalidDefinition` naming the
+path on every transport (#197). The transport start itself is otherwise not covered.
 
 Verification detail (D5): `verify` calls the facade; on `VerificationException` the bridge reads
 its structured `result()` (`requests` for the matched calls, `closest` with `failedPredicates`

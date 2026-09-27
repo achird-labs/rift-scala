@@ -1,5 +1,7 @@
 package rift.zio
 
+import java.nio.file.Paths
+
 import zio.*
 import zio.test.*
 
@@ -35,5 +37,15 @@ object UpstreamTrustSpec extends ZIOSpecDefault:
     test("container with an inline PEM without a certificate block fails as InvalidDefinition"):
       failsTyped(
         Rift.container(ContainerConfig(upstreamTrust = Some(UpstreamTrust.CaPem("not a pem"))))
+      )
+    ,
+    // #197 — rift-java reads a CaFile only at container start, where an unreadable one used to die.
+    test("container with a CaFile that does not exist fails as InvalidDefinition"):
+      failsTyped(
+        Rift.container(
+          ContainerConfig(upstreamTrust =
+            Some(UpstreamTrust.CaFile(Paths.get("/definitely/not/here/rift-ca.pem")))
+          )
+        )
       )
   )
