@@ -241,8 +241,19 @@ object FacadeCoverage:
       .Wrapped("InterceptOptions.Builder#host(String)", "rift.bridge.InterceptConfig#toOptions"),
     Coverage.Wrapped("SpawnOptions.Builder#host(String)", "rift.bridge.SpawnConfig#toOptions"),
     Coverage.Wrapped(
-      "ConnectOptions.Builder#hostResolver(IntFunction)",
+      "ConnectOptions.Builder#hostResolver(HostResolver)",
       "rift.bridge.ConnectConfig#toOptions"
+    ),
+    Coverage.Excluded(
+      "ConnectOptions.Builder#hostResolver(IntFunction)",
+      "ConnectConfig passes every resolver through the HostResolver overload (#199); " +
+        "HostResolver.ByPort keeps this overload's contract, a URI used verbatim whatever the " +
+        "imposter's protocol, exactly as rift-java adapts it ((protocol, port) -> f(port))"
+    ),
+    Coverage.Excluded(
+      "HostResolver#resolve(String,int)",
+      "a callback rift-java invokes and rift-scala only implements (HostResolver#toJava adapts " +
+        "ByProtocol/ByPort to it); no rift-scala code path calls resolve itself"
     ),
     Coverage.Wrapped(
       "EventStreamOptions.Builder#idleTimeout(Duration)",
