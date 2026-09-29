@@ -1,5 +1,6 @@
 # The single release path: `sbt ci-release` to Sonatype, then the GitHub Release and the
-# install-snippet stamp. `auto-release.yml` reaches it by pushing a `v*` tag with RELEASE_TOKEN.
+# install-snippet stamp. `auto-release.yml` reaches it by pushing a `v*` tag with RELEASE_TOKEN. If no
+# run appears for that push, it dispatches this workflow for the tag itself (#202).
 #
 # `workflow_dispatch` re-runs the whole thing against an EXISTING tag. Before it existed, recovering a
 # tag whose release never ran meant deleting and re-pushing the tag by hand (#143) — a destructive
@@ -22,6 +23,14 @@ on:
 # the branch the workflow was launched from, not the tag being released.
 env:
   TAG: ${{ inputs.tag || github.ref_name }}
+
+# One release per tag at a time. auto-release.yml can produce two runs for a tag: the tag push, plus
+# its own explicit dispatch when that push run does not appear in time (#202). The second run queues
+# instead of being cancelled. When it starts, it finds the version on Maven Central and skips the
+# publish (see "Skip if already on Maven Central"), leaving only the idempotent Release/stamp job.
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -49,16 +58,62 @@ jobs:
             exit 1
           fi
           echo "Releasing ${TAG}."
+      # Double-publish guard. A second run for the same tag must not upload again. That covers a tag
+      # push plus auto-release's dispatch, and a recovery dispatch of a tag that is already published.
+      # Anything other than a clear 200 or 404 fails the step, so an unreachable Central never leads to
+      # a publish that nobody checked.
+      - name: Skip if already on Maven Central
+        id: central
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          URL="https://repo1.maven.org/maven2/io/github/achird-labs/rift-scala-zio_3/${VERSION}/"
+          CODE="$(curl -sS -o /dev/null -w '%{http_code}' "${URL}" || true)"
+          case "${CODE}" in
+            200)
+              echo "::notice::${VERSION} is already on Maven Central; skipping the publish."
+              echo "published=true" >> "$GITHUB_OUTPUT" ;;
+            404)
+              echo "${VERSION} is not on Maven Central yet; publishing."
+              echo "published=false" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::Could not tell whether ${VERSION} is on Maven Central (HTTP '${CODE}' from ${URL}). Re-run."
+              exit 1 ;;
+          esac
       - name: Set up JDK 21
+        if: steps.central.outputs.published != 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
           cache: sbt
       - name: Set up sbt
+        if: steps.central.outputs.published != 'true'
         uses: sbt/setup-sbt@v1
+      # sbt-ci-release 1.11.0 chooses between a release and a snapshot from the environment. It ignores
+      # the checked-out ref: `isTag` is true only when CI_COMMIT_TAG is non-empty or GITHUB_REF starts
+      # with `refs/tags`. On a dispatch launched from a branch, GITHUB_REF is `refs/heads/master`. The
+      # plugin then took the snapshot path, printed "Snapshot releases must have -SNAPSHOT version
+      # number, doing nothing" and exited 0 (#202). Exporting both variables sends a dispatch down the
+      # stable-release path, the same as a tag push.
+      # The log checks stop a no-op from ever reporting green. TAG is already verified as vX.Y.Z, so any
+      # log without "publishing a stable release" means nothing was published.
       - name: Publish
-        run: sbt ci-release
+        if: steps.central.outputs.published != 'true'
+        run: |
+          set -euo pipefail
+          export GITHUB_REF="refs/tags/${TAG}"
+          export CI_COMMIT_TAG="${TAG}"
+          LOG="${RUNNER_TEMP}/ci-release.log"
+          sbt ci-release 2>&1 | tee "${LOG}"
+          if grep -q 'doing nothing' "${LOG}"; then
+            echo "::error::ci-release did nothing for release tag ${TAG} ('doing nothing'). Nothing was published."
+            exit 1
+          fi
+          if ! grep -q 'publishing a stable release' "${LOG}"; then
+            echo "::error::ci-release did not take the stable-release path for ${TAG}. Nothing was published."
+            exit 1
+          fi
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
