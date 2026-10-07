@@ -15,10 +15,11 @@ import io.github.achirdlabs.rift.dsl.IsSpec as JIsSpec
   * reachable, and in bridge's *test* scope so the effect modules can share it over `test->test`
   * rather than each re-deriving the reflection next to a `package rift.bridge` cheat-file.
   *
-  * The technique: a real `JInterceptRuleBuilder` over a **null** `InterceptImpl`. `host`/`when` are
-  * pure field writes and land normally; a terminal NPEs when it finally reaches the engine. That
-  * NPE is the signal the call got all the way through translation, and the window in which the
-  * facade's predicate list is readable.
+  * The technique: a real `JInterceptRuleBuilder` over a **null** `InterceptRules` (rift-java 0.3.6
+  * moved rule building there from `InterceptImpl`). `host`/`when` are pure field writes and land
+  * normally; a terminal NPEs when it finally reaches the engine. That NPE is the signal the call
+  * got all the way through translation, and the window in which the facade's predicate list is
+  * readable.
   */
 object InterceptGate:
 
@@ -28,7 +29,7 @@ object InterceptGate:
   /** A real (final, package-private-ctor) facade builder over a null engine. */
   def facadeBuilder(): JInterceptRuleBuilder =
     val ctor = classOf[JInterceptRuleBuilder]
-      .getDeclaredConstructor(Class.forName("io.github.achirdlabs.rift.InterceptImpl"))
+      .getDeclaredConstructor(Class.forName("io.github.achirdlabs.rift.InterceptRules"))
     ctor.setAccessible(true)
     ctor.newInstance(null.asInstanceOf[AnyRef])
 
@@ -98,6 +99,11 @@ object InterceptGate:
     def redirectTo(host: String, imposter: JImposter): JInterceptRule = nope
     def rules(): java.util.List[JInterceptRule] = nope
     def clearRules(): Unit = nope
+    def replaceRules(
+        declare: java.util.function.Consumer[? >: io.github.achirdlabs.rift.InterceptRuleSet]
+    ): java.util.List[JInterceptRule] = nope
+    def replaceRules(rules: java.util.List[JInterceptRule]): java.util.List[JInterceptRule] = nope
+    def removeRule(rule: JInterceptRule): Boolean = nope
     def trust(): JInterceptTrust = nope
     def caMaterial(): java.util.Optional[JIntercept.CaMaterial] = nope
     def close(): Unit = ()

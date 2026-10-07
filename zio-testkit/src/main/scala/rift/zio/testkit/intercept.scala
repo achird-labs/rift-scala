@@ -95,8 +95,8 @@ final case class InterceptTestConfig(
   * safe, since each scope puts back whatever it displaced (`SystemWiringSpec` pins that), but
   * racing is not: a suite using these must be `@@ sequential`, and a shared fixture wants
   * `provideShared`. `tlsIntercept` builds its own engine per layer, so the engine's
-  * one-intercept-for-its-lifetime rule is not reachable through it — it applies only when you call
-  * `Rift.intercept` twice on an engine of your own.
+  * one-open-intercept-at-a-time rule is not reachable through it — it applies only when you hold
+  * two `Rift.intercept` scopes open at once on an engine of your own.
   */
 object intercept:
 

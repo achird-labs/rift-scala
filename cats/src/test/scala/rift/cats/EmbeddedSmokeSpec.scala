@@ -79,30 +79,24 @@ class EmbeddedSmokeSpec extends CatsEffectSuite:
     }
 
   // #121: `Resource` guarantees the finalizer RUNS — that is cats-effect's promise, not rift's.
-  // What this module exists to prove is that rift's finalizer does real engine-side work, so the
-  // check reads engine state after release: the rules the handle registered are gone.
-  //
-  // Deliberately NOT "the listener is torn down" — it isn't. The facade's `Intercept.close()` is
-  // exactly `clearRules()`; the listener stops only with the owning engine. Cleared rules are the
-  // strongest observable release actually has.
-  //
-  // Re-acquiring would be the nicer probe, but the facade refuses a second `intercept` once one
-  // has succeeded (pinned in the bridge spec), which is also why each of these tests takes its own
-  // `Rift.embedded` — one engine, one intercept. The handle can simply be yielded out of `use`
-  // here because the body succeeds; the failing-body test below needs a `Ref` to capture it.
-  test("embedded: releasing the intercept Resource clears the rules it registered"):
+  // What this module exists to prove is that rift's finalizer does real engine-side work. Since
+  // rift-java 0.3.5 release stops the listener (#207), so the probe is the one an engine allows
+  // only after a real stop: a fresh `intercept` on the same engine succeeds, and it starts with
+  // none of the released handle's rules. Before 0.3.5 the facade refused any second `intercept`,
+  // and the check could only read the released handle's cleared rules.
+  test("embedded: releasing the intercept Resource stops the listener and drops its rules"):
     requireEmbedded(Rift.isEmbeddedAvailable)
 
     Rift.embedded[IO].use { rift =>
       for
-        released <- rift.intercept().use { ic =>
+        _ <- rift.intercept().use { ic =>
           for
             _ <- ic.rule("api.example.com").when(get("/health")).serve(ok)
             live <- ic.rules
             _ = assert(live.nonEmpty, "precondition: the rule should exist inside `use`")
-          yield ic
+          yield ()
         }
-        afterRelease <- released.rules
+        afterRelease <- rift.intercept().use(_.rules)
         _ = assertEquals(afterRelease, Vector.empty, "release left the engine-side rules in place")
       yield ()
     }
@@ -113,21 +107,21 @@ class EmbeddedSmokeSpec extends CatsEffectSuite:
     val boom = new RuntimeException("boom")
     Rift.embedded[IO].use { rift =>
       for
-        // Captured before the failure so the teardown is still checkable afterwards — otherwise
-        // this could only assert that the error propagated, not that release did anything.
-        captured <- Ref[IO].of(Option.empty[InterceptHandle[IO]])
+        // Proves the body ran before it failed, so a clean re-acquire below means release ran —
+        // not that `intercept` never started.
+        ran <- Ref[IO].of(false)
         outcome <- rift
           .intercept()
           .use { ic =>
-            captured.set(Some(ic)) *>
+            ran.set(true) *>
               ic.rule("api.example.com").when(get("/health")).serve(ok) *>
               IO.raiseError[Unit](boom)
           }
           .attempt
         _ = assertEquals(outcome, Left(boom), "the body's failure was swallowed or replaced")
-        handle <- captured.get
-        ic = handle.getOrElse(fail("the resource body never ran"))
-        afterRelease <- ic.rules
+        bodyRan <- ran.get
+        _ = assert(bodyRan, "the resource body never ran")
+        afterRelease <- rift.intercept().use(_.rules)
         _ = assertEquals(
           afterRelease,
           Vector.empty,

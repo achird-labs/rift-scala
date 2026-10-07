@@ -60,8 +60,8 @@ The **embedded** transport additionally needs the engine's native library and th
 
 ```scala
 libraryDependencies ++= Seq(
-  "io.github.achird-labs" % "rift-java-embedded" % "0.3.4" % Test,
-  ("io.github.achird-labs" % "rift-java-natives" % "0.3.4" % Test)
+  "io.github.achird-labs" % "rift-java-embedded" % "0.3.7" % Test,
+  ("io.github.achird-labs" % "rift-java-natives" % "0.3.7" % Test)
     .classifier(RiftNatives.currentClassifier)   // linux-x86_64, darwin-aarch64, …
 )
 ```

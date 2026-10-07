@@ -7,12 +7,15 @@ import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.json.{Json, JsonError}
 import rift.model.{
+  ApplyFailure,
+  ApplyResult,
   Behavior,
   Behaviors,
   ClosestMiss,
   FailedPredicate,
   FlowId,
   Headers,
+  InterceptCounts,
   IsResponse,
   Port,
   Predicate,
@@ -30,6 +33,7 @@ import io.github.achirdlabs.rift.MatchClause as JMatchClause
 import io.github.achirdlabs.rift.json.JsonValue as JJsonValue
 import io.github.achirdlabs.rift.dsl.{IsSpec as JIsSpec, RiftDsl as JRiftDsl}
 import io.github.achirdlabs.rift.RecordedRequest as JRecordedRequest
+import io.github.achirdlabs.rift.ApplyResult as JApplyResult
 import io.github.achirdlabs.rift.RecordedPage as JRecordedPage
 import io.github.achirdlabs.rift.RiftEvent as JRiftEvent
 import io.github.achirdlabs.rift.RiftEvent.ImposterChanged.Action as JImposterAction
@@ -164,6 +168,30 @@ private[bridge] object FacadeDecode:
           actual = json(fp.actual())
         )
       }
+    )
+
+  /** The facade's parsed apply report, field for field. A port outside `1..65535` in a port list is
+    * engine data the model cannot represent, so it fails as `DecodeFailed` rather than being
+    * dropped.
+    */
+  def applyResult(r: JApplyResult): ApplyResult =
+    def port(key: String)(n: Int): Port =
+      Port.from(n).fold(e => throw RiftError.DecodeFailed(s"apply report $key: $e", None), identity)
+    def ports(key: String, ps: java.util.List[Integer]): Vector[Port] =
+      ps.asScala.toVector.map(n => port(key)(n.intValue))
+    ApplyResult(
+      created = ports("created", r.created()),
+      replaced = ports("replaced", r.replaced()),
+      stubPatched = ports("stubPatched", r.stubPatched()),
+      toggled = ports("toggled", r.toggled()),
+      deleted = ports("deleted", r.deleted()),
+      failed = r
+        .failed()
+        .asScala
+        .toVector
+        .map(f => ApplyFailure(f.port().toScala.map(port("failed")), f.message())),
+      warnings = r.warnings().asScala.toVector,
+      intercept = r.intercept().toScala.map(c => InterceptCounts(c.rulesSeeded(), c.rulesRuntime()))
     )
 
   private def decodeOrThrow[A](

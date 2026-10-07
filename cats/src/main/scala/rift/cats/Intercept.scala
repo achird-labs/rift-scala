@@ -12,10 +12,11 @@ import rift.model.Port
 import rift.bridge.{CaMaterial, InterceptConnector, InterceptRule, TruststoreFormat}
 
 /** The Cats Effect surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.6). Obtained from
-  * `Rift.intercept` as a `Resource[F, InterceptHandle[F]]`. Release clears the rules this handle
-  * registered; it does **not** stop the proxy, which is bound until the owning engine closes, and
-  * only one *successful* `intercept` is allowed per engine — so acquiring a second one on a shared
-  * engine fails with an `IllegalStateException` **defect**, not a typed error. See
+  * `Rift.intercept` as a `Resource[F, InterceptHandle[F]]`. Release stops a proxy this client
+  * started (its rules and CA go with it) and frees the engine for a new `intercept`; on an attached
+  * or container-booted listener it only clears the rules. Only one intercept may be open on an
+  * engine at a time, so acquiring a second while the first is open fails with an
+  * `IllegalStateException` **defect**, not a typed error. See
   * `rift.bridge.RiftConnector.intercept`.
   *
   * `proxyUri` is pure (mirroring `ImposterHandle.uri`); everything that touches the running proxy
@@ -70,25 +71,28 @@ trait InterceptRuleBuilder[F[_]]:
   def when(matching: RequestMatch): InterceptRuleBuilder[F]
   def serve(response: ResponseBuilder): F[InterceptRule]
 
-  /** Transparently forward matched traffic to a **local imposter port**.
+  /** Transparently forward matched traffic to a **local imposter port**: the port-only wire
+    * (`{"forward":{"port":N}}`), which the engine proxies to `http://127.0.0.1:{port}` and every
+    * engine accepts. Composes with the port accessors: `rule(host).forward(imposter.port)`.
     *
-    * The engine's forward action is `ForwardTarget { port: u16 }`, proxied to
-    * `http://127.0.0.1:{port}` — a port is the whole destination, so there is no cross-host
-    * forwarding to express. Composes with the port accessors: `rule(host).forward(imposter.port)`.
+    * From engine 0.20.0 every forwarded or redirected request reaches the imposter with the SUT's
+    * own `Host` header, not `127.0.0.1:<port>`.
     */
   def forward(port: Port): F[InterceptRule]
 
-  /** Forward matched traffic to the **port** named by `target` — the facade's own signature, kept
-    * for parity. Prefer `forward(port: Port)`, which cannot express the part that gets discarded.
+  /** Forward matched traffic to `target` — a port, `host:port`, or `http(s)://host:port` (the
+    * facade's own signature, rift-java 0.3.6).
     *
-    * `target` takes the facade's `host:port` form (e.g. `"real.example.com:443"`), but only the
-    * port survives: the facade sends `{"forward":{"port":N}}` and the engine proxies to
-    * `http://127.0.0.1:{port}`, so the host component of `target` is parsed and discarded. That is
-    * deliberate upstream, not a dropped field: the engine's forward action carries no host.
+    * A loopback target over http (`"9443"`, `"localhost:9443"`, `"http://127.0.0.1:9443"`) keeps
+    * the port-only wire and works on any engine. A named host, or `https`, is forwarded **to that
+    * host** and needs engine >= 0.20.0: an older engine refuses the rule with
+    * `RiftError.InvalidDefinition` before anything is sent — unless the version check is off
+    * (`VersionCheck.Off`) or only warns, in which case an older engine ignores the host and
+    * forwards to its own machine.
     *
-    * A malformed target (notably a scheme-carrying URL, `"https://real.example.com"`) is rejected
-    * before any rule is registered. That rejection is a **defect**, not a `RiftError`: an
-    * unparseable target is a programming error, so it never reaches the typed error channel.
+    * A target with a path, query or user info, or a port outside 1-65535, is rejected before any
+    * rule is registered. That rejection is a **defect**, not a `RiftError`: an unparseable target
+    * is a programming error, so it never reaches the typed error channel.
     */
   def forward(target: String): F[InterceptRule]
   def redirectTo(imposter: ImposterHandle[F]): F[InterceptRule]

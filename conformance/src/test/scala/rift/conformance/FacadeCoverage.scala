@@ -117,6 +117,25 @@ object FacadeCoverage:
       "silently discard — see issue #147 and upstream achird-labs/rift-java#207; the same construct " +
       "still reaches the engine on an imposter stub through the D2 raw-JSON seam"
 
+  /** Shared reason: rift-java 0.3.6's atomic intercept rule replace, not yet mirrored on the
+    * bridge. Issue #206 wraps it (`InterceptConnector.replaceRules`/`removeRule`) and turns these
+    * rows into `Wrapped`.
+    */
+  private val replaceRulesPending =
+    "not yet mirrored: atomic intercept rule replace (PUT /intercept/rules, engine >= 0.20.0) " +
+      "arrived with the rift-java 0.3.7 bump (#207); issue #206 wraps it on the bridge and the " +
+      "three facades, turning this row into Wrapped"
+
+  /** Shared reason: rift-java 0.3.5's container intercept support — a committed CA at launch, a
+    * runtime-started listener on an exposed port, and an attach that carries the CA. Issue #205
+    * wires it into `ContainerConfig`/`RiftConnector.container` and turns these rows into `Wrapped`.
+    */
+  private val containerInterceptPending =
+    "not yet wired: rift-java 0.3.5's container intercept support (committed CA at launch, a " +
+      "runtime listener on an exposed port, a CA-carrying attach) arrived with the rift-java " +
+      "0.3.7 bump (#207); issue #205 wires it into ContainerConfig/RiftConnector.container, " +
+      "turning this row into Wrapped"
+
   val entries: Vector[Coverage] = Vector(
     Coverage.Wrapped("RuleKind#SERVE", "rift.bridge.RuleKind#fromJava"),
     Coverage.Wrapped("RuleKind#FORWARD", "rift.bridge.RuleKind#fromJava"),
@@ -190,17 +209,35 @@ object FacadeCoverage:
         "(DESIGN.md non-goals) — wrapping the facade's own CompletableFuture surface is a " +
         "deliberate non-goal, not a gap"
     ),
-    Coverage.Wrapped("ApplyResult#created()", "rift.bridge.RiftConnector#applyConfig"),
-    Coverage.Wrapped("ApplyResult#deleted()", "rift.bridge.RiftConnector#applyConfig"),
-    Coverage.Wrapped("ApplyResult#failed()", "rift.bridge.RiftConnector#applyConfig"),
+    Coverage.Wrapped("ApplyResult#created()", "rift.bridge.FacadeDecode#applyResult"),
+    Coverage.Wrapped("ApplyResult#deleted()", "rift.bridge.FacadeDecode#applyResult"),
+    Coverage.Wrapped("ApplyResult#failed()", "rift.bridge.FacadeDecode#applyResult"),
     Coverage.Excluded(
       "ApplyResult#read(JsonValue)",
       "a static JSON-deserializing factory rift-scala never calls; every instance of this type " +
         "arrives live from a facade call (info()/applyConfig()/the request journal), never " +
         "round-tripped from JSON built on the Scala side"
     ),
-    Coverage.Wrapped("ApplyResult#replaced()", "rift.bridge.RiftConnector#applyConfig"),
-    Coverage.Wrapped("ApplyResult#stubPatched()", "rift.bridge.RiftConnector#applyConfig"),
+    Coverage.Wrapped("ApplyResult#replaced()", "rift.bridge.FacadeDecode#applyResult"),
+    Coverage.Wrapped("ApplyResult#stubPatched()", "rift.bridge.FacadeDecode#applyResult"),
+    Coverage.Wrapped("ApplyResult#toggled()", "rift.bridge.FacadeDecode#applyResult"),
+    Coverage.Wrapped("ApplyResult#warnings()", "rift.bridge.FacadeDecode#applyResult"),
+    Coverage.Wrapped("ApplyResult#intercept()", "rift.bridge.FacadeDecode#applyResult"),
+    Coverage.Excluded(
+      "ApplyResult#changedNothing()",
+      "a derived predicate over the five port lists; rift.model.ApplyResult#changedNothing " +
+        "computes the same thing over the translated lists, so the facade's copy is never read"
+    ),
+    Coverage.Wrapped("ApplyResult.ApplyFailure#port()", "rift.bridge.FacadeDecode#applyResult"),
+    Coverage.Wrapped("ApplyResult.ApplyFailure#message()", "rift.bridge.FacadeDecode#applyResult"),
+    Coverage.Wrapped(
+      "ApplyResult.InterceptCounts#rulesSeeded()",
+      "rift.bridge.FacadeDecode#applyResult"
+    ),
+    Coverage.Wrapped(
+      "ApplyResult.InterceptCounts#rulesRuntime()",
+      "rift.bridge.FacadeDecode#applyResult"
+    ),
     Coverage
       .Wrapped("RecordSpec.Builder#addWaitBehavior(boolean)", "rift.bridge.RecordSpec#toJava"),
     Coverage
@@ -310,6 +347,12 @@ object FacadeCoverage:
     Coverage.Wrapped("Intercept.CaMaterial#keyPem()", "rift.bridge.InterceptConnector#caMaterial"),
     Coverage.Excluded("ConnectOptions#adminUri()", optionsReadback),
     Coverage.Excluded("ConnectOptions#apiKey()", optionsReadback),
+    Coverage.Excluded("ConnectOptions#interceptAddress()", optionsReadback),
+    Coverage
+      .Excluded("ConnectOptions.Builder#interceptAddress(IntFunction)", containerInterceptPending),
+    Coverage.Excluded("RiftContainer#withExposedInterceptPort(int)", containerInterceptPending),
+    Coverage.Excluded("RiftContainer#withInterceptCa(Path,Path)", containerInterceptPending),
+    Coverage.Excluded("RiftContainer#withInterceptCa(String,String)", containerInterceptPending),
     Coverage.Wrapped("ConnectOptions#builder(URI)", "rift.bridge.ConnectConfig#toOptions"),
     Coverage.Excluded("ConnectOptions#hostResolver()", optionsReadback),
     Coverage.Excluded("ConnectOptions#requestTimeout()", optionsReadback),
@@ -415,16 +458,26 @@ object FacadeCoverage:
     Coverage.Wrapped("Intercept#caMaterial()", "rift.bridge.InterceptConnector#caMaterial"),
     Coverage.Wrapped("Intercept#clearRules()", "rift.bridge.InterceptConnector#clearRules"),
     Coverage.Wrapped("Intercept#close()", "rift.bridge.InterceptConnector#close"),
-    Coverage.Excluded("Intercept#forward(String,String)", interceptShortcut),
     Coverage.Wrapped("Intercept#proxySelector()", "rift.bridge.InterceptConnector#proxySelector"),
-    Coverage.Excluded("Intercept#redirectTo(String,Imposter)", interceptShortcut),
-    Coverage.Wrapped("Intercept#rule()", "rift.bridge.InterceptConnector#rule"),
     Coverage.Wrapped("Intercept#rules()", "rift.bridge.InterceptConnector#rules"),
-    Coverage.Excluded("Intercept#serve(String,IsSpec)", interceptShortcut),
+    Coverage.Excluded(
+      "Intercept#engineAddress()",
+      "a diagnostic: the engine-side bind address, which can differ from where this client " +
+        "dials; InterceptConnector exposes the dialled address (address/proxyUri/proxySelector), " +
+        "which is what a SUT is configured with"
+    ),
+    Coverage.Excluded("Intercept#replaceRules(Consumer)", replaceRulesPending),
+    Coverage.Excluded("Intercept#replaceRules(List)", replaceRulesPending),
+    Coverage.Excluded("Intercept#removeRule(InterceptRule)", replaceRulesPending),
+    Coverage.Wrapped("InterceptRuleSet#rule()", "rift.bridge.InterceptConnector#rule"),
+    Coverage.Excluded("InterceptRuleSet#forward(String,String)", interceptShortcut),
+    Coverage.Excluded("InterceptRuleSet#redirectTo(String,Imposter)", interceptShortcut),
+    Coverage.Excluded("InterceptRuleSet#serve(String,IsSpec)", interceptShortcut),
     Coverage.Wrapped("Intercept#trust()", "rift.bridge.InterceptConnector#caPem"),
     Coverage.Wrapped("Intercept#uri()", "rift.bridge.InterceptConnector#proxyUri"),
     Coverage
       .Wrapped("InterceptOptions#attach(String,int)", "rift.bridge.RiftConnector#interceptAttach"),
+    Coverage.Excluded("InterceptOptions#attach(String,int,CaMaterial)", containerInterceptPending),
     Coverage.Wrapped("InterceptOptions#builder()", "rift.bridge.InterceptConfig#toOptions"),
     Coverage.Excluded("InterceptOptions#toJson()", optionsReadback),
     Coverage.Wrapped("InterceptRule#host()", "rift.bridge.InterceptRule#fromJava"),
@@ -618,6 +671,10 @@ object FacadeCoverage:
     Coverage.Excluded("IsSpec#repeat(int)", interceptServeActionDrops),
     Coverage.Excluded("IsSpec#shellTransform(String[])", interceptServeActionDrops),
     Coverage.Excluded("IsSpec#templated()", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#conditional()", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#conditional(Instant)", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#conditionalWithoutEtag()", interceptServeActionDrops),
+    Coverage.Excluded("IsSpec#conditionalWithoutEtag(Instant)", interceptServeActionDrops),
     Coverage.Excluded("IsSpec#waitBetween(long,long)", interceptServeActionDrops),
     Coverage.Excluded("IsSpec#waitInject(String)", interceptServeActionDrops),
     Coverage.Excluded("IsSpec#waitMs(long)", interceptServeActionDrops),

@@ -86,8 +86,8 @@ For the embedded transport, add the engine's native library:
 
 ```scala
 libraryDependencies ++= Seq(
-  "io.github.achird-labs" % "rift-java-embedded" % "0.3.4" % Test,
-  ("io.github.achird-labs" % "rift-java-natives" % "0.3.4" % Test)
+  "io.github.achird-labs" % "rift-java-embedded" % "0.3.7" % Test,
+  ("io.github.achird-labs" % "rift-java-natives" % "0.3.7" % Test)
     .classifier(RiftNatives.currentClassifier)   // linux-x86_64, darwin-aarch64, …
 )
 ```

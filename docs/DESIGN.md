@@ -380,8 +380,13 @@ final case class RecordedRequest(
 final case class EngineInfo(version: String, commit: String, features: Set[String],
   serveOptions: Set[String] = Set.empty)  // serve keys the embedded engine accepts, to
                                           // feature-detect e.g. upstream TLS trust (#176)
-final case class ApplyResult(created: Int, replaced: Int, stubPatched: Int,
-                             deleted: Int, failed: Vector[Json])
+final case class ApplyResult(created: Vector[Port], replaced: Vector[Port],
+  stubPatched: Vector[Port], toggled: Vector[Port], deleted: Vector[Port],
+  failed: Vector[ApplyFailure], warnings: Vector[String],
+  intercept: Option[InterceptCounts]):   // engine 0.20 report (#207); toggled/warnings/intercept
+  def changedNothing: Boolean            // read as empty from an older engine
+final case class ApplyFailure(port: Option[Port], message: String)  // None = auto-assigned port
+final case class InterceptCounts(rulesSeeded: Int, rulesRuntime: Int)
 final case class ScenarioStatus(name: String, state: String)
 
 enum Times:
@@ -878,11 +883,10 @@ trait FlowStateHandle:
 trait InterceptHandle:
   def proxyUri: URI
   def rule(host: String): InterceptRuleBuilder      // .when(match).serve(resp) | .forward(port) | .redirectTo(imposter)
-                                                    // forward(port: Port) is the honest signature: the engine's forward
-                                                    // action is `ForwardTarget { port: u16 }`, proxied to 127.0.0.1:{port},
-                                                    // so a port is the whole destination — no cross-host forwarding exists.
-                                                    // forward(target: String) is kept for facade parity; its host component
-                                                    // is parsed and discarded upstream (deliberately, not a dropped field).
+                                                    // forward(port: Port): port-only wire, 127.0.0.1:{port}, any engine.
+                                                    // forward(target: String): port | host:port | http(s)://host:port —
+                                                    // a named host or https is forwarded to that host (engine >= 0.20.0,
+                                                    // InvalidDefinition before); loopback over http keeps the port-only wire.
   def rule(): InterceptRuleBuilder                  // all-hosts (catch-all) form — matches every intercepted host
   // `serve` carries a numeric status, headers and a text/JSON body — the whole of what the
   // engine's intercept serve action delivers (#147). A repeated header name (case-insensitively,

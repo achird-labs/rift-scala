@@ -55,14 +55,7 @@ final class RiftConnector private (
 
   def applyConfig(config: Json): ApplyResult =
     FacadeBoundary.run {
-      val r = underlying.applyConfig(FacadeEncode.json(config))
-      ApplyResult(
-        created = r.created(),
-        replaced = r.replaced(),
-        stubPatched = r.stubPatched(),
-        deleted = r.deleted(),
-        failed = r.failed().asScala.toVector.map(FacadeDecode.json)
-      )
+      FacadeDecode.applyResult(underlying.applyConfig(FacadeEncode.json(config)))
     }
 
   def info(): EngineInfo =
@@ -78,20 +71,21 @@ final class RiftConnector private (
 
   def adminUri: URI = FacadeBoundary.run(underlying.adminUri())
 
-  /** Start the engine's TLS-MITM intercept proxy — at most one **successful** start per engine.
-    * Once one has succeeded, every later call is refused by the facade's own guard with
-    * `IllegalStateException("intercept already started for this engine")`, and `close()` does not
-    * lift the refusal: an intercept cannot be restarted on the same engine.
+  /** Start the engine's TLS-MITM intercept proxy — one open intercept per engine at a time. While
+    * one is open, every later call is refused by the facade's own guard with
+    * `IllegalStateException("intercept already started for this engine")`. Closing the handle stops
+    * the listener and lifts the refusal (rift-java >= 0.3.5), so the next call starts a fresh
+    * listener with a fresh CA. On a container transport with a pre-booted listener this call
+    * attaches instead, and closing that handle only clears its rules.
     *
-    * A start that *fails* does not consume the quota. The facade resets its guard on any
+    * A start that *fails* does not claim the engine. The facade resets its guard on any
     * `RuntimeException` escaping the start path — and every `RiftError` is one — so a call rejected
     * for, say, bad CA material can be retried on the same engine.
     *
     * That refusal is a **defect**, not a `RiftError` — `IllegalStateException` is not one of the
     * facade's `RiftException` types, so `FacadeBoundary` rethrows it unchanged. Asking twice is a
     * wiring mistake rather than an engine failure, so it does not reach the typed error channel.
-    * (Pinned by `EmbeddedSmokeSpec`; this doc previously claimed an engine-side 409 surfaced as a
-    * `RiftError`, which the live engine does not do — #121.)
+    * (Pinned by `EmbeddedSmokeSpec`; #121, revised by #207.)
     *
     * `config.ca = None` generates an ephemeral CA; `Some(CaMaterial)` uses a committed PEM pair
     * (the fixed-CA case #7 needs).
