@@ -92,10 +92,11 @@ private[zio] final case class RiftLive(connector: RiftConnector) extends Rift:
 
   def adminUri: UIO[URI] = ZIO.succeed(connector.adminUri)
 
-  /** Scoped: the intercept proxy is acquired on the blocking pool, and on scope release its rules
-    * are cleared (both blocking, like the engine layers). Release does not stop the proxy, and only
-    * one *successful* `intercept` is allowed per engine — see `InterceptHandle`. `close()` on
-    * release is `orDie` — a teardown failure is a defect, not a value the caller recovers.
+  /** Scoped: the intercept proxy is acquired on the blocking pool, and on scope release it is
+    * stopped (both blocking, like the engine layers), which frees the engine for another
+    * `intercept` — unless it was a container's pre-booted listener, which release only clears. Only
+    * one may be open at a time — see `InterceptHandle`. `close()` on release is `orDie` — a
+    * teardown failure is a defect, not a value the caller recovers.
     */
   def intercept(config: InterceptConfig): ZIO[Scope, RiftError, InterceptHandle] =
     ZIO

@@ -7,6 +7,7 @@ import munit.FunSuite
 
 import rift.RiftError
 import rift.dsl.*
+import rift.json.Json
 import rift.model.{Port, Times, VerifyDetail}
 
 /** AC8 — a real end-to-end smoke over the embedded engine, proving the connector wiring against a
@@ -300,44 +301,91 @@ class EmbeddedSmokeSpec extends FunSuite:
       imp.delete()
     finally conn.close()
 
-  // ── issue #121: the one-intercept-per-engine contract, as the engine actually enforces it ────
-  // `RiftConnector.intercept`'s scaladoc claimed a second call was "an engine-side error, surfaced
-  // as a `RiftError`, not hidden". Against the live engine it is neither engine-side nor a
-  // `RiftError`: the facade's own guard raises `IllegalStateException`, which is not a
-  // `RiftException` subtype, so `FacadeBoundary` rethrows it as a defect. Nothing asserted this, so
-  // the doc drifted from the behaviour unnoticed. Both docs are corrected; this pins the truth.
-  test("embedded: a second intercept() is refused by the facade, as a defect"):
+  // ── issue #121, revised by #207: one intercept at a time, as the engine enforces it ─────────
+  // A second `intercept()` while one is open is refused by the facade's own guard with
+  // `IllegalStateException` — not a `RiftException`, so `FacadeBoundary` rethrows it as a defect.
+  // Since rift-java 0.3.5 (rift-java#268) `close()` on an owned handle stops the listener and frees
+  // the engine, so a later `intercept()` succeeds and mints a fresh CA. Before that `close()` was
+  // exactly `clearRules()` and the refusal outlived it; this test pinned that and now pins the
+  // reverse.
+  test("embedded: one intercept at a time — refused while open, allowed again after close"):
     requireEmbedded(RiftConnector.isEmbeddedAvailable)
 
     val conn = RiftConnector.embedded()
     try
-      val ic = conn.intercept()
+      val first = conn.intercept()
       val whileOpen = intercept[IllegalStateException](conn.intercept())
       assert(whileOpen.getMessage.contains("already started"), whileOpen.getMessage)
 
-      // And closing does not make the engine re-interceptable, so "at most one per engine" means
-      // once per engine, not one at a time. (A *failed* start is different — the facade resets its
-      // guard on any RuntimeException from the start path — so this is one successful start.)
-      ic.close()
-      val afterClose = intercept[IllegalStateException](conn.intercept())
-      assert(afterClose.getMessage.contains("already started"), afterClose.getMessage)
+      first.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
+      val firstCa = first.caPem
+      val firstAddress = first.address
+      first.close()
+      first.close() // idempotent: a second close is not an error
+
+      // The listener is really gone, not just emptied: its port refuses a connection.
+      val refused = intercept[java.io.IOException] {
+        val socket = new java.net.Socket()
+        try socket.connect(firstAddress, 2000)
+        finally socket.close()
+      }
+      assert(refused.isInstanceOf[java.net.ConnectException], refused.toString)
+
+      val second = conn.intercept()
+      try
+        assertEquals(second.rules, Vector.empty, "a rule from the closed handle survived the stop")
+        assertNotEquals(second.caPem, firstCa, "the restarted listener reused the stopped one's CA")
+      finally second.close()
     finally conn.close()
 
-  // The observable that lets the effect surfaces prove their finalizers do real work. Note what it
-  // is NOT: the facade's `Intercept.close()` is exactly `clearRules()`, so the listener is not torn
-  // down — it stops only with the owning engine — and the handle stays live afterwards (`caPem`
-  // still answers, a further `rule(...)` still registers). Cleared rules are the strongest signal
-  // release actually has, which is why the cats spec asserts on this and not on object death.
-  test("embedded: closing an intercept releases the rules it registered"):
+  // The observable that lets the effect surfaces prove their finalizers do real work: a closed
+  // handle refuses every rule operation and its trust material (a restart mints a new CA, so the
+  // cached anchor would be wrong), and the refusal is the facade's `IllegalStateException`.
+  test("embedded: a closed intercept refuses rules and trust material, as a defect"):
     requireEmbedded(RiftConnector.isEmbeddedAvailable)
 
     val conn = RiftConnector.embedded()
     try
       val ic = conn.intercept()
-      ic.rule("api.example.com").when(get("/health")).serve(ok.json("""{"ok":true}"""))
-      assert(ic.rules.nonEmpty, "precondition: the rule should be registered before close")
       ic.close()
-      assertEquals(ic.rules, Vector.empty, "close() left the engine-side rules in place")
+      def refused(what: String)(op: => Any): Unit =
+        val thrown = intercept[IllegalStateException](op)
+        assert(thrown.getMessage.contains("closed"), s"$what: ${thrown.getMessage}")
+      refused("rules")(ic.rules)
+      refused("clearRules")(ic.clearRules())
+      refused("caPem")(ic.caPem)
+      refused("rule")(ic.rule("api.example.com").serve(ok))
+      // The address accessors still answer on a closed handle.
+      assert(ic.address.getPort > 0, ic.address.toString)
+    finally conn.close()
+
+  // #207: since rift-java 0.3.6 the string form of `forward` keeps a non-loopback host and the
+  // engine (>= 0.20.0) stores it — the inverse of the host-discarding behaviour this method was
+  // documented with. `127.0.0.2` is dialable yet not one of the loopback spellings rift-java drops.
+  test("embedded: forward(\"host:port\") stores the named host on the engine's rule"):
+    requireEmbedded(RiftConnector.isEmbeddedAvailable)
+
+    val conn = RiftConnector.embedded()
+    try
+      val ic = conn.intercept()
+      try
+        ic.rule("api.example.com").forward("127.0.0.2:4545")
+        ic.rule("loop.example.com").forward("localhost:4546")
+        def forwardOf(host: String): Json =
+          ic.rules
+            .find(_.host.contains(host))
+            .flatMap(_.raw.get("action").flatMap(_.get("forward")))
+            .getOrElse(fail(s"no forward rule for $host in ${ic.rules}"))
+        val named = forwardOf("api.example.com")
+        assertEquals(named.get("host"), Some(Json.Str("127.0.0.2")), named.toString)
+        assertEquals(named.get("port"), Some(Json.Num(BigDecimal(4545))), named.toString)
+        val loopback = forwardOf("loop.example.com")
+        assert(
+          loopback.get("host").forall(_ == Json.Null),
+          s"a loopback target must keep the port-only wire: $loopback"
+        )
+        assertEquals(loopback.get("port"), Some(Json.Num(BigDecimal(4546))), loopback.toString)
+      finally ic.close()
     finally conn.close()
 
   // ── issue #87/#127: the admin SSE event stream, live ─────────────────────────────────────────

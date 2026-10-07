@@ -12,21 +12,23 @@ import rift.model.{Port, Predicate}
 
 import io.github.achirdlabs.rift.{
   Intercept as JIntercept,
-  InterceptRuleBuilder as JInterceptRuleBuilder
+  InterceptRuleBuilder as JInterceptRuleBuilder,
+  InterceptRuleSet as JInterceptRuleSet
 }
 
 /** Blocking, throwing (`RiftError`) handle on the engine's TLS-MITM intercept proxy — mirrors
-  * `rift.zio.InterceptHandle` (DESIGN.md §5.3) 1:1 but blocking. At most one per engine, for the
-  * engine's whole lifetime: a second `RiftConnector.intercept` is refused by the facade with
-  * `IllegalStateException`, a defect rather than a `RiftError`, and `close()` does not lift the
-  * refusal — see `RiftConnector.intercept`.
+  * `rift.zio.InterceptHandle` (DESIGN.md §5.3) 1:1 but blocking. One intercept may be open on an
+  * engine at a time: a second `RiftConnector.intercept` while this one is open is refused by the
+  * facade with `IllegalStateException`, a defect rather than a `RiftError` — see
+  * `RiftConnector.intercept`.
   *
-  * `close()` clears every rule this handle registered — `rules` reads back empty — which is what
-  * `EmbeddedSmokeSpec` observes to prove the effect surfaces' finalizers do real work rather than
-  * merely running. It does **not** stop the listener: the facade's `Intercept.close()` is exactly
-  * `clearRules()` and the transport exposes no stop at all, so the proxy stays bound for the
-  * engine's lifetime and the handle stays usable — `caPem` still answers and a further `rule(...)`
-  * still registers. Closing the engine is what frees the port.
+  * `close()` on a handle this client started stops the listener — the engine drops its rules and CA
+  * and frees the port — so a later `RiftConnector.intercept` on the same engine succeeds with a
+  * fresh CA (rift-java >= 0.3.5). A closed handle refuses `rule`/`rules`/`clearRules` and the trust
+  * material (`caPem`/`sslContext`/`exportTruststore`) with `IllegalStateException`; the address
+  * accessors still answer, and so does `caMaterial`, with the stopped listener's CA. On an
+  * **attached** handle (`interceptAttach`, or a container's pre-booted listener) `close()` only
+  * clears the rules and the listener keeps running.
   *
   * The trust material (`caPem`/`sslContext`/`exportTruststore`) is what a SUT's client uses to
   * trust the minted leaf certs.
@@ -45,14 +47,18 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
 
   /** Start a rule for `host`: `.when(match)` then a terminal `serve/forward/redirectTo`. */
   def rule(host: String): InterceptRuleBuilder =
-    FacadeBoundary.run(InterceptRuleBuilder(underlying.rule().host(host)))
+    FacadeBoundary.run(InterceptRuleBuilder(ruleSet.rule().host(host)))
 
   /** Start an all-hosts rule — the facade's catch-all form, with `host` left unset so the rule
     * matches every intercepted host (facade `InterceptRuleBuilder.host`: `null = catch-all`). For a
     * SUT proxied JVM-wide whose upstream host isn't known (or worth enumerating) at authoring time.
     */
   def rule(): InterceptRuleBuilder =
-    FacadeBoundary.run(InterceptRuleBuilder(underlying.rule()))
+    FacadeBoundary.run(InterceptRuleBuilder(ruleSet.rule()))
+
+  // `rule()` is declared on `InterceptRuleSet` since rift-java 0.3.6; calling it through that type
+  // is what FacadeParitySpec's (c2) bytecode check sees as the capability it covers.
+  private val ruleSet: JInterceptRuleSet = underlying
 
   def rules: Vector[InterceptRule] =
     FacadeBoundary.run(underlying.rules().asScala.toVector.map(InterceptRule.fromJava))
@@ -88,9 +94,9 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
     * The pair is exactly what `CaMaterial.Pem` takes, so a readback feeds straight into the next
     * `InterceptConfig`. `None` in two cases, both structural rather than transient:
     *   - a caller-supplied CA, which the engine does not echo back; and
-    *   - an **attached** listener — `interceptAttach`, and `intercept` on a container transport
-    *     with a pre-booted listener. The facade only captures CA material from a start response,
-    *     and its attach constructor leaves the field null, so this is permanently empty there.
+    *   - an **attached** listener attached without a CA — `interceptAttach`, and `intercept` on a
+    *     container transport with a pre-booted listener. The facade's attach can carry a supplied
+    *     CA and hand it back (rift-java 0.3.5); rift-scala does not pass one yet (#205).
     */
   def caMaterial: Option[CaMaterial.Pem] =
     FacadeBoundary.run(
@@ -151,32 +157,27 @@ final class InterceptRuleBuilder private[bridge] (
   def serve(response: ResponseBuilder): InterceptRule =
     FacadeBoundary.run(InterceptRule.fromJava(applied.serve(FacadeEncode.isSpec(response))))
 
-  /** Transparently forward matched traffic to a **local imposter port**.
+  /** Transparently forward matched traffic to a **local imposter port**: the port-only wire
+    * (`{"forward":{"port":N}}`), which the engine proxies to `http://127.0.0.1:{port}` and every
+    * engine accepts. Composes with the port accessors: `rule(host).forward(imposter.port)`.
     *
-    * This is the honest signature: the engine's forward action is `ForwardTarget { port: u16 }` and
-    * it proxies to `http://127.0.0.1:{port}`, so a port is the whole destination — there is no
-    * cross-host forwarding to express. Composes with the port accessors:
-    * `rule(host).forward(imposter.port)`.
-    *
-    * `redirectTo` is the richer alternative when the destination imposter is in hand.
+    * From engine 0.20.0 every forwarded or redirected request reaches the imposter with the SUT's
+    * own `Host` header, not `127.0.0.1:<port>`.
     */
   def forward(port: Port): InterceptRule = forward(FacadeEncode.forwardTarget(port))
 
-  /** Forward matched traffic to the **port** named by `target` — the facade's own signature, kept
-    * for parity. Prefer `forward(port: Port)`, which cannot express the part that gets discarded.
+  /** Forward matched traffic to `target` — a port, `host:port`, or `http(s)://host:port` (the
+    * facade's own signature, rift-java 0.3.6).
     *
-    * `target` takes the facade's `host:port` form (e.g. `"real.example.com:443"`), but only the
-    * port survives: the facade sends `{"forward":{"port":N}}` and the rule's own host — the one
-    * given to `rule(host)` — is what the engine matches on. The host component of `target` is
-    * parsed and discarded, so it documents intent and nothing more. That is deliberate upstream,
-    * not a dropped field: the engine's forward action is `ForwardTarget { port: u16 }`
-    * (`crates/rift-http-proxy/src/intercept_rules.rs`, engine v0.16.0) and it proxies to a URL it
-    * builds as `http://127.0.0.1:{port}` (`intercept.rs`) — there is no host to carry.
+    * A loopback target over http (`"9443"`, `"localhost:9443"`, `"http://127.0.0.1:9443"`) keeps
+    * the port-only wire and works on any engine. A named host, or `https`, is forwarded **to that
+    * host** and needs engine >= 0.20.0: an older engine refuses the rule with
+    * `RiftError.InvalidDefinition` before anything is sent — unless the version check is off
+    * (`VersionCheck.Off`) or only warns, in which case an older engine ignores the host and
+    * forwards to its own machine.
     *
-    * The port is taken from the substring after the last `':'` and parsed as an int, so a
-    * scheme-carrying URL (`"https://real.example.com"`) is rejected with an
-    * `IllegalArgumentException` naming the target, thrown while evaluating the argument — before
-    * any rule is registered.
+    * A target with a path, query or user info, or a port outside 1-65535, is rejected with an
+    * `IllegalArgumentException` naming the target before any rule is registered.
     */
   def forward(target: String): InterceptRule =
     FacadeBoundary.run(InterceptRule.fromJava(applied.forward(target)))

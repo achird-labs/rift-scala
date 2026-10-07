@@ -1,5 +1,7 @@
 package rift.bridge
 
+import scala.jdk.OptionConverters.*
+
 import munit.FunSuite
 
 import rift.RiftError
@@ -519,7 +521,7 @@ class InterceptTranslationSpec extends FunSuite:
   // bytecode: `putfield predicates`), so replaying N matches onto it keeps only the last. Asserting
   // on a Scala-side accumulator provably cannot catch that — the gate has to observe what actually
   // reached the facade. A real `JInterceptRuleBuilder` (public final, package-private ctor, so it
-  // cannot be subclassed or stubbed) is built reflectively over a null `InterceptImpl`: the ctor
+  // cannot be subclassed or stubbed) is built reflectively over a null `InterceptRules`: the ctor
   // only stores the reference, so `when` lands normally and the terminal NPEs afterwards at
   // `addServeRule` — which is exactly the window in which the facade's predicate list is readable.
   // Moved to InterceptGate (#101) so the zio/cats replay-fold gates share one home for the
@@ -543,8 +545,8 @@ class InterceptTranslationSpec extends FunSuite:
     assert(rendered.indexOf("/admin") >= 0, rendered)
     assert(rendered.indexOf("X-Env") > rendered.indexOf("/admin"), rendered)
 
-  // `forward` parses the port off the target before touching the (null) engine, so the target
-  // must carry one for the NPE to be what escapes.
+  // Since rift-java 0.3.6 the builder hands the raw target to `InterceptRules.addForwardRule`, which
+  // parses it there — so with null rules the NPE escapes before any parse, whatever the target.
   test("chained when reaches the facade on the forward terminal too"):
     val jBuilder = facadeBuilder()
     val first = get("/admin")
@@ -553,18 +555,15 @@ class InterceptTranslationSpec extends FunSuite:
     intercept[NullPointerException](builder.forward("real.example.com:443"))
     assertEquals(facadePredicates(jBuilder).size, (first.predicates ++ second.predicates).size)
 
-  // #100: the scaladoc on every `forward` promises a `host:port` target and says a scheme-carrying
-  // URL is rejected. Nothing pinned that half of the claim. The facade's `parsePort` splits on the
-  // last `':'` and parses the remainder as an int, so `"https://real.example.com"` parses
-  // `"//real.example.com"` and throws — and it throws as an ARGUMENT to `addForwardRule`, i.e.
-  // before any rule is registered. `IllegalArgumentException` (not the `NullPointerException` the
-  // sibling test expects) is what distinguishes "rejected by the facade" from "reached the engine".
-  test("forward rejects a scheme-carrying target before reaching the engine"):
-    val builder = new InterceptRuleBuilder(facadeBuilder()).when(get("/admin"))
-    val thrown = intercept[IllegalArgumentException](builder.forward("https://real.example.com"))
-    // The message pins the thrower: `parsePort` wraps the NumberFormatException in an
-    // IllegalArgumentException naming the target. Without this, a bare NumberFormatException
-    // (a subclass) or an IAE raised anywhere else in the call would satisfy the intercept.
+  // #100: a target the facade cannot read is rejected before any rule is registered. Since
+  // rift-java 0.3.6 the parse is `ForwardTarget.parse`, run inside `addForwardRule` ahead of the
+  // engine call, so it is asserted on the parser itself (the null-rules builder NPEs first).
+  // `"https://real.example.com"` names no port, so it is still refused, by an
+  // `IllegalArgumentException` naming the target — not the `NullPointerException` of reaching the
+  // engine.
+  test("forward rejects a target with no port before reaching the engine"):
+    val thrown =
+      intercept[IllegalArgumentException](facadeForwardTarget("https://real.example.com"))
     assert(thrown.getMessage.contains("https://real.example.com"), thrown.getMessage)
 
   test("a terminal with no when leaves the facade predicates empty — catch-all preserved"):
@@ -608,39 +607,51 @@ class InterceptTranslationSpec extends FunSuite:
     intercept[NullPointerException](builder.redirectTo(null))
     assertEquals(facadePredicates(jBuilder).size, (first.predicates ++ second.predicates).size)
 
-  // ── issue #120: the typed forward(port) overload ──────────────────────────────────────────────
-  // The string form's rejection of a scheme-carrying target is pinned above (#100); the typed
-  // overload cannot reach that state at all, which is the point of adding it.
+  // ── issue #120: the typed forward(port) overload; #207: the string form keeps its host ─────────
+  // The string form's rejection of an unreadable target is pinned above (#100); the typed overload
+  // cannot reach that state at all, which is the point of adding it.
   //
-  // The facade's `forward(hostPort)` keeps only the port: `InterceptRuleBuilder.forward` calls
-  // `InterceptImpl.parsePort(target)` and hands the resulting int to `addForwardRule` (`javap -c`,
-  // rift-java-core 0.2.1). The engine's forward action is `ForwardTarget { port: u16 }`, proxied to
-  // `http://127.0.0.1:{port}` — so the port is the entire payload and there is no destination host
-  // to express. The typed overload renders that port; the string form stays for facade parity.
+  // Since rift-java 0.3.6 the facade reads a target with `ForwardTarget.parse` (rift-java#275): a
+  // loopback host over http is dropped, keeping the port-only wire every engine reads, while a named
+  // host is kept and forwarded to (engine >= 0.20.0). Before that the host was parsed and discarded.
   //
-  // Equivalence is asserted against the facade's OWN parser rather than a rule this spec invents.
-  // If a future rift-java changed how a target is read, the bare-port rendering would fail here
-  // rather than in a user's traffic.
-  private val facadeParsePort: String => Int =
-    val method = Class
-      .forName("io.github.achirdlabs.rift.InterceptImpl")
-      .getDeclaredMethod("parsePort", classOf[String])
-    method.setAccessible(true)
-    target => method.invoke(null, target).asInstanceOf[Int]
+  // Asserted against the facade's OWN parser rather than a rule this spec invents: if a future
+  // rift-java changed how a target is read, these fail here rather than in a user's traffic.
+  private def facadeForwardTarget(target: String): (Option[String], Int, Boolean) =
+    val cls = Class.forName("io.github.achirdlabs.rift.ForwardTarget")
+    val parse = cls.getDeclaredMethod("parse", classOf[String])
+    parse.setAccessible(true)
+    val parsed =
+      try parse.invoke(null, target)
+      catch case e: java.lang.reflect.InvocationTargetException => throw e.getCause
+    def read(name: String): AnyRef =
+      val m = cls.getDeclaredMethod(name)
+      m.setAccessible(true)
+      m.invoke(parsed)
+    (
+      read("host").asInstanceOf[java.util.Optional[String]].toScala,
+      read("port").asInstanceOf[Int],
+      read("https").asInstanceOf[Boolean]
+    )
 
   private def port(value: Int): Port =
     Port.from(value).toOption.getOrElse(fail(s"not a valid port: $value"))
 
-  test("forward(port) renders a target the facade parses back to the same port"):
+  test("forward(port) renders the port-only target: no host, plain http"):
     for raw <- Seq(1, 443, 4545, 65535) do
-      assertEquals(facadeParsePort(FacadeEncode.forwardTarget(port(raw))), raw)
+      assertEquals(facadeForwardTarget(FacadeEncode.forwardTarget(port(raw))), (None, raw, false))
 
-  test("forward(port) and the host:port string form deliver the identical port to the facade"):
-    for raw <- Seq(1, 443, 65535) do
-      assertEquals(
-        facadeParsePort(FacadeEncode.forwardTarget(port(raw))),
-        facadeParsePort(s"ignored.example.com:$raw")
-      )
+  test("the string form forwards to a named host, and drops only a loopback one"):
+    assertEquals(
+      facadeForwardTarget("real.example.com:443"),
+      (Some("real.example.com"), 443, false)
+    )
+    assertEquals(
+      facadeForwardTarget("https://partner-mock:8443"),
+      (Some("partner-mock"), 8443, true)
+    )
+    assertEquals(facadeForwardTarget("localhost:9443"), (None, 9443, false))
+    assertEquals(facadeForwardTarget("http://127.0.0.1:9443"), (None, 9443, false))
 
   test("forward(port) reaches the facade carrying every buffered clause"):
     val jBuilder = facadeBuilder()
@@ -683,6 +694,11 @@ private final class RecordingIntercept extends JIntercept:
   def redirectTo(host: String, imposter: JImposter): JInterceptRule = nope
   def rules(): java.util.List[JInterceptRule] = nope
   def clearRules(): Unit = nope
+  def replaceRules(
+      declare: java.util.function.Consumer[? >: io.github.achirdlabs.rift.InterceptRuleSet]
+  ): java.util.List[JInterceptRule] = nope
+  def replaceRules(rules: java.util.List[JInterceptRule]): java.util.List[JInterceptRule] = nope
+  def removeRule(rule: JInterceptRule): Boolean = nope
   def trust(): JInterceptTrust = nope
   def caMaterial(): java.util.Optional[JIntercept.CaMaterial] = nope
   def close(): Unit = ()

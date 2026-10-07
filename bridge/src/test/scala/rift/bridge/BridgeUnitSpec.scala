@@ -161,8 +161,8 @@ class EventStreamConfigSpec extends FunSuite:
   */
 class RiftVersionsSpec extends FunSuite:
   test("riftJava and engine come from the pinned rift-java jar"):
-    assertEquals(RiftVersions.riftJava, "0.3.4")
-    assertEquals(RiftVersions.engine, "0.19.0")
+    assertEquals(RiftVersions.riftJava, "0.3.7")
+    assertEquals(RiftVersions.engine, "0.21.0")
   test("riftScala is non-empty"):
     assert(RiftVersions.riftScala.nonEmpty)
 
@@ -361,3 +361,74 @@ class VerifyResultDecodeSpec extends FunSuite:
       Vector(jverify.VerifyDetail.REQUESTS, jverify.VerifyDetail.CLOSEST)
     )
     assertEquals(FacadeEncode.verifyDetails(Seq.empty).toVector, Vector.empty)
+
+/** Issue #207 — the facade's parsed apply report (rift-java 0.3.5+) translated field for field. */
+class ApplyResultTranslationSpec extends FunSuite:
+  import java.util.{List as JList, Optional, OptionalInt}
+  import io.github.achirdlabs.rift.ApplyResult as JApplyResult
+  import rift.model.{ApplyFailure, ApplyResult, InterceptCounts}
+
+  private def ints(ns: Int*): JList[Integer] = JList.of(ns.map(Integer.valueOf)*)
+  private def port(n: Int): Port = Port.from(n).fold(e => fail(e), identity)
+
+  private def report(
+      created: JList[Integer] = ints(),
+      replaced: JList[Integer] = ints(),
+      stubPatched: JList[Integer] = ints(),
+      toggled: JList[Integer] = ints(),
+      deleted: JList[Integer] = ints(),
+      failed: JList[JApplyResult.ApplyFailure] = JList.of(),
+      warnings: JList[String] = JList.of(),
+      intercept: Optional[JApplyResult.InterceptCounts] = Optional.empty()
+  ): JApplyResult =
+    new JApplyResult(created, replaced, stubPatched, toggled, deleted, failed, warnings, intercept)
+
+  test("every list lands in its own field — distinct ports catch a swapped accessor"):
+    val r = FacadeDecode.applyResult(
+      report(
+        created = ints(4545),
+        replaced = ints(4546),
+        stubPatched = ints(4547),
+        toggled = ints(4548),
+        deleted = ints(4549),
+        failed = JList.of(
+          new JApplyResult.ApplyFailure(OptionalInt.of(4550), "bad stub"),
+          new JApplyResult.ApplyFailure(OptionalInt.empty(), "no port")
+        ),
+        warnings = JList.of("w1"),
+        intercept = Optional.of(new JApplyResult.InterceptCounts(1, 2))
+      )
+    )
+    assertEquals(
+      r,
+      ApplyResult(
+        created = Vector(port(4545)),
+        replaced = Vector(port(4546)),
+        stubPatched = Vector(port(4547)),
+        toggled = Vector(port(4548)),
+        deleted = Vector(port(4549)),
+        failed = Vector(ApplyFailure(Some(port(4550)), "bad stub"), ApplyFailure(None, "no port")),
+        warnings = Vector("w1"),
+        intercept = Some(InterceptCounts(1, 2))
+      )
+    )
+
+  test("an empty report translates to empty lists and no intercept counts"):
+    val r = FacadeDecode.applyResult(report())
+    assert(r.changedNothing)
+    assertEquals((r.failed, r.warnings, r.intercept), (Vector.empty, Vector.empty, None))
+
+  test("a port the model cannot hold fails as DecodeFailed naming its list, never dropped"):
+    val cases: Seq[(String, JApplyResult)] = Seq(
+      "created" -> report(created = ints(70000)),
+      "replaced" -> report(replaced = ints(0)),
+      "stubPatched" -> report(stubPatched = ints(65536)),
+      "toggled" -> report(toggled = ints(0)),
+      "deleted" -> report(deleted = ints(70000)),
+      "failed" -> report(failed =
+        JList.of(new JApplyResult.ApplyFailure(OptionalInt.of(70000), "x"))
+      )
+    )
+    for (key, r) <- cases do
+      val thrown = intercept[RiftError.DecodeFailed](FacadeDecode.applyResult(r))
+      assert(thrown.getMessage.contains(s"apply report $key"), s"$key: ${thrown.getMessage}")

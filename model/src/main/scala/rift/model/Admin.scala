@@ -194,36 +194,141 @@ object EngineInfo:
       serveOptions <- strings(fields, "serveOptions")
     yield EngineInfo(version, commit, features.toSet, serveOptions.toSet)
 
+/** What the engine applied for a config reconcile (`applyConfig`), as engine 0.20.0 reports it: the
+  * ports of the imposters it created, replaced, stub-patched in place, only paused or resumed
+  * (`toggled`), and deleted; the per-imposter failures; config warnings; and how many intercept
+  * rules survived a reload.
+  *
+  * An engine before 0.20.0 never sends `toggled`, `warnings` or `intercept`, so they read as empty.
+  * Every other absent list reads as empty too, exactly as rift-java's `ApplyResult.read` (which
+  * parses every live report) reads it, so the two decoders never disagree about one report. One
+  * deliberate divergence: a `0` in a port list is a decode error here, because `Port` cannot hold
+  * it, where rift-java passes it through.
+  */
 final case class ApplyResult(
-    created: Int,
-    replaced: Int,
-    stubPatched: Int,
-    deleted: Int,
-    failed: Vector[Json]
+    created: Vector[Port],
+    replaced: Vector[Port],
+    stubPatched: Vector[Port],
+    toggled: Vector[Port],
+    deleted: Vector[Port],
+    failed: Vector[ApplyFailure],
+    warnings: Vector[String],
+    intercept: Option[InterceptCounts]
 ):
-  def toJson: Json = Json.obj(
-    "created" -> Json.Num(BigDecimal(created)),
-    "replaced" -> Json.Num(BigDecimal(replaced)),
-    "stubPatched" -> Json.Num(BigDecimal(stubPatched)),
-    "deleted" -> Json.Num(BigDecimal(deleted)),
-    "failed" -> Json.Arr(failed)
-  )
+  /** Nothing was created, replaced, patched, toggled or deleted. Says nothing about `failed`. */
+  def changedNothing: Boolean =
+    created.isEmpty && replaced.isEmpty && stubPatched.isEmpty && toggled.isEmpty && deleted.isEmpty
+
+  def toJson: Json =
+    def ports(ps: Vector[Port]) = Json.Arr(ps.map(p => Json.Num(BigDecimal(Port.value(p)))))
+    Json.Obj(
+      Vector(
+        "created" -> ports(created),
+        "replaced" -> ports(replaced),
+        "stubPatched" -> ports(stubPatched),
+        "toggled" -> ports(toggled),
+        "deleted" -> ports(deleted),
+        "failed" -> Json.Arr(failed.map(_.toJson)),
+        "warnings" -> Json.Arr(warnings.map(Json.Str(_)))
+      ) ++ intercept.map("intercept" -> _.toJson)
+    )
 
 object ApplyResult:
   def fromJson(json: Json): Either[JsonError.Decode, ApplyResult] =
     for
       fields <- asObj(json, "apply result")
-      created <- optInt(fields, "created").map(_.getOrElse(0))
-      replaced <- optInt(fields, "replaced").map(_.getOrElse(0))
-      stubPatched <- optInt(fields, "stubPatched").map(_.getOrElse(0))
-      deleted <- optInt(fields, "deleted").map(_.getOrElse(0))
-      failed <- fields.field("failed") match
-        case Some(f) =>
-          f.asArray.toRight[JsonError.Decode](
-            JsonError.Decode("expected an array", Vector.empty).under("failed")
+      created <- ports(fields, "created")
+      replaced <- ports(fields, "replaced")
+      stubPatched <- ports(fields, "stubPatched")
+      toggled <- ports(fields, "toggled")
+      deleted <- ports(fields, "deleted")
+      failed <- list(fields, "failed", ApplyFailure.fromJson)
+      warnings <- list(
+        fields,
+        "warnings",
+        _.asString.toRight(JsonError.Decode("expected a string", Vector.empty))
+      )
+      intercept <- fields.field("intercept") match
+        case Some(j) => InterceptCounts.fromJson(j).map(Some(_)).left.map(_.under("intercept"))
+        case None => Right(None)
+    yield ApplyResult(created, replaced, stubPatched, toggled, deleted, failed, warnings, intercept)
+
+  private def list[A](
+      fields: Vector[(String, Json)],
+      key: String,
+      decodeOne: Json => Either[JsonError.Decode, A]
+  ): Either[JsonError.Decode, Vector[A]] =
+    fields.field(key) match
+      case Some(j) => decodeArray(j, decodeOne).left.map(_.under(key))
+      case None => Right(Vector.empty)
+
+  private def ports(
+      fields: Vector[(String, Json)],
+      key: String
+  ): Either[JsonError.Decode, Vector[Port]] =
+    list(fields, key, decodePort)
+
+  private def decodePort(j: Json): Either[JsonError.Decode, Port] =
+    j match
+      case Json.Num(n) if n.isValidInt =>
+        Port.from(n.toInt).left.map(JsonError.Decode(_, Vector.empty))
+      case _ => Left(JsonError.Decode("expected a port number", Vector.empty))
+
+/** One imposter the engine could not apply. `port` is `None` for a config that declared no port
+  * (the engine reports it as port `0`, or as `auto-assign: …`).
+  */
+final case class ApplyFailure(port: Option[Port], message: String):
+  def toJson: Json = Json.obj(
+    "port" -> Json.Num(BigDecimal(port.fold(0)(Port.value))),
+    "error" -> Json.Str(message)
+  )
+
+object ApplyFailure:
+  private val PortPrefix = """(?s)(\d{1,5}): (.*)""".r
+  private val AutoAssignPrefix = "auto-assign: "
+
+  /** Both engine renderings: the `{port, error}` object, and the HTTP admin plane's `"<port>:
+    * <message>"` / `"auto-assign: <message>"` string. Port `0` means auto-assigned. A string in
+    * neither form, or naming a port above 65535, keeps the whole text as the message rather than
+    * losing it — rift-java's `ApplyResult.read` rule, mirrored so both decoders agree.
+    */
+  def fromJson(json: Json): Either[JsonError.Decode, ApplyFailure] =
+    json match
+      case Json.Str(PortPrefix(p, msg)) if p.toInt <= 65535 =>
+        Right(ApplyFailure(Port.from(p.toInt).toOption, msg))
+      case Json.Str(s) => Right(ApplyFailure(None, s.stripPrefix(AutoAssignPrefix)))
+      case Json.Obj(fields) =>
+        for
+          message <- reqString(fields, "error")
+          port <- optInt(fields, "port").flatMap(
+            _.toRight(JsonError.Decode("missing required field", Vector.empty).under("port"))
           )
-        case None => Right(Vector.empty)
-    yield ApplyResult(created, replaced, stubPatched, deleted, failed)
+          resolved <-
+            if port == 0 then Right(None)
+            else
+              Port.from(port).map(Some(_)).left.map(JsonError.Decode(_, Vector.empty).under("port"))
+        yield ApplyFailure(resolved, message)
+      case _ =>
+        Left(JsonError.Decode("expected a failure string or a {port, error} object", Vector.empty))
+
+/** How many config-file-seeded and runtime intercept rules survived a reload (engine 0.20.0). */
+final case class InterceptCounts(rulesSeeded: Int, rulesRuntime: Int):
+  def toJson: Json = Json.obj(
+    "rulesSeeded" -> Json.Num(BigDecimal(rulesSeeded)),
+    "rulesRuntime" -> Json.Num(BigDecimal(rulesRuntime))
+  )
+
+object InterceptCounts:
+  def fromJson(json: Json): Either[JsonError.Decode, InterceptCounts] =
+    def count(fields: Vector[(String, Json)], key: String) =
+      optInt(fields, key).flatMap(
+        _.toRight(JsonError.Decode("missing required field", Vector.empty).under(key))
+      )
+    for
+      fields <- asObj(json, "intercept counts")
+      seeded <- count(fields, "rulesSeeded")
+      runtime <- count(fields, "rulesRuntime")
+    yield InterceptCounts(seeded, runtime)
 
 /** One scenario's current state.
   *

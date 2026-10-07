@@ -24,7 +24,7 @@ class InterceptBuilderSpec extends FunSuite:
   // Port equivalence is NOT asserted here: `InterceptGate` can observe the facade builder's host
   // and predicates but not a forward target (the null engine NPEs first), so any such check at
   // this level would pass whatever the rendering did. It is proven in `InterceptTranslationSpec`
-  // against the facade's own `parsePort` instead.
+  // against the facade's own `ForwardTarget.parse` instead.
   test("forward(port) reaches the facade carrying every buffered clause"):
     val fake = new InterceptGate.BuilderRecordingIntercept
     val first = get("/admin")
