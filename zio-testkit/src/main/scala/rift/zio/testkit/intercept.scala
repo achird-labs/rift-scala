@@ -11,7 +11,7 @@ import scala.jdk.CollectionConverters.*
 import zio.*
 
 import rift.RiftError
-import rift.bridge.{CaMaterial, InterceptConfig}
+import rift.bridge.{CaMaterial, ContainerConfig, InterceptConfig}
 import rift.zio.{InterceptHandle, Rift}
 
 /** Where the intercept proxy's CA comes from when a fixture builds one.
@@ -29,8 +29,10 @@ enum CaSource:
     */
   case BuildProps
 
-  /** Let the engine mint an ephemeral CA. Nothing on the machine trusts it, so pair this with
-    * `sslContext = true` (or `InterceptHandle.sslContext` on a client you build yourself).
+  /** Let the engine mint a CA and hand back its key (`CaMaterial.Generated`). Nothing on the
+    * machine trusts it, so pair this with `sslContext = true` (or `InterceptHandle.sslContext` on a
+    * client you build yourself). A container listener launched with `interceptPort` cannot return a
+    * key, so there it is the engine's own ephemeral CA — see `InterceptEngine.container`.
     */
   case Generated
 
@@ -69,6 +71,64 @@ final case class InterceptTestConfig(
     proxySelector: Boolean = false,
     sslContext: Boolean = false
 )
+
+/** Where [[intercept.tlsIntercept]] gets its engine, and which `InterceptConfig` it then starts or
+  * attaches with — the two are decided together because a container that launches its listener
+  * takes the CA at launch, while every other engine takes it in the intercept call.
+  */
+trait InterceptEngine:
+  def acquire(
+      ca: Option[CaMaterial],
+      intercept: InterceptConfig
+  ): ZIO[Scope, RiftError, InterceptEngine.Acquired]
+
+object InterceptEngine:
+
+  /** The engine, and the `InterceptConfig` to start or attach its intercept with. */
+  final case class Acquired(rift: Rift, intercept: InterceptConfig)
+
+  /** An in-process engine (JDK 22+); the CA goes into the intercept call. The default. */
+  val embedded: InterceptEngine = (ca, intercept) =>
+    Rift.embedded.build.map(env => Acquired(env.get[Rift], intercept.copy(ca = ca)))
+
+  /** A `rift-proxy` container (Docker). With `config.interceptPort` the CA is launched with the
+    * listener and the default `InterceptConfig` attaches to it; with `config.exposedInterceptPort`
+    * the listener is started at runtime and `intercept` must bind `0.0.0.0` on that port — see
+    * `RiftConnector.intercept`.
+    */
+  def container(config: ContainerConfig): InterceptEngine = (ca, intercept) =>
+    ZIO.fromEither(containerPlan(config, ca, intercept)).flatMap {
+      (containerConfig, interceptConfig) =>
+        Rift.container(containerConfig).build.map(env => Acquired(env.get[Rift], interceptConfig))
+    }
+
+  /** Where the CA goes on a container. A launched listener takes it at launch, and a CA already on
+    * `config.interceptCa` wins over a `Generated` (or absent) one the test resolved; two different
+    * CAs are refused rather than one silently dropped. A launched listener cannot hand a key back,
+    * so a resolved `CaMaterial.Generated` — what `CaSource.Generated`, and `BuildPropsOrGenerated`
+    * without the plugin, resolve to — launches with the engine's own ephemeral CA: trust still
+    * comes from the handle's `caPem`/`sslContext`, but `caMaterial` is `None` there. A listener
+    * started at runtime takes the CA in its start.
+    */
+  private[testkit] def containerPlan(
+      config: ContainerConfig,
+      ca: Option[CaMaterial],
+      intercept: InterceptConfig
+  ): Either[RiftError, (ContainerConfig, InterceptConfig)] =
+    if config.interceptPort.isEmpty then Right(config -> intercept.copy(ca = ca))
+    else
+      val resolved = ca.filterNot(_ == CaMaterial.Generated)
+      (config.interceptCa, resolved) match
+        case (Some(own), Some(other)) if own != other =>
+          Left(
+            RiftError.InvalidDefinition(
+              s"ContainerConfig.interceptCa ($own) and the fixture's CA ($other) disagree — set " +
+                "one of them (CaSource.Explicit, or ContainerConfig.interceptCa)",
+              None
+            )
+          )
+        case (Some(_), _) => Right(config -> intercept)
+        case (None, _) => Right(config.copy(interceptCa = resolved) -> intercept)
 
 /** Test fixtures for the TLS-MITM intercept proxy: scoped wiring of the JVM-global state that
   * non-injectable HTTP clients read, the build-generated CA those clients' truststore already
@@ -186,17 +246,21 @@ object intercept:
       )
     yield material
 
-  /** An embedded engine, a TLS-MITM intercept on it, and the JVM wiring `config` asks for — all
-    * released in reverse order when the layer's scope closes.
+  /** An engine (embedded unless `engine` says otherwise), a TLS-MITM intercept on it, and the JVM
+    * wiring `config` asks for — all released in reverse order when the layer's scope closes. The
+    * resolved CA reaches the engine the way it needs it: see [[InterceptEngine]].
     */
   val tlsIntercept: ZLayer[Any, RiftError, InterceptHandle] = tlsIntercept(InterceptTestConfig())
 
-  def tlsIntercept(config: InterceptTestConfig): ZLayer[Any, RiftError, InterceptHandle] =
+  def tlsIntercept(
+      config: InterceptTestConfig,
+      engine: InterceptEngine = InterceptEngine.embedded
+  ): ZLayer[Any, RiftError, InterceptHandle] =
     ZLayer.scoped {
       for
         ca <- resolveCa(config.ca)
-        engine <- Rift.embedded.build.map(_.get[Rift])
-        handle <- engine.intercept(config.intercept.copy(ca = ca))
+        acquired <- engine.acquire(ca, config.intercept)
+        handle <- acquired.rift.intercept(acquired.intercept)
         _ <- ZIO.when(config.proxyProps)(systemProxyProps(handle, config.includeHttpProxy))
         _ <- ZIO.when(config.proxySelector)(systemProxySelector(handle))
         _ <- ZIO.when(config.sslContext)(systemSslContext(handle))
@@ -284,7 +348,9 @@ object intercept:
     ZIO.succeed(sys.props.get(DefaultCaPathProperty).exists(_.nonEmpty)).flatMap { present =>
       caPlan(source, present) match
         case CaPlan.FromBuildProps => caFromBuildProps().asSome
-        case CaPlan.EngineGenerated => ZIO.none
+        // Asked for explicitly: an absent CA is the keyless ephemeral one (#205), and the
+        // testkit has always handed callers the generated CA's material.
+        case CaPlan.EngineGenerated => ZIO.some(CaMaterial.Generated)
         case CaPlan.Fixed(material) => ZIO.some(material)
     }
 

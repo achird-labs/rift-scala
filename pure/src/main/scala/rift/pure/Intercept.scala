@@ -80,9 +80,10 @@ final class Intercept private[pure] (connector: rift.bridge.InterceptConnector)
   def sslContextWithSystemCAs: Either[RiftError, SSLContext] =
     catchRiftError(connector.sslContextWithSystemCAs)
 
-  /** The generated CA's certificate and private key, for persisting a CA across runs. `None` for a
-    * caller-supplied CA (the engine does not echo it back) and always `None` for an attached
-    * listener, whose CA material the facade never captures.
+  /** The CA's certificate and private key, for persisting a CA across runs. `Some` after a start
+    * with `CaMaterial.Generated`, and on a container's launched listener given
+    * `ContainerConfig.interceptCa`; `None` for the default ephemeral CA (its key stays with the
+    * engine), a CA supplied to a start, and `interceptAttach`.
     */
   def caMaterial: Either[RiftError, Option[CaMaterial.Pem]] =
     catchRiftError(connector.caMaterial)

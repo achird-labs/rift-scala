@@ -130,14 +130,15 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
       underlying.trust().exportTruststoreWithSystemCAs(format.toJava, password, path)
     )
 
-  /** The generated CA's certificate **and private key**, for persisting a CA across runs.
+  /** The CA's certificate **and private key**, for persisting a CA across runs or giving it to
+    * another process.
     *
     * The pair is exactly what `CaMaterial.Pem` takes, so a readback feeds straight into the next
-    * `InterceptConfig`. `None` in two cases, both structural rather than transient:
-    *   - a caller-supplied CA, which the engine does not echo back; and
-    *   - an **attached** listener attached without a CA — `interceptAttach`, and `intercept` on a
-    *     container transport with a pre-booted listener. The facade's attach can carry a supplied
-    *     CA and hand it back (rift-java 0.3.5); rift-scala does not pass one yet (#205).
+    * `InterceptConfig`. `Some` after a start with `CaMaterial.Generated`, and on a container's
+    * launched listener that was given `ContainerConfig.interceptCa` (the attach carries the pair).
+    * `None` otherwise, structurally rather than transiently: the default ephemeral CA keeps its key
+    * with the engine, a CA supplied to a start is not echoed back, and `interceptAttach` takes no
+    * CA.
     */
   def caMaterial: Option[CaMaterial.Pem] =
     FacadeBoundary.run(

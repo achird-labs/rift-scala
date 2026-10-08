@@ -126,7 +126,14 @@ object DatafileFaultSpec extends ZIOSpecDefault:
 `tlsIntercept` installs only what you ask for, restores it when the scope closes — including on
 failure and interruption — and `embeddedOnly` marks the suite *ignored*, not failed, on a JVM that
 cannot load the embedded engine. Because the state it touches is process-wide, such a suite must be
-`sequential`.
+`sequential`. It runs an embedded engine by default; pass
+`InterceptEngine.container(ContainerConfig(interceptPort = Some(4700)))` as its second argument to
+run the proxy in a `rift-proxy` container instead, launched with the build's (or an explicit) CA.
+A listener launched that way cannot hand a key back, so a `Generated` CA there is the engine's
+own ephemeral one; use `exposedInterceptPort` and start the listener at runtime when you need it.
+
+An intercept with no CA configured mints an ephemeral one and keeps its key; ask for
+`CaMaterial.Generated` when you need `caMaterial` to hand the key back (engine >= 0.13.4).
 
 Tier 3 additionally needs a CA in a truststore on disk *before* the JVM forks, which no library can
 arrange from inside that JVM. The `sbt-rift` plugin generates one and points the fork at it:
