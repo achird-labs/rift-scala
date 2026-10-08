@@ -194,7 +194,11 @@ class EmbeddedSmokeSpec extends FunSuite:
     val conn = RiftConnector.embedded()
     val (certPem, keyPem) =
       try
-        val ic = conn.intercept() // generated CA ⇒ the engine returns the key
+        // #205: the default is the ephemeral CA, whose key the engine keeps; Generated asks for it.
+        val ephemeral = conn.intercept()
+        try assertEquals(ephemeral.caMaterial, None, "the default CA must not hand back a key")
+        finally ephemeral.close()
+        val ic = conn.intercept(InterceptConfig(ca = Some(CaMaterial.Generated)))
         try
           val material = ic.caMaterial
           assert(material.isDefined, "a generated CA must hand back its key material")

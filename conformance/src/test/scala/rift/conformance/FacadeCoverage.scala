@@ -117,16 +117,6 @@ object FacadeCoverage:
       "silently discard — see issue #147 and upstream achird-labs/rift-java#207; the same construct " +
       "still reaches the engine on an imposter stub through the D2 raw-JSON seam"
 
-  /** Shared reason: rift-java 0.3.5's container intercept support — a committed CA at launch, a
-    * runtime-started listener on an exposed port, and an attach that carries the CA. Issue #205
-    * wires it into `ContainerConfig`/`RiftConnector.container` and turns these rows into `Wrapped`.
-    */
-  private val containerInterceptPending =
-    "not yet wired: rift-java 0.3.5's container intercept support (committed CA at launch, a " +
-      "runtime listener on an exposed port, a CA-carrying attach) arrived with the rift-java " +
-      "0.3.7 bump (#207); issue #205 wires it into ContainerConfig/RiftConnector.container, " +
-      "turning this row into Wrapped"
-
   val entries: Vector[Coverage] = Vector(
     Coverage.Wrapped("RuleKind#SERVE", "rift.bridge.RuleKind#fromJava"),
     Coverage.Wrapped("RuleKind#FORWARD", "rift.bridge.RuleKind#fromJava"),
@@ -340,10 +330,25 @@ object FacadeCoverage:
     Coverage.Excluded("ConnectOptions#apiKey()", optionsReadback),
     Coverage.Excluded("ConnectOptions#interceptAddress()", optionsReadback),
     Coverage
-      .Excluded("ConnectOptions.Builder#interceptAddress(IntFunction)", containerInterceptPending),
-    Coverage.Excluded("RiftContainer#withExposedInterceptPort(int)", containerInterceptPending),
-    Coverage.Excluded("RiftContainer#withInterceptCa(Path,Path)", containerInterceptPending),
-    Coverage.Excluded("RiftContainer#withInterceptCa(String,String)", containerInterceptPending),
+      .Excluded(
+        "ConnectOptions.Builder#interceptAddress(IntFunction)",
+        "a remapped-port hook for connecting to an engine behind NAT; the container transport gets " +
+          "it from RiftContainer.client(), which installs its own Docker mapping, and ConnectConfig " +
+          "targets an engine whose intercept is reached at the address it reports"
+      ),
+    Coverage.Wrapped(
+      "RiftContainer#withExposedInterceptPort(int)",
+      "rift.bridge.RiftConnector#configuredContainer"
+    ),
+    Coverage
+      .Wrapped(
+        "RiftContainer#withInterceptCa(Path,Path)",
+        "rift.bridge.RiftConnector#configuredContainer"
+      ),
+    Coverage.Wrapped(
+      "RiftContainer#withInterceptCa(String,String)",
+      "rift.bridge.RiftConnector#configuredContainer"
+    ),
     Coverage.Wrapped("ConnectOptions#builder(URI)", "rift.bridge.ConnectConfig#toOptions"),
     Coverage.Excluded("ConnectOptions#hostResolver()", optionsReadback),
     Coverage.Excluded("ConnectOptions#requestTimeout()", optionsReadback),
@@ -470,9 +475,14 @@ object FacadeCoverage:
     Coverage.Wrapped("Intercept#uri()", "rift.bridge.InterceptConnector#proxyUri"),
     Coverage
       .Wrapped("InterceptOptions#attach(String,int)", "rift.bridge.RiftConnector#interceptAttach"),
-    Coverage.Excluded("InterceptOptions#attach(String,int,CaMaterial)", containerInterceptPending),
+    Coverage.Excluded(
+      "InterceptOptions#attach(String,int,CaMaterial)",
+      "built by RiftContainer.interceptOptions() for a listener launched with withInterceptCa, " +
+        "which RiftConnector.container passes on; rift-scala's own interceptAttach takes no CA by " +
+        "design (the running listener owns it)"
+    ),
     Coverage.Wrapped("InterceptOptions#builder()", "rift.bridge.InterceptConfig#toOptions"),
-    Coverage.Excluded("InterceptOptions#toJson()", optionsReadback),
+    Coverage.Wrapped("InterceptOptions#toJson()", "rift.bridge.RiftConnector#configuredContainer"),
     Coverage.Wrapped("InterceptRule#host()", "rift.bridge.InterceptRule#fromJava"),
     Coverage.Wrapped("InterceptRule#kind()", "rift.bridge.InterceptRule#fromJava"),
     Coverage.Excluded(

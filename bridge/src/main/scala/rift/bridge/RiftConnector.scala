@@ -20,11 +20,7 @@ import io.github.achirdlabs.rift.model.ImposterDefinition as JImposterDefinition
 final class RiftConnector private (
     underlying: JRift,
     onClose: () => Unit,
-    // Pre-resolved attach options for a container that already booted an intercept listener at
-    // start (`withInterceptPort`). The engine allows one listener per process, so calling
-    // `intercept`'s start path against such an engine 409s; when present, `intercept` attaches to
-    // the running listener (at the host-mapped address) instead of starting a second one.
-    attachOptions: Option[JInterceptOptions] = None
+    interceptMode: InterceptMode = InterceptMode.Start
 ) extends AutoCloseable:
 
   def create(definition: ImposterDefinition): ImposterConnector =
@@ -87,16 +83,22 @@ final class RiftConnector private (
     * wiring mistake rather than an engine failure, so it does not reach the typed error channel.
     * (Pinned by `EmbeddedSmokeSpec`; #121, revised by #207.)
     *
-    * `config.ca = None` generates an ephemeral CA; `Some(CaMaterial)` uses a committed PEM pair
+    * `config.ca = None` mints an ephemeral CA whose key stays with the engine;
+    * `CaMaterial.Generated` mints one and hands the key back; the other cases use a committed CA
     * (the fixed-CA case #7 needs).
+    *
+    * On the container transport (#205): with `ContainerConfig.interceptPort` the listener is
+    * already running with the CA it launched under, so only the default `config` attaches to it —
+    * any other `config` fails with `RiftError.InvalidDefinition` rather than being ignored (set
+    * `ContainerConfig.interceptCa` for the CA). Without it, the listener is started here and must
+    * bind a wildcard host (`0.0.0.0`) on the `ContainerConfig.exposedInterceptPort`; any other host
+    * or port fails with `InvalidDefinition` before anything starts.
     */
   def intercept(config: InterceptConfig = InterceptConfig()): InterceptConnector =
-    // A container-booted listener is already running with the CA it started under, so its attach
-    // options (host + mapped port) are authoritative — `config` cannot retune a live listener, and
-    // the start path would 409. Only when no listener was pre-started do we honour `config`.
-    FacadeBoundary.run(
-      InterceptConnector(underlying.intercept(attachOptions.getOrElse(config.toOptions)))
-    )
+    FacadeBoundary.run {
+      val options = RiftConnector.resolveIntercept(interceptMode, config).fold(throw _, identity)
+      InterceptConnector(underlying.intercept(options))
+    }
 
   /** Attach to an intercept listener started out of process — a remote or CI-managed engine.
     *
@@ -131,6 +133,54 @@ final class RiftConnector private (
     finally onClose()
 
 object RiftConnector:
+
+  /** The facade options `intercept(config)` uses under `mode`, or why it cannot honour `config`.
+    * Pure, so the refusals are testable without Docker.
+    */
+  private[bridge] def resolveIntercept(
+      mode: InterceptMode,
+      config: InterceptConfig
+  ): Either[RiftError, JInterceptOptions] =
+    mode match
+      case InterceptMode.Attach(options) if config == InterceptConfig() => Right(options)
+      case InterceptMode.Attach(_) =>
+        Left(
+          RiftError.InvalidDefinition(
+            "the container launched its intercept listener (ContainerConfig.interceptPort), so " +
+              s"$config cannot retune it — set ContainerConfig.interceptCa for the CA, or use " +
+              "ContainerConfig.exposedInterceptPort to start one at runtime with this config",
+            None
+          )
+        )
+      case InterceptMode.ContainerStart(None) =>
+        Left(
+          RiftError.InvalidDefinition(
+            "this container exposes no intercept port, so a listener started in it is unreachable " +
+              "— set ContainerConfig.exposedInterceptPort (or interceptPort to launch one)",
+            None
+          )
+        )
+      case InterceptMode.ContainerStart(Some(exposed)) if config.port != exposed =>
+        Left(
+          RiftError.InvalidDefinition(
+            s"the container exposes intercept port $exposed (ContainerConfig.exposedInterceptPort), " +
+              s"so start the listener on that port, not ${config.port}",
+            None
+          )
+        )
+      case InterceptMode.ContainerStart(Some(_)) if !wildcardHosts(config.host) =>
+        Left(
+          RiftError.InvalidDefinition(
+            s"an intercept started inside a container on '${config.host}' may be unreachable: " +
+              "Docker maps the container's own interfaces, not its loopback — bind host " +
+              "\"0.0.0.0\"",
+            None
+          )
+        )
+      case InterceptMode.Start | InterceptMode.ContainerStart(_) => Right(config.toOptions)
+
+  // Fail closed: inside a container only a wildcard bind is known to be reachable through Docker.
+  private val wildcardHosts = Set("0.0.0.0", "::", "[::]")
 
   /** True when the embedded engine runtime (`rift-java-embedded` plus its natives) is on the
     * classpath — the standard gate for `assume`-guarded embedded tests. A plain `Boolean` rather
@@ -217,8 +267,10 @@ object RiftConnector:
       container.start()
       // If an intercept listener was booted at start, capture its attach options now (they read the
       // started container's host + mapped port) so `intercept` attaches instead of starting a second.
-      val attach = Option.when(config.interceptPort.isDefined)(container.interceptOptions())
-      new RiftConnector(container.client(), () => container.stop(), attach)
+      val mode =
+        if config.interceptPort.isDefined then InterceptMode.Attach(container.interceptOptions())
+        else InterceptMode.ContainerStart(config.exposedInterceptPort)
+      new RiftConnector(container.client(), () => container.stop(), mode)
     catch
       case t: Throwable =>
         try container.stop()
@@ -245,6 +297,53 @@ object RiftConnector:
     if config.imposterPorts.nonEmpty then container.withImposterPorts(config.imposterPorts.toArray*)
     if config.gateway then container.withGateway()
     config.interceptPort.foreach(p => container.withInterceptPort(p))
+    if config.interceptPort.isDefined && config.exposedInterceptPort.isDefined then
+      throw IllegalArgumentException(
+        "interceptPort (a listener launched with the engine) and exposedInterceptPort (one started " +
+          "at runtime) cannot be combined: an engine runs one intercept listener"
+      )
+    config.interceptCa.foreach { ca =>
+      if config.interceptPort.isEmpty then
+        throw IllegalArgumentException(
+          "interceptCa needs interceptPort: the engine reads a CA only when it launches a listener " +
+            "(a listener started at runtime takes its CA in InterceptConfig.ca)"
+        )
+      ca match
+        case CaMaterial.Pem(certPem, keyPem) =>
+          // The engine reads it only at launch, where a malformed pair is an opaque boot failure.
+          if !certPem.contains("-----BEGIN") || !keyPem.contains("-----BEGIN") then
+            throw IllegalArgumentException("interceptCa PEM text has no -----BEGIN block")
+          container.withInterceptCa(certPem, keyPem)
+        case CaMaterial.PemFiles(certPath, keyPath) =>
+          // rift-java reads them only at start(), outside the typed refusals — check here (#197).
+          Seq(certPath, keyPath)
+            .find(p => !(java.nio.file.Files.isRegularFile(p) && java.nio.file.Files.isReadable(p)))
+            .foreach(p => throw IllegalArgumentException(s"interceptCa file is not readable: $p"))
+          container.withInterceptCa(certPath, keyPath)
+        case CaMaterial.FromKeyStore(keyStore, password) =>
+          // The facade's own keystore extraction, read back through its public start JSON.
+          val start = JInterceptOptions
+            .builder()
+            .ca(keyStore, IArray.genericWrapArray(password).toArray)
+            .build()
+          val json = FacadeDecode.json(start.toJson)
+          (json.get("caCertPem"), json.get("caKeyPem")) match
+            case (Some(Json.Str(certPem)), Some(Json.Str(keyPem))) =>
+              container.withInterceptCa(certPem, keyPem)
+            case (cert, key) =>
+              // Never the JSON itself: it carries the CA's private key.
+              throw IllegalStateException(
+                s"rift-java rendered a keystore CA without PEM (caCertPem present: ${cert.isDefined}, " +
+                  s"caKeyPem present: ${key.isDefined})"
+              )
+        case CaMaterial.Generated =>
+          throw IllegalArgumentException(
+            "interceptCa = CaMaterial.Generated: a listener launched with the engine cannot hand " +
+              "its key back; leave interceptCa unset for an ephemeral CA, or supply one"
+          )
+    }
+    // rift-java refuses it next to interceptPort (one listener per engine) as the setter runs.
+    config.exposedInterceptPort.foreach(p => container.withExposedInterceptPort(p))
     // The engine reads `MB_ALLOW_INJECTION` as the env form of `--allowInjection` (rift
     // rift-http-proxy/server.rs). `RiftContainer` has no dedicated setter, but it extends
     // testcontainers' GenericContainer, so set the env directly rather than needing a rift-java bump.
@@ -254,3 +353,16 @@ object RiftConnector:
     // IllegalArgumentExceptions that `options` types.
     config.upstreamTrust.foreach(t => container.withUpstreamTrust(t.toJava))
     container
+
+/** How `RiftConnector.intercept` reaches the engine's one intercept listener (#205). */
+private[bridge] enum InterceptMode:
+  /** Start one with the caller's `InterceptConfig` — every transport but a container's. */
+  case Start
+
+  /** Attach to the listener a container launched (`ContainerConfig.interceptPort`). */
+  case Attach(options: JInterceptOptions)
+
+  /** Start one at runtime inside a container, on the port it exposed for it (if any), which Docker
+    * must be able to reach.
+    */
+  case ContainerStart(exposedPort: Option[Int])

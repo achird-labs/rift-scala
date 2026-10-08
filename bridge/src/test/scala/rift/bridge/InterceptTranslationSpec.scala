@@ -49,12 +49,19 @@ class InterceptTranslationSpec extends FunSuite:
     assert(rendered.contains("10.0.0.1"), rendered)
     assert(rendered.contains("9999"), rendered)
 
-  test("InterceptConfig.toOptions accepts committed CA material without throwing"):
-    // ca = Some(CaMaterial) ⇒ builder.ca(certPem, keyPem); ca = None ⇒ generateCa()
-    val withCa = InterceptConfig(ca = Some(CaMaterial("cert-pem", "key-pem"))).toOptions
-    val generated = InterceptConfig().toOptions
-    assert(withCa.toJson.toJson.nonEmpty)
-    assert(generated.toJson.toJson.nonEmpty)
+  // #205 — no CA is the ephemeral CA: nothing about a CA is sent, so the engine mints one it keeps
+  // to itself, on any engine. It used to be generateCa(), i.e. returnCaKey on every default start.
+  test("no CA material sends no CA fields and no returnCaKey"):
+    assertEquals(InterceptConfig().toOptions.toJson.toJson, """{"host":"127.0.0.1","port":0}""")
+
+  test("CaMaterial.Generated asks the engine to mint a CA and return its key"):
+    assertEquals(
+      InterceptConfig(ca = Some(CaMaterial.Generated)).toOptions.toJson.toJson,
+      """{"host":"127.0.0.1","port":0,"returnCaKey":true}"""
+    )
+
+  test("CaMaterial.Generated renders without pretending to hold material"):
+    assertEquals(CaMaterial.Generated.toString, "CaMaterial.Generated")
 
   // ── issue #95: every facade CA source form, and what each one puts on the wire ───────────────
   test("CaMaterial.Pem sends the PEM text itself"):
@@ -96,11 +103,6 @@ class InterceptTranslationSpec extends FunSuite:
       .toJson
       .toJson
     assertEquals(ours, theirs)
-
-  test("no CA material asks the engine to generate one and return the key"):
-    val rendered = InterceptConfig().toOptions.toJson.toJson
-    // `generateCa()` sets returnCaKey — which is what makes `caMaterial` readback non-empty.
-    assert(rendered.contains("returnCaKey") || rendered.contains("generate"), rendered)
 
   test("the legacy CaMaterial(cert, key) apply still builds the Pem case"):
     assertEquals(CaMaterial("c", "k"), CaMaterial.Pem("c", "k"))

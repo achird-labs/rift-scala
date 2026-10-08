@@ -47,13 +47,22 @@ enum TruststoreFormat:
     case TruststoreFormat.Jks => JTruststoreFormat.JKS
 
 /** Where the intercept proxy gets the CA it mints per-host leaf certs with. A committed CA (rather
-  * than the default generated one) lets a SUT trust one stable root across runs — the fixed-CA case
+  * than the default ephemeral one) lets a SUT trust one stable root across runs — the fixed-CA case
   * the ledger sample (#7) needs.
   *
-  * One case per facade `InterceptOptions.Builder.ca` overload, so every source form is reachable
-  * and none is reinterpreted on the way through.
+  * One case per facade `InterceptOptions.Builder` CA call, so every source form is reachable and
+  * none is reinterpreted on the way through. Engine floors for a listener started at runtime (rift
+  * >= 0.13.0): `PemFiles` 0.11.3; `Pem`, `FromKeyStore` and `Generated` 0.13.4. No CA at all
+  * (`InterceptConfig.ca = None`) works on any engine.
   */
 enum CaMaterial:
+  /** The engine mints a fresh CA **and hands back its private key**, readable through `caMaterial`
+    * to persist or give to another process (`returnCaKey`, engine >= 0.13.4). Treat the returned
+    * key as a secret. Without it (`ca = None`) the engine mints an ephemeral CA and keeps the key
+    * to itself.
+    */
+  case Generated
+
   /** PEM text, passed to the engine verbatim. */
   case Pem(certPem: String, keyPem: String)
 
@@ -88,6 +97,7 @@ enum CaMaterial:
     case PemFiles(certPath, keyPath) => s"CaMaterial.PemFiles($certPath, $keyPath)"
     case FromKeyStore(keyStore, password) =>
       s"CaMaterial.FromKeyStore(${keyStore.getType}, <redacted ${password.length} chars>)"
+    case Generated => "CaMaterial.Generated"
 
 object CaMaterial:
   /** Keeps `CaMaterial(cert, key)` building the PEM case, as it did when this was a case class. */
@@ -111,8 +121,9 @@ object CaMaterial:
     )
 
 /** Scala-idiomatic mirror of rift-java's `InterceptOptions` — where the TLS-MITM intercept proxy
-  * listens and which CA it uses. `ca = None` ⇒ the engine generates an ephemeral CA
-  * (`generateCa()`); `Some(CaMaterial)` ⇒ the committed PEM pair.
+  * listens and which CA it uses. `ca = None` ⇒ the engine mints an ephemeral CA and keeps its key
+  * (nothing about a CA is sent, so any engine); `Some(CaMaterial.Generated)` ⇒ minted and handed
+  * back; any other `Some` ⇒ that committed CA.
   */
 final case class InterceptConfig(
     host: String = "127.0.0.1",
@@ -130,7 +141,9 @@ final case class InterceptConfig(
         // A fresh array per call: the facade reads it and drops it, and handing over the config's
         // own copy would let the facade's caller mutate what a re-used config replays next time.
         builder.ca(keyStore, IArray.genericWrapArray(password).toArray)
-      case None => builder.generateCa()
+      case Some(CaMaterial.Generated) => builder.generateCa()
+      case None =>
+        () // deliberately nothing: the engine then mints an ephemeral CA and keeps its key
     builder.build()
 
 /** A registered intercept rule as the engine reports it (`Intercept.rules()`): the target `host`

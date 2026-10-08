@@ -690,7 +690,13 @@ upstreamTrust)`,
 workingDir, mirrorUrl, startupTimeout = 15.seconds, shutdownTimeout = 5.seconds, inheritLog,
 upstreamTrust)`,
 `ContainerConfig(image, imposterPorts, apiKey, gateway, interceptPort, allowInjection,
-upstreamTrust)`). `ConnectConfig.hostResolver` is a `HostResolver` (#199), mirroring rift-java
+upstreamTrust, interceptCa, exposedInterceptPort)`). On the container transport (#205)
+`intercept` honours its `InterceptConfig` or refuses it: with `interceptPort` the launched
+listener (and its `interceptCa`) is authoritative, so only the default config attaches and any
+other is an `InvalidDefinition`; with `exposedInterceptPort` the listener is started at runtime
+and must bind `0.0.0.0` on that port — a loopback host or an unexposed port is refused before
+anything starts. `InterceptConfig.ca = None` is the ephemeral CA whose key stays with the engine;
+`CaMaterial.Generated` asks for it back (`returnCaKey`, engine >= 0.13.4). `ConnectConfig.hostResolver` is a `HostResolver` (#199), mirroring rift-java
 0.3.2's protocol-aware seam (rift-java#251): `HostResolver.ByProtocol((protocol, port) => uri)`
 is told the imposter's `Protocol`, so an `https` imposter can be reported as `https://`, while
 `HostResolver.ByPort(port => uri)` keeps the verbatim-URI contract for a hop that owns the scheme,

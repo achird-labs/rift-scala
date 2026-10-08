@@ -200,7 +200,21 @@ final case class ContainerConfig(
       * [[UpstreamTrust.CaPem]] (the transport writes the file into the container). Needs an image
       * of engine 0.18.0 or later: a version tag older than that is refused.
       */
-    upstreamTrust: Option[UpstreamTrust] = None
+    upstreamTrust: Option[UpstreamTrust] = None,
+    /** A committed CA for the listener launched with `interceptPort`, so a SUT in its own container
+      * can trust it before it starts. Needs `interceptPort`: the engine reads a CA only when it
+      * launches a listener. `Pem` and `FromKeyStore` are sent as PEM text; `PemFiles` are read
+      * **here**, in this JVM, and copied into the container (the engine's filesystem is the
+      * container's). `CaMaterial.Generated` is refused: a launched listener cannot hand a key back.
+      * The attached handle's `caMaterial` returns the pair.
+      */
+    interceptCa: Option[CaMaterial] = None,
+    /** Exposes this port for an intercept listener started at runtime by `RiftConnector.intercept`
+      * rather than at launch. Start it with `InterceptConfig(host = "0.0.0.0", port = <this
+      * port>)`: Docker maps only exposed ports, and only to the container's own interfaces, not its
+      * loopback. Exclusive with `interceptPort` — an engine runs one listener.
+      */
+    exposedInterceptPort: Option[Int] = None
 )
 
 /** Mirrors rift-java's `RecordMode` — how a proxy-capture session records matched requests. */
