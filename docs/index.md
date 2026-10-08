@@ -101,7 +101,8 @@ Stubs and predicates, response cycling, behaviors on every response type, proxy 
 fault injection, stateful scenarios, spaces/flow-state with declarative state writes (`setState`,
 `incrementState`, `deleteState`, `clearFlowState`), request verification that reports each
 request's status and latency, a cursor-based request tail (`ZStream` on ZIO, `fs2.Stream` on
-Cats), HTTPS client-certificate auth, and TLS-MITM intercept — available on every transport.
+Cats), HTTPS client-certificate auth, declarative conditional GET (`conditional`), and TLS-MITM
+intercept with atomic rule replacement and cross-host forwarding — available on every transport.
 
 The engine version is pinned transitively by
 [rift-java](https://github.com/achird-labs/rift-java); it is never pinned separately.

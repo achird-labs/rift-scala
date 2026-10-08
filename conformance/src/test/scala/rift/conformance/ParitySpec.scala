@@ -229,6 +229,8 @@ object Inventory:
     Op("Intercept", "redirectTo", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "rules", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "clearRules", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
+    Op("Intercept", "replaceRules", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
+    Op("Intercept", "removeRule", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "proxySelector", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "caPem", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),
     Op("Intercept", "sslContext", zio = Yes, cats = Yes, fs2 = ViaCats, pure = Yes),

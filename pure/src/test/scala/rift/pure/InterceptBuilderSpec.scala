@@ -2,7 +2,8 @@ package rift.pure
 
 import munit.FunSuite
 
-import rift.bridge.InterceptGate
+import rift.RiftError
+import rift.bridge.{ForwardTarget, InterceptGate, InterceptRule, RuleKind}
 import rift.dsl.*
 import rift.model.Port
 
@@ -37,3 +38,47 @@ class InterceptBuilderSpec extends FunSuite:
     assertEquals(fake.ruleCalls, 1)
     val sent = InterceptGate.facadePredicates(fake.lastBuilder)
     assertEquals(sent.size, (first.predicates ++ second.predicates).size)
+
+  // ── issue #206: atomic replace, typed forward target ─────────────────────────────────────────
+  test("a staged rule carries every chained clause through replaceRules"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val first = get("/admin")
+    val second = onRequest.where(header("X-Env").is("prod"))
+    intercept[NullPointerException](
+      newIntercept(fake).replaceRules { set =>
+        set.rule("api.example.com").when(first).when(second).serve(ok)
+        ()
+      }
+    )
+    assertEquals(fake.replaceCalls, 1)
+    assertEquals(InterceptGate.facadeHost(fake.lastBuilder), Some("api.example.com"))
+    assertEquals(
+      InterceptGate.facadePredicates(fake.lastBuilder).size,
+      (first.predicates ++ second.predicates).size
+    )
+
+  test("a serve refusal inside declare is a Left, not a throw"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val outcome = newIntercept(fake).replaceRules { set =>
+      set.rule().serve(ok.conditional)
+      ()
+    }
+    assert(outcome.left.exists(_.isInstanceOf[RiftError.InvalidDefinition]), outcome.toString)
+
+  test("forward(ForwardTarget) hands the facade the rendered target and its clauses"):
+    val fake = new InterceptGate.CapturingIntercept
+    val first = get("/admin")
+    val target = ForwardTarget.from("mock-svc", port(4600)).fold(e => fail(e), identity)
+    val ic = new Intercept(InterceptGate.connector(fake))
+    assert(ic.rule("api.example.com").when(first).forward(target).isRight)
+    assertEquals(fake.lastForward, Some("""{"port":4600,"host":"mock-svc"}"""))
+    assertEquals(fake.lastPredicateCount, first.predicates.size)
+
+  test("replaceRules(rules) and removeRule hand the facade the rules"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val ic = newIntercept(fake)
+    val r = InterceptRule(Some("a.example"), RuleKind.Forward, rift.json.Json.obj())
+    assertEquals(ic.replaceRules(Vector(r, r)), Right(Vector.empty))
+    assertEquals(fake.replacedWith.map(_.size), Some(2))
+    assertEquals(ic.removeRule(r), Right(false))
+    assertEquals(fake.removed.map(_.host()), Some("a.example"))

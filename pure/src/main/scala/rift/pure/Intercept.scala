@@ -7,7 +7,7 @@ import javax.net.ssl.SSLContext
 import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.model.Port
-import rift.bridge.{CaMaterial, InterceptRule, TruststoreFormat}
+import rift.bridge.{CaMaterial, ForwardTarget, InterceptRule, TruststoreFormat}
 
 /** The plain-Scala surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.11) —
   * `Either[RiftError, _]`-shaped, obtained from `Rift.intercept`/`Rift.interceptUnsafe`.
@@ -44,6 +44,31 @@ final class Intercept private[pure] (connector: rift.bridge.InterceptConnector)
   def rules: Either[RiftError, Vector[InterceptRule]] = catchRiftError(connector.rules)
 
   def clearRules(): Either[RiftError, Unit] = catchRiftError(connector.clearRules())
+
+  /** Replaces every rule with the ones `declare` stages, in one engine call (engine >= 0.20.0): a
+    * request arriving meanwhile meets the old rules or the new ones, never a partial or empty set,
+    * and a staged rule can sit ahead of one already installed. Declaring nothing clears the rules.
+    *
+    * `declare` only stages — see [[InterceptRuleSet]]. If it throws, nothing is sent and the old
+    * rules stay: a staged rule's `RiftError` becomes the `Left`, anything else propagates. An older
+    * engine is a `Left(InvalidDefinition)` before `declare` runs — while the version check is
+    * enforcing; with it off or warning, the engine refuses the replace after `declare` instead.
+    */
+  def replaceRules(declare: InterceptRuleSet => Unit): Either[RiftError, Vector[InterceptRule]] =
+    catchRiftError(connector.replaceRules(set => declare(new InterceptRuleSet(set))))
+
+  /** Replaces every rule with `rules`, in order, in one engine call — for re-installing a filtered
+    * or reordered `rules` readback. Engine >= 0.20.0.
+    */
+  def replaceRules(rules: Vector[InterceptRule]): Either[RiftError, Vector[InterceptRule]] =
+    catchRiftError(connector.replaceRules(rules))
+
+  /** Removes every installed rule equal to `rule`, keeping the others in order; `Right(false)` when
+    * none matched. Reads then replaces the rules, so a rule another client adds in between is lost.
+    * Engine >= 0.20.0.
+    */
+  def removeRule(rule: InterceptRule): Either[RiftError, Boolean] =
+    catchRiftError(connector.removeRule(rule))
 
   def caPem: Either[RiftError, String] = catchRiftError(connector.caPem)
 
@@ -119,5 +144,33 @@ final class InterceptRuleBuilder private[pure] (underlying: rift.bridge.Intercep
   def forward(target: String): Either[RiftError, InterceptRule] =
     catchRiftError(underlying.forward(target))
 
+  /** Forward matched traffic to `target`'s host and port, over http or https (engine >= 0.20.0; an
+    * older engine is a `Left(InvalidDefinition)` before anything is sent, unless the version check
+    * is off). A built `ForwardTarget` cannot be malformed, so this never throws on its target.
+    */
+  def forward(target: ForwardTarget): Either[RiftError, InterceptRule] =
+    catchRiftError(underlying.forward(target))
+
   def redirectTo(imposter: Imposter): Either[RiftError, InterceptRule] =
     catchRiftError(underlying.redirectTo(imposter.connector))
+
+/** The staging set [[Intercept.replaceRules]] hands its `declare`: a terminal stages the rule and
+  * returns it, and the single engine call follows `declare`. A refused rule throws its `RiftError`,
+  * which `replaceRules` returns as the `Left`. Use it only inside `declare`, from one thread, and
+  * start every rule from it: a rule started from the handle itself inside `declare` is not part of
+  * the swap.
+  */
+final class InterceptRuleSet private[pure] (set: rift.bridge.InterceptRuleSet):
+  def rule(host: String): StagedRule = new StagedRule(set.rule(host))
+
+  /** An all-hosts rule — matches every intercepted host. */
+  def rule(): StagedRule = new StagedRule(set.rule())
+
+/** A rule being staged inside `replaceRules`: `.when(match)` narrows, a terminal stages it. */
+final class StagedRule private[pure] (builder: rift.bridge.InterceptRuleBuilder):
+  def when(matching: RequestMatch): StagedRule = new StagedRule(builder.when(matching))
+  def serve(response: ResponseBuilder): InterceptRule = builder.serve(response)
+  def forward(port: Port): InterceptRule = builder.forward(port)
+  def forward(target: ForwardTarget): InterceptRule = builder.forward(target)
+  def forward(target: String): InterceptRule = builder.forward(target)
+  def redirectTo(imposter: Imposter): InterceptRule = builder.redirectTo(imposter.connector)

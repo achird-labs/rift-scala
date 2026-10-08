@@ -19,7 +19,16 @@ import rift.model.{
   VerificationResult,
   VerifyDetail
 }
-import rift.bridge.{ImposterDefinition, InterceptGate, RecordSpec, TailEvent, TailFilter}
+import rift.bridge.{
+  ForwardTarget,
+  ImposterDefinition,
+  InterceptGate,
+  InterceptRule,
+  RecordSpec,
+  RuleKind,
+  TailEvent,
+  TailFilter
+}
 
 /** Pure-logic gate for the ZIO intercept rule builder (issue #34). The facade round-trip needs a
   * live engine (the bridge `EmbeddedSmokeSpec` covers that, on the JDK 22 job since #99), but the
@@ -107,8 +116,6 @@ object InterceptBuilderSpec extends ZIOSpecDefault:
         val handle = InterceptHandleLive(InterceptGate.connector(fake))
         val first = get("/admin")
         val second = onRequest.where(header("X-Env").is("prod"))
-        // The target must carry a port: `parsePort` runs before the engine call, so a
-        // scheme-carrying URL would throw there instead of at the null engine (#100).
         for exit <- handle
             .rule("api.example.com")
             .when(first)
@@ -210,6 +217,76 @@ object InterceptBuilderSpec extends ZIOSpecDefault:
             rendered.contains("/admin"),
             !rendered.contains("X-Env")
           )
+    ),
+    // ── issue #206: atomic replace, typed forward target ───────────────────────────────────────
+    suite("replaceRules / removeRule / forward(ForwardTarget)")(
+      test("a staged rule carries every chained clause through replaceRules"):
+        val fake = new InterceptGate.BuilderRecordingIntercept
+        val handle = InterceptHandleLive(InterceptGate.connector(fake))
+        val first = get("/admin")
+        val second = onRequest.where(header("X-Env").is("prod"))
+        for exit <- handle.replaceRules { set =>
+            set.rule("api.example.com").when(first).when(second).serve(ok)
+            ()
+          }.exit
+        yield assert(exit)(dies(isSubtype[NullPointerException](anything))) &&
+          assertTrue(
+            fake.replaceCalls == 1,
+            InterceptGate.facadeHost(fake.lastBuilder).contains("api.example.com"),
+            InterceptGate.facadePredicates(fake.lastBuilder).size ==
+              (first.predicates ++ second.predicates).size
+          )
+      ,
+      test("a staged redirectTo to a foreign handle fails replaceRules typed"):
+        val fake = new InterceptGate.BuilderRecordingIntercept
+        val handle = InterceptHandleLive(InterceptGate.connector(fake))
+        for exit <- handle.replaceRules { set =>
+            set.rule("api.example.com").redirectTo(ForeignHandle)
+            ()
+          }.exit
+        yield assert(exit)(fails(isSubtype[RiftError.InvalidDefinition](anything)))
+      ,
+      test("forward(ForwardTarget) hands the facade the rendered target and its clauses"):
+        val fake = new InterceptGate.CapturingIntercept
+        val handle = InterceptHandleLive(InterceptGate.connector(fake))
+        val first = get("/admin")
+        val port = Port.from(4600).toOption.getOrElse(sys.error("4600 is a valid port"))
+        val target =
+          ForwardTarget.from("mock-svc", port, https = true).getOrElse(sys.error("valid target"))
+        for _ <- handle.rule("api.example.com").when(first).forward(target)
+        yield assertTrue(
+          fake.lastForward.contains("""{"port":4600,"host":"mock-svc","scheme":"https"}"""),
+          fake.lastPredicateCount == first.predicates.size
+        )
+      ,
+      test("a serve refusal inside declare fails replaceRules typed"):
+        val fake = new InterceptGate.BuilderRecordingIntercept
+        val handle = InterceptHandleLive(InterceptGate.connector(fake))
+        for exit <- handle.replaceRules { set =>
+            set.rule().serve(ok.conditional)
+            ()
+          }.exit
+        yield assert(exit)(fails(isSubtype[RiftError.InvalidDefinition](anything)))
+      ,
+      test("an empty declare is one facade replace that installs nothing"):
+        val fake = new InterceptGate.BuilderRecordingIntercept
+        val handle = InterceptHandleLive(InterceptGate.connector(fake))
+        for installed <- handle.replaceRules(_ => ())
+        yield assertTrue(installed.isEmpty, fake.replaceCalls == 1)
+      ,
+      test("replaceRules(rules) and removeRule hand the facade the rules"):
+        val fake = new InterceptGate.BuilderRecordingIntercept
+        val handle = InterceptHandleLive(InterceptGate.connector(fake))
+        val r = InterceptRule(Some("a.example"), RuleKind.Forward, rift.json.Json.obj())
+        for
+          installed <- handle.replaceRules(Chunk(r, r))
+          removed <- handle.removeRule(r)
+        yield assertTrue(
+          installed.isEmpty, // the facade's answer, not the input
+          fake.replacedWith.map(_.size) == Some(2),
+          !removed,
+          fake.removed.map(_.host()) == Some("a.example")
+        )
     )
   )
 

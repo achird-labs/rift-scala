@@ -4,8 +4,8 @@ import rift.json.{Json, JsonError}
 import rift.json.JsonError.under
 import JsonSupport.*
 
-/** The `_rift` extension block on a response: probabilistic faults, embedded scripts, and
-  * `${request.*}` templating.
+/** The `_rift` extension block on a response: probabilistic faults, embedded scripts,
+  * `${request.*}` templating, flow-state ops and declarative conditional GET.
   *
   * `extra` carries every child the model does not know, verbatim and in order, so a decode ->
   * encode round trip never drops one — engine 0.18.0's `dataset`, for instance (a lookup named by
@@ -17,6 +17,7 @@ final case class RiftResponseExt(
     script: Option[ScriptSource] = None,
     templated: Boolean = false,
     stateOps: Vector[StateOp] = Vector.empty,
+    conditional: Option[RiftConditional] = None,
     extra: Vector[(String, Json)] = Vector.empty
 ):
   def toJson: Json = buildObj(
@@ -25,13 +26,14 @@ final case class RiftResponseExt(
       fault.map(f => "fault" -> f.toJson),
       script.map(s => "script" -> s.toJson),
       if templated then Some("templated" -> Json.Bool(true)) else None,
-      Option.when(stateOps.nonEmpty)("stateOps" -> Json.Arr(stateOps.map(_.toJson)))
+      Option.when(stateOps.nonEmpty)("stateOps" -> Json.Arr(stateOps.map(_.toJson))),
+      conditional.map("conditional" -> _.toJson)
     ).flatten,
     extra
   )
 
 object RiftResponseExt:
-  private val knownKeys = Set("fault", "script", "templated", "stateOps")
+  private val knownKeys = Set("fault", "script", "templated", "stateOps", "conditional")
 
   def fromJson(json: Json): Either[JsonError.Decode, RiftResponseExt] =
     for
@@ -46,4 +48,14 @@ object RiftResponseExt:
       stateOps <- fields.field("stateOps") match
         case Some(ops) => decodeArray(ops, StateOp.fromJson).left.map(_.under("stateOps"))
         case None => Right(Vector.empty)
-    yield RiftResponseExt(fault, script, templated, stateOps, fields.remainder(knownKeys))
+      conditional <- fields.field("conditional") match
+        case Some(c) => RiftConditional.fromJson(c).map(Some(_)).left.map(_.under("conditional"))
+        case None => Right(None)
+    yield RiftResponseExt(
+      fault,
+      script,
+      templated,
+      stateOps,
+      conditional,
+      extra = fields.remainder(knownKeys)
+    )

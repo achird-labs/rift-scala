@@ -65,6 +65,47 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
 
   def clearRules(): Unit = FacadeBoundary.run(underlying.clearRules())
 
+  /** Replaces every rule with the ones `declare` stages, in one engine call (`PUT
+    * /intercept/rules`, engine >= 0.20.0): a request arriving meanwhile meets the old rules or the
+    * new ones, never a partial or empty set. Rules match first-to-last, so this is also the only
+    * way to put a rule ahead of one already installed. Declaring nothing clears the rules.
+    *
+    * `declare` only stages: nothing reaches the engine until it returns, and nothing at all if it
+    * throws, so the old rules stay — a `serve` refusal inside it fails this call with that
+    * `RiftError.InvalidDefinition`. The set must not be used after `declare` returns. An older
+    * engine is refused with `InvalidDefinition` before `declare` runs — while the version check is
+    * enforcing; with it off or warning, the engine refuses the replace after `declare` instead.
+    *
+    * Returns the rules installed, as their staging terminals returned them.
+    */
+  def replaceRules(declare: InterceptRuleSet => Unit): Vector[InterceptRule] =
+    FacadeBoundary.run(
+      underlying
+        .replaceRules(set => declare(new InterceptRuleSet(set)))
+        .asScala
+        .toVector
+        .map(InterceptRule.fromJava)
+    )
+
+  /** Replaces every rule with `rules`, in order, in one engine call — for re-installing a filtered
+    * or reordered `rules` readback. Engine >= 0.20.0.
+    */
+  def replaceRules(rules: Vector[InterceptRule]): Vector[InterceptRule] =
+    FacadeBoundary.run(
+      underlying
+        .replaceRules(rules.map(_.toJava).asJava)
+        .asScala
+        .toVector
+        .map(InterceptRule.fromJava)
+    )
+
+  /** Removes every installed rule equal to `rule` (one a terminal or `rules` returned), keeping the
+    * others in order; `false` when none matched. It reads the rules and replaces them, so a rule
+    * another client adds in between is lost. Engine >= 0.20.0.
+    */
+  def removeRule(rule: InterceptRule): Boolean =
+    FacadeBoundary.run(underlying.removeRule(rule.toJava))
+
   def caPem: String = FacadeBoundary.run(underlying.trust().caPem())
 
   def sslContext: SSLContext = FacadeBoundary.run(underlying.trust().sslContext())
@@ -126,7 +167,8 @@ final class InterceptConnector private[bridge] (underlying: JIntercept) extends 
   * That holds for terminals run from one thread. Assign-then-read is two operations on the shared
   * facade builder, so concurrent terminals on forks of the same builder can interleave and register
   * one rule's clauses against another's action. Fork and register from a single thread, or use
-  * `rift.zio`/`rift.cats`, whose per-terminal fresh builder makes them immune.
+  * `rift.zio`/`rift.cats`, whose per-terminal fresh builder makes them immune (their staged
+  * `replaceRules` rules excepted).
   */
 final class InterceptRuleBuilder private[bridge] (
     underlying: JInterceptRuleBuilder,
@@ -166,6 +208,13 @@ final class InterceptRuleBuilder private[bridge] (
     */
   def forward(port: Port): InterceptRule = forward(FacadeEncode.forwardTarget(port))
 
+  /** Forward matched traffic to `target`'s host and port, over http or https (engine >= 0.20.0; an
+    * older engine refuses the rule with `RiftError.InvalidDefinition` before anything is sent,
+    * unless the version check is off). Unlike the string form, a target that is built cannot be
+    * malformed.
+    */
+  def forward(target: ForwardTarget): InterceptRule = forward(FacadeEncode.forwardTarget(target))
+
   /** Forward matched traffic to `target` — a port, `host:port`, or `http(s)://host:port` (the
     * facade's own signature, rift-java 0.3.6).
     *
@@ -187,3 +236,13 @@ final class InterceptRuleBuilder private[bridge] (
     */
   def redirectTo(imposter: ImposterConnector): InterceptRule =
     FacadeBoundary.run(InterceptRule.fromJava(applied.redirectTo(imposter.jImposter)))
+
+/** The staging set `InterceptConnector.replaceRules` hands its `declare`: each terminal of a rule
+  * started here stages the rule rather than sending it, and returns it as staged.
+  */
+final class InterceptRuleSet private[bridge] (underlying: JInterceptRuleSet):
+
+  def rule(host: String): InterceptRuleBuilder =
+    FacadeBoundary.run(InterceptRuleBuilder(underlying.rule().host(host)))
+
+  def rule(): InterceptRuleBuilder = FacadeBoundary.run(InterceptRuleBuilder(underlying.rule()))
