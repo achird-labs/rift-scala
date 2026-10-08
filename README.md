@@ -86,7 +86,8 @@ SDK itself targets **JDK 21+**.
 
 One DSL, every effect system above — full feature surface on each, including stateful scenarios,
 fault injection, spaces/flow-state with declarative state writes, behaviors on every response type,
-proxy record/replay, HTTPS client-certificate auth and TLS-MITM intercept. Proxy stubs can reach an
+proxy record/replay, HTTPS client-certificate auth, declarative conditional GET and TLS-MITM intercept
+(with atomic `replaceRules` and cross-host `forward`). Proxy stubs can reach an
 HTTPS origin behind a private CA via `upstreamTrust` on the embedded, spawn and container configs.
 
 ### Testing a client you cannot configure

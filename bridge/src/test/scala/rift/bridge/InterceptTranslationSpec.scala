@@ -1,5 +1,6 @@
 package rift.bridge
 
+import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 
 import munit.FunSuite
@@ -672,6 +673,151 @@ class InterceptTranslationSpec extends FunSuite:
     val rendered = facadePredicates(jBuilder).toString
     assert(rendered.contains("/admin"), rendered)
     assert(!rendered.contains("X-Env"), s"discarded fork leaked into the sibling: $rendered")
+
+  // ── issue #206: typed ForwardTarget ─────────────────────────────────────────────────────────
+  private def target(host: String, p: Int, https: Boolean = false): ForwardTarget =
+    ForwardTarget.from(host, port(p), https).fold(e => fail(e), identity)
+
+  test("ForwardTarget renders the URL form the facade reads, http and https"):
+    assertEquals(FacadeEncode.forwardTarget(target("mock-svc", 4600)), "http://mock-svc:4600")
+    assertEquals(
+      FacadeEncode.forwardTarget(target("partner.example.com", 8443, https = true)),
+      "https://partner.example.com:8443"
+    )
+    assertEquals(
+      FacadeEncode.forwardTarget(target("[::1]", 9443, https = true)),
+      "https://[::1]:9443"
+    )
+
+  test("ForwardTarget renders to what the facade parses back: host kept, scheme carried"):
+    assertEquals(
+      facadeForwardTarget(FacadeEncode.forwardTarget(target("mock-svc", 4600))),
+      (Some("mock-svc"), 4600, false)
+    )
+    assertEquals(
+      facadeForwardTarget(FacadeEncode.forwardTarget(target("127.0.0.1", 9443, https = true))),
+      (Some("127.0.0.1"), 9443, true)
+    )
+    // A loopback host over http is the port-only wire, exactly what forward(port) sends.
+    assertEquals(
+      facadeForwardTarget(FacadeEncode.forwardTarget(target("localhost", 9443))),
+      (None, 9443, false)
+    )
+
+  test("ForwardTarget refuses a host the facade would refuse, as a value"):
+    for bad <- Seq(
+        "",
+        "a/b",
+        "a?b",
+        "u@h",
+        "h:1",
+        "[::1",
+        "a b",
+        "[fe80::1%eth0]",
+        "[:]",
+        "[:::]",
+        "[1.2.3.4:]"
+      )
+    do assert(ForwardTarget.from(bad, port(80)).isLeft, s"'$bad' was accepted")
+
+  test("every host ForwardTarget accepts, the facade parses back to the same host"):
+    for good <- Seq("mock-svc", "a_b.c-d", "10.0.0.1", "[::1]", "[fe80::1]", "[2001:db8::7]") do
+      assertEquals(
+        facadeForwardTarget(FacadeEncode.forwardTarget(target(good, 443, https = true))),
+        (Some(good), 443, true),
+        good
+      )
+
+  test("forward(ForwardTarget) hands the facade the rendered target and every buffered clause"):
+    val fake = new InterceptGate.CapturingIntercept
+    val first = get("/admin")
+    val second = onRequest.where(header("X-Env").is("prod"))
+    val ic = InterceptGate.connector(fake)
+    ic.rule("api.example.com").when(first).when(second).forward(target("mock-svc", 4600))
+    assertEquals(fake.lastForward, Some("""{"port":4600,"host":"mock-svc"}"""))
+    assertEquals(fake.lastPredicateCount, (first.predicates ++ second.predicates).size)
+    ic.rule("api.example.com").forward(target("partner.example.com", 8443, https = true))
+    assertEquals(
+      fake.lastForward,
+      Some("""{"port":8443,"host":"partner.example.com","scheme":"https"}""")
+    )
+
+  // ── issue #206: atomic replace / remove ─────────────────────────────────────────────────────
+  test("InterceptRule.toJava restores the facade record: null host for all-hosts, kind, raw"):
+    val all = InterceptRule(None, RuleKind.Serve, Json.obj("predicates" -> Json.Arr(Vector.empty)))
+    val hosted = InterceptRule(
+      Some("api.example.com"),
+      RuleKind.Redirect,
+      Json.obj("host" -> Json.Str("api.example.com"))
+    )
+    val jAll = all.toJava
+    assertEquals(jAll.host(), null)
+    assertEquals(jAll.kind(), io.github.achirdlabs.rift.RuleKind.SERVE)
+    assertEquals(jAll.raw().toJson(), """{"predicates":[]}""")
+    val jHosted = hosted.toJava
+    assertEquals(jHosted.host(), "api.example.com")
+    assertEquals(jHosted.kind(), io.github.achirdlabs.rift.RuleKind.REDIRECT)
+    assertEquals(InterceptRule.fromJava(jHosted), hosted)
+
+  test("replaceRules(rules) hands the facade the rules in order and returns what it installed"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val a = InterceptRule(Some("a.example"), RuleKind.Forward, Json.obj("n" -> Json.Num(1)))
+    val b = InterceptRule(None, RuleKind.Serve, Json.obj("n" -> Json.Num(2)))
+    fake.replaceAnswer = java.util.List.of(b.toJava)
+    val installed = InterceptGate.connector(fake).replaceRules(Vector(a, b))
+    assertEquals(installed, Vector(b), "the result must be the facade's answer, not the input")
+    val sent = fake.replacedWith.getOrElse(fail("the facade's replaceRules(List) was not called"))
+    assertEquals(sent.asScala.map(_.host()).toList, List("a.example", null))
+    assertEquals(sent.asScala.map(_.raw().toJson()).toList, List("""{"n":1}""", """{"n":2}"""))
+
+  test("removeRule hands the facade the rule as a facade record and returns its answer"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val r = InterceptRule(Some("a.example"), RuleKind.Forward, Json.obj("n" -> Json.Num(1)))
+    assert(!InterceptGate.connector(fake).removeRule(r))
+    assertEquals(fake.removed.map(_.host()), Some("a.example"))
+    fake.removeAnswer = true
+    assert(InterceptGate.connector(fake).removeRule(r))
+
+  test("an empty declare is still one facade replace, and installs nothing"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    assertEquals(InterceptGate.connector(fake).replaceRules(_ => ()), Vector.empty)
+    assertEquals(fake.replaceCalls, 1)
+
+  test("replaceRules(declare) stages every chained clause through the staged set"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val first = get("/admin")
+    val second = onRequest.where(header("X-Env").is("prod"))
+    intercept[NullPointerException](
+      InterceptGate
+        .connector(fake)
+        .replaceRules(set =>
+          set.rule("api.example.com").when(first).when(second).serve(ok)
+          ()
+        )
+    )
+    assertEquals(fake.replaceCalls, 1)
+    assertEquals(InterceptGate.facadeHost(fake.lastBuilder), Some("api.example.com"))
+    assertEquals(
+      InterceptGate.facadePredicates(fake.lastBuilder).size,
+      (first.predicates ++ second.predicates).size
+    )
+
+  test("a serve refusal inside declare fails replaceRules as InvalidDefinition, before the facade"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val thrown = intercept[RiftError.InvalidDefinition](
+      InterceptGate
+        .connector(fake)
+        .replaceRules(set =>
+          set.rule().serve(ok.conditional)
+          ()
+        )
+    )
+    assert(thrown.getMessage.contains("_rift.conditional"), thrown.getMessage)
+
+  test("serve rejects _rift.conditional by name — the serve action cannot carry it"):
+    val thrown =
+      intercept[RiftError.InvalidDefinition](FacadeEncode.isSpec(ok.text("x").conditional))
+    assert(thrown.getMessage.contains("`_rift.conditional`"), thrown.getMessage)
 
 /** A facade `Intercept` that counts `rule()` calls and returns a null builder — see the all-hosts
   * tests above for why null is the point. Every other member is unreachable from those tests.

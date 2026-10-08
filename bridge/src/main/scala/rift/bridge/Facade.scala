@@ -225,6 +225,9 @@ private[bridge] object FacadeEncode:
     */
   def forwardTarget(port: Port): String = Port.value(port).toString
 
+  def forwardTarget(target: ForwardTarget): String =
+    s"${if target.https then "https" else "http"}://${target.host}:${Port.value(target.port)}"
+
   /** Total mapping of a `TailFilter` onto the facade's `MatchClause` — the two enums mirror each
     * other case for case (`header`/`flowId`/`method`/`path`), so this can never be lossy.
     *
@@ -358,6 +361,7 @@ private[bridge] object FacadeEncode:
           Option.when(ext.templated)("`_rift.templated`"),
           Option.when(ext.script.isDefined)("`_rift.script`"),
           Option.when(ext.stateOps.nonEmpty)("`_rift.stateOps`"),
+          Option.when(ext.conditional.isDefined)("`_rift.conditional`"),
           Option
             .when(fault.exists(_.latency.isDefined))("`_rift.fault.latency` (withLatencyFault)"),
           Option.when(fault.exists(_.error.isDefined))("`_rift.fault.error` (withErrorFault)"),

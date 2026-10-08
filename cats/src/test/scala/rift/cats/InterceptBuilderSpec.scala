@@ -8,7 +8,16 @@ import _root_.cats.effect.unsafe.implicits.global
 import munit.FunSuite
 
 import rift.RiftError
-import rift.bridge.{ImposterDefinition, InterceptGate, RecordSpec, RecordedPage, TailFilter}
+import rift.bridge.{
+  ForwardTarget,
+  ImposterDefinition,
+  InterceptGate,
+  InterceptRule,
+  RecordSpec,
+  RecordedPage,
+  RuleKind,
+  TailFilter
+}
 import rift.dsl.*
 import rift.model.{
   FlowId,
@@ -195,6 +204,66 @@ class InterceptBuilderSpec extends FunSuite:
     val rendered = InterceptGate.facadePredicates(fake.lastBuilder).toString
     assert(rendered.contains("/admin"), rendered)
     assert(!rendered.contains("X-Env"), s"fork leaked into the sibling: $rendered")
+
+  // ── issue #206: atomic replace, typed forward target ─────────────────────────────────────────
+  test("a staged rule carries every chained clause through replaceRules"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val handle = new InterceptHandleLive[IO](InterceptGate.connector(fake))
+    val first = get("/admin")
+    val second = onRequest.where(header("X-Env").is("prod"))
+    runToNpe(handle.replaceRules { set =>
+      set.rule("api.example.com").when(first).when(second).serve(ok)
+      ()
+    })
+    assertEquals(fake.replaceCalls, 1)
+    assertEquals(InterceptGate.facadeHost(fake.lastBuilder), Some("api.example.com"))
+    assertEquals(
+      InterceptGate.facadePredicates(fake.lastBuilder).size,
+      (first.predicates ++ second.predicates).size
+    )
+
+  test("a staged redirectTo to a foreign handle fails replaceRules with InvalidDefinition"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val handle = new InterceptHandleLive[IO](InterceptGate.connector(fake))
+    val outcome = handle
+      .replaceRules { set =>
+        set.rule("api.example.com").redirectTo(ForeignHandle)
+        ()
+      }
+      .attempt
+      .unsafeRunSync()
+    assert(outcome.left.exists(_.isInstanceOf[RiftError.InvalidDefinition]), outcome.toString)
+
+  test("forward(ForwardTarget) hands the facade the rendered target and its clauses"):
+    val fake = new InterceptGate.CapturingIntercept
+    val handle = new InterceptHandleLive[IO](InterceptGate.connector(fake))
+    val first = get("/admin")
+    val target =
+      Port.from(4600).flatMap(ForwardTarget.from("mock-svc", _)).fold(e => fail(e), identity)
+    handle.rule("api.example.com").when(first).forward(target).unsafeRunSync()
+    assertEquals(fake.lastForward, Some("""{"port":4600,"host":"mock-svc"}"""))
+    assertEquals(fake.lastPredicateCount, first.predicates.size)
+
+  test("a serve refusal inside declare raises InvalidDefinition"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val handle = new InterceptHandleLive[IO](InterceptGate.connector(fake))
+    val outcome = handle
+      .replaceRules { set =>
+        set.rule().serve(ok.conditional)
+        ()
+      }
+      .attempt
+      .unsafeRunSync()
+    assert(outcome.left.exists(_.isInstanceOf[RiftError.InvalidDefinition]), outcome.toString)
+
+  test("replaceRules(rules) and removeRule hand the facade the rules"):
+    val fake = new InterceptGate.BuilderRecordingIntercept
+    val handle = new InterceptHandleLive[IO](InterceptGate.connector(fake))
+    val r = InterceptRule(Some("a.example"), RuleKind.Forward, rift.json.Json.obj())
+    assertEquals(handle.replaceRules(Vector(r, r)).unsafeRunSync(), Vector.empty)
+    assertEquals(fake.replacedWith.map(_.size), Some(2))
+    assert(!handle.removeRule(r).unsafeRunSync())
+    assertEquals(fake.removed.map(_.host()), Some("a.example"))
 
   /** A foreign `ImposterHandle[IO]` — not this engine's `ImposterHandleLive` — used only to reach
     * `redirectTo`'s reject arm. Every member dies loudly; none is exercised.

@@ -117,15 +117,6 @@ object FacadeCoverage:
       "silently discard — see issue #147 and upstream achird-labs/rift-java#207; the same construct " +
       "still reaches the engine on an imposter stub through the D2 raw-JSON seam"
 
-  /** Shared reason: rift-java 0.3.6's atomic intercept rule replace, not yet mirrored on the
-    * bridge. Issue #206 wraps it (`InterceptConnector.replaceRules`/`removeRule`) and turns these
-    * rows into `Wrapped`.
-    */
-  private val replaceRulesPending =
-    "not yet mirrored: atomic intercept rule replace (PUT /intercept/rules, engine >= 0.20.0) " +
-      "arrived with the rift-java 0.3.7 bump (#207); issue #206 wraps it on the bridge and the " +
-      "three facades, turning this row into Wrapped"
-
   /** Shared reason: rift-java 0.3.5's container intercept support — a committed CA at launch, a
     * runtime-started listener on an exposed port, and an attach that carries the CA. Issue #205
     * wires it into `ContainerConfig`/`RiftConnector.container` and turns these rows into `Wrapped`.
@@ -466,9 +457,11 @@ object FacadeCoverage:
         "dials; InterceptConnector exposes the dialled address (address/proxyUri/proxySelector), " +
         "which is what a SUT is configured with"
     ),
-    Coverage.Excluded("Intercept#replaceRules(Consumer)", replaceRulesPending),
-    Coverage.Excluded("Intercept#replaceRules(List)", replaceRulesPending),
-    Coverage.Excluded("Intercept#removeRule(InterceptRule)", replaceRulesPending),
+    Coverage
+      .Wrapped("Intercept#replaceRules(Consumer)", "rift.bridge.InterceptConnector#replaceRules"),
+    Coverage.Wrapped("Intercept#replaceRules(List)", "rift.bridge.InterceptConnector#replaceRules"),
+    Coverage
+      .Wrapped("Intercept#removeRule(InterceptRule)", "rift.bridge.InterceptConnector#removeRule"),
     Coverage.Wrapped("InterceptRuleSet#rule()", "rift.bridge.InterceptConnector#rule"),
     Coverage.Excluded("InterceptRuleSet#forward(String,String)", interceptShortcut),
     Coverage.Excluded("InterceptRuleSet#redirectTo(String,Imposter)", interceptShortcut),

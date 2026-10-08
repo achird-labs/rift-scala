@@ -6,6 +6,7 @@ import java.security.KeyStore
 
 import rift.RiftError
 import rift.json.Json
+import rift.model.Port
 
 import io.github.achirdlabs.rift.{
   InterceptOptions as JInterceptOptions,
@@ -137,7 +138,13 @@ final case class InterceptConfig(
   * action) the engine stored. Decoded via the D2 raw-JSON seam rather than a field-by-field
   * translation.
   */
-final case class InterceptRule(host: Option[String], kind: RuleKind, raw: Json)
+final case class InterceptRule(host: Option[String], kind: RuleKind, raw: Json):
+  /** The facade record, for `replaceRules(rules)`/`removeRule`. An all-hosts rule goes back as a
+    * `null` host — the terminal spelling; the facade compares rules as the engine stores them, so a
+    * rule read from `rules` and one returned by a terminal both match.
+    */
+  private[bridge] def toJava: JInterceptRule =
+    new JInterceptRule(host.orNull, kind.toJava, FacadeEncode.json(raw))
 
 object InterceptRule:
   /** The facade spells "no host" two different ways depending on which path produced the rule: a
@@ -153,3 +160,39 @@ object InterceptRule:
       RuleKind.fromJava(jr.kind()),
       FacadeDecode.json(jr.raw())
     )
+
+/** Where an intercept `forward` rule sends matched traffic when it is not the engine's own machine:
+  * `host:port`, over http or `https` (engine >= 0.20.0).
+  *
+  * Built with [[ForwardTarget.from]], which refuses a host the facade would refuse, so a
+  * constructed target can never fail as a malformed one later. With `https` the engine dials the
+  * target over TLS, verifying it against `host` with the listener's outbound trust
+  * (`--upstream-ca-file`, `UpstreamTrust`). A loopback host over http is sent as the port-only
+  * wire, the same rule `forward(port)` writes.
+  */
+final case class ForwardTarget private (host: String, port: Port, https: Boolean)
+
+object ForwardTarget:
+  // The facade's own host grammar (rift-java `ForwardTarget`, the engine's `check_forward_host`): a
+  // DNS name or IPv4 literal, or a bracketed IPv6 literal without a zone id.
+  private val PlainHost = "[A-Za-z0-9._-]+".r
+  private val Ipv6Literal = """\[[0-9A-Fa-f:.]*:[0-9A-Fa-f:.]*\]""".r
+
+  def from(host: String, port: Port, https: Boolean = false): Either[String, ForwardTarget] =
+    host match
+      case PlainHost() => Right(new ForwardTarget(host, port, https))
+      case Ipv6Literal() if isIpv6(host.substring(1, host.length - 1)) =>
+        Right(new ForwardTarget(host, port, https))
+      case _ =>
+        Left(
+          s"not a valid forward host '$host': expected letters, digits, '.', '-' and '_', or a " +
+            "bracketed IPv6 literal"
+        )
+
+  // A string containing ':' is only ever parsed as an IPv6 literal by InetAddress — never resolved
+  // — so this is a syntax check. A refusal is the Left above, not a swallowed failure.
+  private def isIpv6(literal: String): Boolean =
+    scala.util.Try(java.net.InetAddress.getByName(literal)).toOption.exists {
+      case _: java.net.Inet6Address => true
+      case _ => false
+    }

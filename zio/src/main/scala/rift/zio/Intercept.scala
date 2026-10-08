@@ -9,7 +9,7 @@ import zio.*
 import rift.RiftError
 import rift.dsl.{RequestMatch, ResponseBuilder}
 import rift.model.Port
-import rift.bridge.{CaMaterial, InterceptConnector, InterceptRule, TruststoreFormat}
+import rift.bridge.{CaMaterial, ForwardTarget, InterceptConnector, InterceptRule, TruststoreFormat}
 
 /** The ZIO surface over `rift.bridge.InterceptConnector` (DESIGN.md §5.3). Obtained from
   * `Rift.intercept` as a scoped resource. Scope release stops a proxy this client started (its
@@ -37,6 +37,29 @@ trait InterceptHandle:
   def rule(): InterceptRuleBuilder
   def rules: IO[RiftError, Chunk[InterceptRule]]
   def clearRules: IO[RiftError, Unit]
+
+  /** Replaces every rule with the ones `declare` stages, in one engine call (engine >= 0.20.0): a
+    * request arriving meanwhile meets the old rules or the new ones, never a partial or empty set,
+    * and a staged rule can sit ahead of one already installed. Declaring nothing clears the rules.
+    *
+    * `declare` runs once, on the blocking pool, and only stages — see [[InterceptRuleSet]]. If it
+    * throws, nothing is sent and the old rules stay: a staged rule's `RiftError` fails this effect
+    * with it, anything else dies. An older engine fails with `InvalidDefinition` before `declare`
+    * runs — while the version check is enforcing; with it off or warning, the engine refuses the
+    * replace after `declare` instead.
+    */
+  def replaceRules(declare: InterceptRuleSet => Unit): IO[RiftError, Chunk[InterceptRule]]
+
+  /** Replaces every rule with `rules`, in order, in one engine call — for re-installing a filtered
+    * or reordered `rules` readback. Engine >= 0.20.0.
+    */
+  def replaceRules(rules: Chunk[InterceptRule]): IO[RiftError, Chunk[InterceptRule]]
+
+  /** Removes every installed rule equal to `rule`, keeping the others in order; `false` when none
+    * matched. Reads then replaces the rules, so a rule another client adds in between is lost.
+    * Engine >= 0.20.0.
+    */
+  def removeRule(rule: InterceptRule): IO[RiftError, Boolean]
   def caPem: IO[RiftError, String]
   def sslContext: IO[RiftError, SSLContext]
 
@@ -94,7 +117,34 @@ trait InterceptRuleBuilder:
     * is a programming error, so it never reaches the typed error channel.
     */
   def forward(target: String): IO[RiftError, InterceptRule]
+
+  /** Forward matched traffic to `target`'s host and port, over http or https (engine >= 0.20.0; an
+    * older engine fails with `InvalidDefinition` before anything is sent, unless the version check
+    * is off). A built `ForwardTarget` cannot be malformed, so this never dies on its target.
+    */
+  def forward(target: ForwardTarget): IO[RiftError, InterceptRule]
   def redirectTo(imposter: ImposterHandle): IO[RiftError, InterceptRule]
+
+/** The staging set [[InterceptHandle.replaceRules]] hands its `declare`. Nothing here is an effect
+  * and nothing reaches the engine: a terminal stages the rule and returns it, and the single engine
+  * call follows `declare`. A refused rule throws its `RiftError`, failing the whole `replaceRules`.
+  * Use it only inside `declare`, from one thread, and start every rule from it: a rule started from
+  * the handle itself inside `declare` is not part of the swap.
+  */
+trait InterceptRuleSet:
+  def rule(host: String): StagedRule
+
+  /** An all-hosts rule — matches every intercepted host. */
+  def rule(): StagedRule
+
+/** A rule being staged inside `replaceRules`: `.when(match)` narrows, a terminal stages it. */
+trait StagedRule:
+  def when(matching: RequestMatch): StagedRule
+  def serve(response: ResponseBuilder): InterceptRule
+  def forward(port: Port): InterceptRule
+  def forward(target: ForwardTarget): InterceptRule
+  def forward(target: String): InterceptRule
+  def redirectTo(imposter: ImposterHandle): InterceptRule
 
 private[zio] final case class InterceptHandleLive(connector: InterceptConnector)
     extends InterceptHandle:
@@ -106,6 +156,14 @@ private[zio] final case class InterceptHandleLive(connector: InterceptConnector)
   def rules: IO[RiftError, Chunk[InterceptRule]] =
     blockingIO(Chunk.fromIterable(connector.rules))
   def clearRules: IO[RiftError, Unit] = blockingIO(connector.clearRules())
+  def replaceRules(declare: InterceptRuleSet => Unit): IO[RiftError, Chunk[InterceptRule]] =
+    blockingIO(
+      Chunk.fromIterable(connector.replaceRules(set => declare(InterceptRuleSetLive(set))))
+    )
+  def replaceRules(rules: Chunk[InterceptRule]): IO[RiftError, Chunk[InterceptRule]] =
+    blockingIO(Chunk.fromIterable(connector.replaceRules(rules.toVector)))
+  def removeRule(rule: InterceptRule): IO[RiftError, Boolean] =
+    blockingIO(connector.removeRule(rule))
   def caPem: IO[RiftError, String] = blockingIO(connector.caPem)
   def sslContext: IO[RiftError, SSLContext] = blockingIO(connector.sslContext)
   def sslContextWithSystemCAs: IO[RiftError, SSLContext] =
@@ -148,6 +206,9 @@ private[zio] final case class InterceptRuleBuilderLive(
   def forward(target: String): IO[RiftError, InterceptRule] =
     blockingIO(built.forward(target))
 
+  def forward(target: ForwardTarget): IO[RiftError, InterceptRule] =
+    blockingIO(built.forward(target))
+
   def redirectTo(imposter: ImposterHandle): IO[RiftError, InterceptRule] =
     imposter match
       case live: ImposterHandleLive => blockingIO(built.redirectTo(live.connector))
@@ -157,4 +218,25 @@ private[zio] final case class InterceptRuleBuilderLive(
             "redirectTo requires a rift.zio ImposterHandle from this engine",
             None
           )
+        )
+
+private[zio] final case class InterceptRuleSetLive(set: rift.bridge.InterceptRuleSet)
+    extends InterceptRuleSet:
+  def rule(host: String): StagedRule = StagedRuleLive(set.rule(host))
+  def rule(): StagedRule = StagedRuleLive(set.rule())
+
+private[zio] final case class StagedRuleLive(builder: rift.bridge.InterceptRuleBuilder)
+    extends StagedRule:
+  def when(matching: RequestMatch): StagedRule = StagedRuleLive(builder.when(matching))
+  def serve(response: ResponseBuilder): InterceptRule = builder.serve(response)
+  def forward(port: Port): InterceptRule = builder.forward(port)
+  def forward(target: ForwardTarget): InterceptRule = builder.forward(target)
+  def forward(target: String): InterceptRule = builder.forward(target)
+  def redirectTo(imposter: ImposterHandle): InterceptRule =
+    imposter match
+      case live: ImposterHandleLive => builder.redirectTo(live.connector)
+      case _ =>
+        throw RiftError.InvalidDefinition(
+          "redirectTo requires a rift.zio ImposterHandle from this engine",
+          None
         )

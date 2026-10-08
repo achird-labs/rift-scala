@@ -123,6 +123,10 @@ break round-tripping. That includes every level of the `_rift` extension: `RiftC
 as `_rift.warnings` survives a read and a write. Following rift-java 0.1.2's policy, putting a
 **modeled** key into `extra` is a construction error rather than a silent override.
 
+One deliberate exception: `RiftConditional` (`_rift.conditional`, engine 0.20.0) has no `extra`,
+so an unknown key inside its object form is a decode error rather than a key the next encode would
+silently drop. rift-java ignores such a key instead; the difference is deliberate.
+
 ### Testing
 
 Tests use **munit**, not zio-test: this module must stay effect-agnostic, and its own test

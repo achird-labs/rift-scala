@@ -78,6 +78,8 @@ extends/reuses the cats surface's types directly · `parked (#11)` no `kyo` buil
 | `redirectTo` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `rules` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `clearRules` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `replaceRules` | ✓ | ✓ | via cats | ✓ | parked (#11) |
+| `removeRule` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `proxySelector` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `caPem` | ✓ | ✓ | via cats | ✓ | parked (#11) |
 | `sslContext` | ✓ | ✓ | via cats | ✓ | parked (#11) |

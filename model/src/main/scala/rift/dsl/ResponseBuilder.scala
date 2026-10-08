@@ -59,7 +59,8 @@ final class IsResponseBuilder private[dsl] (
     private val faultValue: Option[FaultConfig] = None,
     private val scriptValue: Option[ScriptSource] = None,
     private val templatedValue: Boolean = false,
-    private val stateOpsValue: Vector[StateOp] = Vector.empty
+    private val stateOpsValue: Vector[StateOp] = Vector.empty,
+    private val conditionalValue: Option[RiftConditional] = None
 ) extends ResponseBuilder
     with BehaviorChain[IsResponseBuilder]:
 
@@ -72,7 +73,8 @@ final class IsResponseBuilder private[dsl] (
       faultValue: Option[FaultConfig] = this.faultValue,
       scriptValue: Option[ScriptSource] = this.scriptValue,
       templatedValue: Boolean = this.templatedValue,
-      stateOpsValue: Vector[StateOp] = this.stateOpsValue
+      stateOpsValue: Vector[StateOp] = this.stateOpsValue,
+      conditionalValue: Option[RiftConditional] = this.conditionalValue
   ): IsResponseBuilder =
     new IsResponseBuilder(
       statusCodeValue,
@@ -83,7 +85,8 @@ final class IsResponseBuilder private[dsl] (
       faultValue,
       scriptValue,
       templatedValue,
-      stateOpsValue
+      stateOpsValue,
+      conditionalValue
     )
 
   def json(raw: String): IsResponseBuilder = withState(bodyValue = Some(parseJsonOrThrow(raw)))
@@ -124,6 +127,32 @@ final class IsResponseBuilder private[dsl] (
 
   /** After this response, removes every key of the request's flow; see [[setState]]. */
   def clearFlowState: IsResponseBuilder = withStateOp(StateOp.ClearFlow)
+
+  /** Declarative conditional GET (`_rift.conditional`, engine >= 0.20.0): the engine adds a strong
+    * `ETag` over the bytes it serves and `Last-Modified` (the stub's load time), and answers a
+    * matching `If-None-Match`/`If-Modified-Since` with a bodyless `304`. GET and HEAD with a 2xx
+    * only; `If-None-Match` wins when both are sent; a 304 consumes a cycle position and runs
+    * `wait`. rift-java refuses it on an older engine at `create`/`replaceAll` (not at
+    * `addStub`/`replaceStubs`, which it does not gate). The last conditional call wins.
+    */
+  def conditional: IsResponseBuilder = withConditional(RiftConditional.Enabled(true))
+
+  /** [[conditional]] with a fixed `Last-Modified`, sent as an IMF-fixdate in whole seconds. */
+  def conditional(lastModified: java.time.Instant): IsResponseBuilder =
+    withConditional(RiftConditional.Validators(None, Some(RiftConditional.httpDate(lastModified))))
+
+  /** [[conditional]] with `Last-Modified` only — no `ETag`. */
+  def conditionalWithoutEtag: IsResponseBuilder =
+    withConditional(RiftConditional.Validators(Some(false), None))
+
+  /** [[conditionalWithoutEtag]] with a fixed `Last-Modified`. */
+  def conditionalWithoutEtag(lastModified: java.time.Instant): IsResponseBuilder =
+    withConditional(
+      RiftConditional.Validators(Some(false), Some(RiftConditional.httpDate(lastModified)))
+    )
+
+  private def withConditional(c: RiftConditional): IsResponseBuilder =
+    withState(conditionalValue = Some(c))
 
   private def withStateOp(op: StateOp): IsResponseBuilder =
     withState(stateOpsValue = stateOpsValue :+ op)
@@ -182,8 +211,12 @@ final class IsResponseBuilder private[dsl] (
 
   def build: Response =
     val rift =
-      if faultValue.isDefined || scriptValue.isDefined || templatedValue || stateOpsValue.nonEmpty
-      then Some(RiftResponseExt(faultValue, scriptValue, templatedValue, stateOpsValue))
+      if faultValue.isDefined || scriptValue.isDefined || templatedValue || stateOpsValue.nonEmpty ||
+        conditionalValue.isDefined
+      then
+        Some(
+          RiftResponseExt(faultValue, scriptValue, templatedValue, stateOpsValue, conditionalValue)
+        )
       else None
     Response.Is(buildIs, behaviorsValue, rift)
 

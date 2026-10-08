@@ -335,8 +335,13 @@ final case class RiftResponseExt(
   script: Option[ScriptSource] = None,   // rhai | js, inline | file | ref
   templated: Boolean           = false,  // ${request.*} interpolation
   stateOps: Vector[StateOp]    = Vector.empty, // flow-state writes after the response (#172)
+  conditional: Option[RiftConditional] = None, // declarative ETag/Last-Modified/304 (#206)
   extra: Vector[(String, Json)] = Vector.empty // unknown _rift keys, e.g. dataset (#171)
 )
+
+enum RiftConditional:                    // engine >= 0.20.0; mirrors the wire exactly
+  case Enabled(on: Boolean)              // true | false
+  case Validators(etag: Option[Boolean], lastModified: Option[String])  // absent stays absent
 
 enum ScriptSource:
   case Inline(engine: Option[ScriptEngine], code: String)  // None: the engine resolves it
@@ -470,6 +475,10 @@ ok.binary(bytes)                                // _mode: binary, base64 on the 
 ok.json("""{"path":"${request.path}"}""").templated
 // declarative flow-state writes after the response (_rift.stateOps, engine >= 0.18.0), run in order
 ok.setState("last", "{{ request.path }}").incrementState("hits").deleteState("tmp").clearFlowState
+// declarative conditional GET (_rift.conditional, engine >= 0.20.0): ETag + Last-Modified on a 2xx
+// GET/HEAD, 304 on a matching revalidation; a fixed date is an IMF-fixdate in whole seconds
+ok.json(datafile).conditional            // ETag + Last-Modified: load
+ok.conditional(Instant.parse("2026-01-05T08:09:10Z")).conditionalWithoutEtag  // last call wins
 
 // behaviors (Mountebank _behaviors)
 ok.after(150.millis)                            // wait, fixed
@@ -884,6 +893,8 @@ trait InterceptHandle:
   def proxyUri: URI
   def rule(host: String): InterceptRuleBuilder      // .when(match).serve(resp) | .forward(port) | .redirectTo(imposter)
                                                     // forward(port: Port): port-only wire, 127.0.0.1:{port}, any engine.
+                                                    // forward(ForwardTarget.from(host, port, https)): {host, port[, scheme]},
+                                                    // engine >= 0.20.0; an invalid host is a Left at construction (#206).
                                                     // forward(target: String): port | host:port | http(s)://host:port —
                                                     // a named host or https is forwarded to that host (engine >= 0.20.0,
                                                     // InvalidDefinition before); loopback over http keeps the port-only wire.
@@ -897,6 +908,13 @@ trait InterceptHandle:
   // full stub fidelity across the D2 raw-JSON seam.
   def rules: IO[RiftError, Chunk[InterceptRule]]
   def clearRules: IO[RiftError, Unit]
+  // Atomic replace (engine >= 0.20.0, #206): one PUT /intercept/rules, so traffic meets the old set
+  // or the new one, never a partial or empty one. `declare` only stages — InterceptRuleSet's
+  // StagedRule terminals return the staged rule, nothing reaches the engine until it returns, and a
+  // throw (a staged rule's RiftError fails the effect with it) leaves the old rules in place.
+  def replaceRules(declare: InterceptRuleSet => Unit): IO[RiftError, Chunk[InterceptRule]]
+  def replaceRules(rules: Chunk[InterceptRule]): IO[RiftError, Chunk[InterceptRule]]  // reorder/filter
+  def removeRule(rule: InterceptRule): IO[RiftError, Boolean]  // list -> filter -> replace
   def caPem: IO[RiftError, String]
   def sslContext: IO[RiftError, SSLContext]         // trust material for the SUT's client
   def exportTruststore(format: TruststoreFormat, password: String, path: Path): IO[RiftError, Unit]
