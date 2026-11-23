@@ -61,7 +61,9 @@ object WaitBehavior:
   * `bare` records a single `copy`/`lookup` entry spelled `{...}` rather than `[{...}]`, or a single
   * `shellTransform` spelled `"cmd"` rather than `["cmd"]`. The engine writes both spellings, and
   * `semanticEquals` tells `Obj` from `Arr`, so the spelling has to survive a round trip. It is only
-  * honoured for exactly one entry: a `bare` value with several entries still writes an array.
+  * honoured for exactly one entry: a `bare` value with several entries still writes an array. That
+  * is the object form; the `behaviors` array form writes every entry bare, one element each (see
+  * [[Behaviors.toJson]]).
   */
 enum Behavior:
   case Wait(spec: WaitBehavior)
@@ -153,9 +155,16 @@ final case class Behaviors(
   def writesArray: Boolean =
     spelling == Behaviors.Spelling.Array || block.map(_.key).distinct.size != block.size
 
-  /** The block's wire value: the array form or the object form, per [[writesArray]]. */
+  /** The block's wire value: the array form or the object form, per [[writesArray]].
+    *
+    * In the array form a `copy`, `lookup` or `shellTransform` step goes out as one element per
+    * entry, each value bare: from rift#1639 (engine 0.25.0, the pinned engine) the admin API
+    * refuses an array element whose value for one of those keys is a list, even a one-entry list,
+    * and only the `_behaviors` object takes lists. Elements run in order, as list entries do, so
+    * what runs is unchanged; an empty list, a no-op, writes no element (#221).
+    */
   def toJson: Json =
-    if writesArray then Json.Arr(block.map(b => Json.Obj(Vector(b.key -> b.value))))
+    if writesArray then Json.Arr(block.flatMap(Behaviors.arrayElements))
     else Json.Obj(block.map(b => b.key -> b.value))
 
 object Behaviors:
@@ -167,6 +176,14 @@ object Behaviors:
 
   /** A block of `entries` in the object spelling — how the DSL and hand-built values start. */
   def of(entries: Behavior*): Behaviors = Behaviors(entries.toVector)
+
+  private def arrayElements(b: Behavior): Vector[Json] =
+    def each(values: Vector[Json]): Vector[Json] = values.map(v => Json.Obj(Vector(b.key -> v)))
+    b match
+      case Behavior.Copy(entries, _) => each(entries)
+      case Behavior.Lookup(entries, _) => each(entries)
+      case Behavior.ShellTransform(commands, _) => each(commands.map(Json.Str(_)))
+      case other => Vector(Json.Obj(Vector(other.key -> other.value)))
 
   private def isResponseLevelRepeat(b: Behavior): Boolean = b match
     case Behavior.Repeat(_, true) => true

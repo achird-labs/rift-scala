@@ -381,6 +381,23 @@ class DslSpec extends munit.FunSuite:
       Some(Json.Str("header:x!#$%&'*+-.^_`|~9"))
     )
 
+  // #221 — a block decoded from the engine's `behaviors` array keeps the array spelling, and the
+  // chainers merge into its existing step: two shellTransform commands then sit in one step. Engine
+  // 0.25.0 refuses a list inside an array element, so the step must go out as one element each.
+  test("extending a decoded behaviors array through the chainers writes one element per entry"):
+    val decoded = Behaviors
+      .fromJson(Json.parse("""[{"shellTransform":"a"}]""").fold(e => fail(e.toString), identity))
+      .fold(e => fail(e.toString), identity)
+    val written = new IsResponseBuilder(200, behaviorsValue = decoded)
+      .shellTransform("b", "c")
+      .build
+      .toJson
+    assertEquals(
+      written.get("behaviors").map(_.render),
+      Some("""[{"shellTransform":"a"},{"shellTransform":"b"},{"shellTransform":"c"}]""")
+    )
+    assertEquals(written.get("_behaviors"), None)
+
   // Issue #173 — the behavior chainers now exist on proxy and inject responses too, and repeat on
   // fault and rift-script ones. Each writes the same `_behaviors` object an is-response does.
   private def behaviorsOf(r: ResponseBuilder): Option[String] =
