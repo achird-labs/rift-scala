@@ -10,7 +10,7 @@ import zio.test.*
 
 import rift.RiftError
 import rift.json.Json
-import rift.model.{ImposterDefinition, Port}
+import rift.model.{Behavior, ImposterDefinition, Port, Response}
 import rift.zio.{ImposterHandle, Rift}
 
 /** Live checks for engine behaviour rift-scala adopts at the 0.25.0 pin (rift-java 0.3.9). Same
@@ -23,6 +23,9 @@ import rift.zio.{ImposterHandle, Rift}
   * #221: from rift#1639 the admin API refuses a `behaviors` array element whose `copy`, `lookup` or
   * `shellTransform` is a list. A block read in the array spelling with a multi-entry step must go
   * out one element per entry, and the engine must accept it and run every entry.
+  *
+  * #222: from rift#1738 the engine ignores a `_behaviors` object beside a response-level `repeat`,
+  * so a block written with one must go out as the `behaviors` array for its steps to run.
   */
 object Engine025Spec extends ZIOSpecDefault:
 
@@ -42,7 +45,9 @@ object Engine025Spec extends ZIOSpecDefault:
   ) =
     decision match
       case G3Require.Decision.Run =>
-        (suite(s"$name lane")((allowCorsCases ++ behaviorsArrayCases)*) @@ TestAspect.sequential)
+        (suite(s"$name lane")(
+          (allowCorsCases ++ behaviorsArrayCases ++ repeatCases)*
+        ) @@ TestAspect.sequential)
           .provideSomeLayerShared[Scope](layer.orDie)
       case G3Require.Decision.Skip =>
         suite(s"$name lane")(
@@ -109,6 +114,44 @@ object Engine025Spec extends ZIOSpecDefault:
         )
         response <- get(imp, "/hello")
       yield assertTrue(response.statusCode() == 200, response.body() == "/hello GET")
+    }
+  )
+
+  private def decodedDefinition(raw: String): UIO[ImposterDefinition] =
+    ZIO
+      .fromEither(Json.parse(raw).flatMap(ImposterDefinition.fromJson))
+      .orDieWith(e => new AssertionError(e.toString))
+
+  /** Gives the stub's first response a response-level `repeat` on top of the `_behaviors` object it
+    * was read with: the shape this SDK wrote beside a `_behaviors` object before #222.
+    */
+  private def withResponseRepeat(d: ImposterDefinition, times: Int): ImposterDefinition =
+    d.copy(stubs = d.stubs.map { stub =>
+      stub.copy(responses = stub.responses.zipWithIndex.map {
+        case (is: Response.Is, 0) =>
+          is.copy(behaviors =
+            is.behaviors.copy(entries =
+              is.behaviors.entries :+ Behavior.Repeat(times, responseLevel = true)
+            )
+          )
+        case (other, _) => other
+      })
+    })
+
+  private def repeatCases = Vector(
+    test("a block written beside a response-level repeat runs on every repeat (behaviors array)") {
+      val raw =
+        """{"protocol":"http","stubs":[{"responses":[{"is":{"body":"${p}"},"_behaviors":{"copy":""" +
+          copyPath + """}},{"is":{"body":"next"}}]}]}"""
+      for
+        decoded <- decodedDefinition(raw)
+        imp <- ZIO.serviceWithZIO[Rift](r =>
+          ZIO.acquireRelease(r.create(withResponseRepeat(decoded, 2)))(_.delete.orDie)
+        )
+        first <- get(imp, "/one")
+        second <- get(imp, "/two")
+        third <- get(imp, "/three")
+      yield assertTrue(first.body() == "/one", second.body() == "/two", third.body() == "next")
     }
   )
 

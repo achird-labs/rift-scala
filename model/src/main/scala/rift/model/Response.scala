@@ -58,7 +58,16 @@ object Response:
 
   /** Writes `lead`, then the behaviors block and a response-level `repeat`, then `trail`, then
     * `extra`. Only the keys actually written are modeled: the others may legitimately ride in
-    * `extra` — a `behaviors` array that lost to `_behaviors` on decode, or a `"repeat": null`.
+    * `extra` — a `_behaviors` the engine ignores, a `"behaviors": null` or a block that decoded
+    * empty (see [[blockSource]]), or a `"repeat": null`.
+    *
+    * The engine takes the object form only under `_behaviors` and the array form only under
+    * `behaviors`, and refuses the other pairings. The block takes the array under `behaviors` when
+    * [[Behaviors.writesArray]] says so (a response-level `repeat` among the reasons), and also when
+    * `extra` carries either behaviors key: under rift#1738 a `behaviors` key beside `_behaviors`
+    * switches `_behaviors` off, so the array under `behaviors` is the one spelling that is sure to
+    * run there. It replaces a `behaviors` placeholder (a `null` or an empty block) on `extra`, and
+    * an ignored `_behaviors` stays where it is (#222).
     */
   private def write(
       lead: Vector[(String, Json)],
@@ -66,36 +75,33 @@ object Response:
       trail: Vector[(String, Json)],
       extra: Vector[(String, Json)]
   ): Json =
-    val key = blockKey(behaviors, extra)
-    val block = Option.when(behaviors.block.nonEmpty)(key -> behaviors.toJson)
+    val hasBlock = behaviors.block.nonEmpty
+    val asArray = behaviors.writesArray || extra.exists((k, _) => behaviorKeys(k))
+    val block = Option.when(hasBlock)(
+      if asArray then "behaviors" -> behaviors.arrayJson else "_behaviors" -> behaviors.toJson
+    )
+    val carried = if hasBlock then extra.filterNot(_._1 == "behaviors") else extra
     val repeat =
       behaviors.responseLevelRepeat.map(r => "repeat" -> Json.Num(BigDecimal(r.count)))
     val known = lead ++ block ++ repeat ++ trail
-    buildObj(known.map(_._1).toSet, known, extra)
+    buildObj(known.map(_._1).toSet, known, carried)
 
-  /** The engine takes the object form only under `_behaviors` and the array form only under
-    * `behaviors`, and refuses the other pairings, so the key follows the shape being written.
-    *
-    * The one exception is a document that already carries the preferred key in `extra`: an array
-    * read from `_behaviors` beside a losing `behaviors`. The block then goes back under the key it
-    * was read from, which reproduces the document rather than colliding with it.
-    */
-  private def blockKey(behaviors: Behaviors, extra: Vector[(String, Json)]): String =
-    val preferred = if behaviors.writesArray then "behaviors" else "_behaviors"
-    val other = if preferred == "behaviors" then "_behaviors" else "behaviors"
-    if extra.exists(_._1 == preferred) then other else preferred
+  private val behaviorKeys = Set("behaviors", "_behaviors")
 
-  /** Which key holds the block, by the engine's rule: `_behaviors` wins when both are present, and
-    * `"_behaviors": null` counts as absent. The key not read stays in `extra`, and so does a block
-    * that decodes empty: an empty `_behaviors` still shadows a `behaviors` array in the engine, and
-    * dropping it on write would switch that array on.
+  /** Which key holds the block, by the engine's rule (rift#1738, Mountebank's upcast rule): a
+    * `behaviors` key, even `"behaviors": null`, holds it, and `_behaviors` runs only when there is
+    * no `behaviors` and no top-level `repeat` (`"repeat": null` counts as absent). Beside either,
+    * `_behaviors` is ignored whole, its own `repeat` included. The key not read stays in `extra`,
+    * and so does a block that decodes empty, so a read -> write reproduces the document (#222).
     */
   private def blockSource(fields: Vector[(String, Json)]): Option[(String, Json)] =
-    fields.field("_behaviors") match
-      case Some(b) if b != Json.Null => Some("_behaviors" -> b)
-      case _ =>
-        fields.field("behaviors") match
-          case Some(b) if b != Json.Null => Some("behaviors" -> b)
+    fields.field("behaviors") match
+      case Some(Json.Null) => None
+      case Some(b) => Some("behaviors" -> b)
+      case None =>
+        val responseRepeat = fields.field("repeat").exists(_ != Json.Null)
+        fields.field("_behaviors") match
+          case Some(b) if b != Json.Null && !responseRepeat => Some("_behaviors" -> b)
           case _ => None
 
   /** A response's behaviors — its block plus a response-level `repeat` — and the keys they

@@ -113,10 +113,11 @@ object Behavior:
   * `repeat` beside `is` is carried here too, as a [[Behavior.Repeat]] with `responseLevel = true`.
   *
   * Writing keeps the spelling that was read (`spelling`) and falls back to the array whenever the
-  * object form would lose an entry, that is when a key repeats. Carrying a repeated key is not the
-  * same as an engine running it: engine 0.17.0 merges the array as it parses and applies only the
-  * last entry of a repeated key, and 0.18.0 runs every element. Writing the array keeps this SDK
-  * from being the component that destroys the entry.
+  * object form would lose an entry, that is when a key repeats, and whenever a response-level
+  * `repeat` is written, beside which the engine ignores `_behaviors` (rift#1738). Carrying a
+  * repeated key is not the same as an engine running it: engine 0.17.0 merges the array as it
+  * parses and applies only the last entry of a repeated key, and 0.18.0 runs every element. Writing
+  * the array keeps this SDK from being the component that destroys the entry.
   *
   * A `null` behavior value is refused on purpose: the engine never writes one back and rift-java
   * refuses it too. It is absent in the object form but, in the array form, removes every earlier
@@ -149,11 +150,14 @@ final case class Behaviors(
       .orElse(block.collect { case r: Behavior.Repeat => r }.lastOption)
       .map(_.count)
 
-  /** Whether the block must be written as the `behaviors` array: it was read as one, or a key
-    * repeats and the `_behaviors` object would keep only one of them.
+  /** Whether the block must be written as the `behaviors` array: it was read as one, a key repeats
+    * and the `_behaviors` object would keep only one of them, or a response-level `repeat` is
+    * written, beside which the engine ignores a `_behaviors` object whole (rift#1738, #222).
     */
   def writesArray: Boolean =
-    spelling == Behaviors.Spelling.Array || block.map(_.key).distinct.size != block.size
+    spelling == Behaviors.Spelling.Array ||
+      block.map(_.key).distinct.size != block.size ||
+      responseLevelRepeat.isDefined
 
   /** The block's wire value: the array form or the object form, per [[writesArray]].
     *
@@ -164,8 +168,11 @@ final case class Behaviors(
     * what runs is unchanged; an empty list, a no-op, writes no element (#221).
     */
   def toJson: Json =
-    if writesArray then Json.Arr(block.flatMap(Behaviors.arrayElements))
+    if writesArray then arrayJson
     else Json.Obj(block.map(b => b.key -> b.value))
+
+  /** The block in the `behaviors` array spelling, whatever [[writesArray]] says. */
+  private[model] def arrayJson: Json = Json.Arr(block.flatMap(Behaviors.arrayElements))
 
 object Behaviors:
   /** Which wire shape a block was read from, so a round trip writes the same one back. */
