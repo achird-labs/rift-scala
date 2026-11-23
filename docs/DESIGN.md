@@ -361,7 +361,9 @@ beside `is`. Writing keeps the spelling it read, and uses the array whenever a k
 the object form would lose one. Engine 0.18.0, the pinned engine, runs every element; an engine
 older than 0.18.0 folds the array and runs only the last of a repeated key. A multi-key array
 element is expanded into one step per key in the engine's run order, and a `null` value for a
-modeled key is refused. The DSL writes one entry per key in the `_behaviors` object, as before.
+modeled key is refused. In the array, a `copy`/`lookup`/`shellTransform` step is written one
+bare element per entry, since engine 0.25.0 refuses a list there (rift#1639, #221); only the
+object takes lists. The DSL writes one entry per key in the `_behaviors` object, as before.
 `RiftConfig` models the imposter-level `_rift` block: `flowState` (`ttlSeconds`,
 `flowIdSource`; no backend selector since engine 0.22.0 removed Redis, so a legacy `backend`/`redis`
 key rides on `extra`, #216), `scriptEngine` (default engine + `timeoutMs`), named `scripts`

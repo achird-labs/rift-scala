@@ -433,14 +433,25 @@ class RiftWireShapeSpec extends munit.FunSuite:
     roundTripsExactly("""[{"futureThing":5}]""")
     roundTripsExactly("""{"futureThing":5}""")
 
-  test("behaviors: an element whose value is already an array stays one entry"):
+  // #221 — from the engine release that ships rift#1639 (0.25.0 is pinned), a `behaviors` array
+  // element whose copy/lookup/shellTransform is a list is refused at the admin door with 400; only
+  // the `_behaviors` object takes lists. The array spelling therefore writes one element per entry,
+  // each with a bare value. What runs is unchanged: elements run in order, as list entries did.
+  private def writes(b: Behaviors): String = b.toJson.render
+
+  test("behaviors: an element whose value is a list still decodes as one entry"):
     assertEquals(
       decoded(s"""[{"copy":[$copyA,$copyB]}]""").entries,
       Vector(Behavior.Copy(Vector(parse(copyA), parse(copyB)), bare = false))
     )
-    roundTripsExactly(s"""[{"copy":[$copyA,$copyB]}]""")
 
-  test("behaviors: single and array copy elements keep their own spelling"):
+  test("behaviors: the array form writes a multi-entry copy as one bare element per entry"):
+    assertEquals(
+      writes(decoded(s"""[{"copy":[$copyA,$copyB]}]""")),
+      s"""[{"copy":$copyA},{"copy":$copyB}]"""
+    )
+
+  test("behaviors: the array form writes even a one-entry list bare, never as a list"):
     assertEquals(
       decoded(s"""[{"copy":$copyA},{"copy":[$copyB]}]""").entries,
       Vector(
@@ -448,7 +459,39 @@ class RiftWireShapeSpec extends munit.FunSuite:
         Behavior.Copy(Vector(parse(copyB)), bare = false)
       )
     )
-    roundTripsExactly(s"""[{"copy":$copyA},{"copy":[$copyB]}]""")
+    assertEquals(
+      writes(decoded(s"""[{"copy":$copyA},{"copy":[$copyB]}]""")),
+      s"""[{"copy":$copyA},{"copy":$copyB}]"""
+    )
+
+  test("behaviors: the array form writes a multi-command shellTransform one command per element"):
+    assertEquals(
+      writes(decoded("""[{"wait":1},{"shellTransform":["a","b"]},{"decorate":"f"}]""")),
+      """[{"wait":1},{"shellTransform":"a"},{"shellTransform":"b"},{"decorate":"f"}]"""
+    )
+
+  test("behaviors: the expanded array form is a fixed point of decode -> encode"):
+    roundTripsExactly(s"""[{"copy":$copyA},{"copy":$copyB},{"shellTransform":"a"}]""")
+
+  test("behaviors: a repeated key forcing the array spelling also expands list values"):
+    val b = Behaviors.of(
+      Behavior.ShellTransform(Vector("a", "b"), bare = false),
+      Behavior.Decorate("f"),
+      Behavior.ShellTransform(Vector("c"), bare = false)
+    )
+    assertEquals(
+      writes(b),
+      """[{"shellTransform":"a"},{"shellTransform":"b"},{"decorate":"f"},{"shellTransform":"c"}]"""
+    )
+
+  test("behaviors: an empty list in the array form writes no element (it was a no-op)"):
+    assertEquals(
+      writes(decoded("""[{"wait":1},{"copy":[]},{"shellTransform":[]}]""")),
+      """[{"wait":1}]"""
+    )
+
+  test("behaviors: the object form still writes lists, which it accepts"):
+    roundTripsExactly(s"""{"copy":[$copyA,$copyB],"shellTransform":["a","b"]}""")
 
   private val lookupRow =
     """{"key":{"from":"path","using":{"method":"regex","selector":".+"}},"fromDataSource":{"csv":{"path":"p.csv","keyColumn":"id"}},"into":"${row}"}"""
@@ -460,7 +503,10 @@ class RiftWireShapeSpec extends munit.FunSuite:
     )
     roundTripsExactly(s"""{"lookup":$lookupRow}""")
     roundTripsExactly(s"""{"lookup":[$lookupRow]}""")
-    roundTripsExactly(s"""[{"lookup":$lookupRow},{"lookup":[$lookupRow]}]""")
+    assertEquals(
+      writes(decoded(s"""[{"lookup":$lookupRow},{"lookup":[$lookupRow,$lookupRow]}]""")),
+      s"""[{"lookup":$lookupRow},{"lookup":$lookupRow},{"lookup":$lookupRow}]"""
+    )
 
   test("behaviors: an object-form lookup missing its required fields is a decode error"):
     assert(Behaviors.fromJson(parse("""{"lookup":{"key":{}}}""")).isLeft)
