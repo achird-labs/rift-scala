@@ -44,8 +44,8 @@ class ResponseBehaviorsSpec extends munit.FunSuite:
     assertEquals(written.get("repeat"), Some(Json.Num(BigDecimal(3))))
     assertEquals(written.get("_behaviors"), None)
 
-  test("both repeat spellings are kept, and the response-level one takes effect"):
-    val raw = """{"is":{"statusCode":200},"repeat":3,"_behaviors":{"repeat":2}}"""
+  test("a block repeat in the behaviors array and a response-level repeat are both kept"):
+    val raw = """{"is":{"statusCode":200},"repeat":3,"behaviors":[{"repeat":2}]}"""
     val is = decodeIs(raw)
     assertEquals(
       is.behaviors.entries,
@@ -54,15 +54,67 @@ class ResponseBehaviorsSpec extends munit.FunSuite:
     assertEquals(is.behaviors.effectiveRepeat, Some(3))
     assert(is.toJson.semanticEquals(parse(raw)), is.toJson.render)
 
+  // #222 — engine rift#1738 (rift#1709) follows Mountebank's upcast rule: `_behaviors` runs only
+  // when the response sets no `behaviors` (a `null` one included) and no top-level `repeat`; beside
+  // either it is ignored whole, its own `repeat` included. The decoder follows the same rule, and
+  // an ignored `_behaviors` rides on `extra` untouched, so a read -> write reproduces the document.
+  test("a top-level repeat voids _behaviors whole, its block repeat included"):
+    val raw = """{"is":{"statusCode":200},"repeat":3,"_behaviors":{"wait":1,"repeat":2}}"""
+    val is = decodeIs(raw)
+    assertEquals(is.behaviors.entries, Vector(Behavior.Repeat(3, responseLevel = true)))
+    assertEquals(is.behaviors.effectiveRepeat, Some(3))
+    assertEquals(is.extra, Vector("_behaviors" -> parse("""{"wait":1,"repeat":2}""")))
+    assert(is.toJson.semanticEquals(parse(raw)), is.toJson.render)
+
+  test("a null behaviors voids _behaviors, and both keys ride along untouched"):
+    val raw = """{"is":{"statusCode":200},"behaviors":null,"_behaviors":{"wait":1}}"""
+    val is = decodeIs(raw)
+    assertEquals(is.behaviors.entries, Vector.empty)
+    assertEquals(is.extra.map(_._1).toSet, Set("behaviors", "_behaviors"))
+    assert(is.toJson.semanticEquals(parse(raw)), is.toJson.render)
+
+  test("a response-level repeat writes the block as the behaviors array, never beside _behaviors"):
+    val is = Response.Is(
+      IsResponse(statusCode = Some(200)),
+      behaviors = Behaviors.of(
+        Behavior.Wait(WaitBehavior.Fixed(5L)),
+        Behavior.Repeat(3, responseLevel = true)
+      )
+    )
+    assertEquals(
+      is.toJson.render,
+      """{"is":{"statusCode":200},"behaviors":[{"wait":5}],"repeat":3}"""
+    )
+
+  test("beside a response-level repeat a multi-entry step is also expanded one element each"):
+    val is = Response.Is(
+      IsResponse(statusCode = Some(200)),
+      behaviors = Behaviors.of(
+        Behavior.ShellTransform(Vector("a", "b"), bare = false),
+        Behavior.Repeat(2, responseLevel = true)
+      )
+    )
+    assertEquals(
+      is.toJson.render,
+      """{"is":{"statusCode":200},"behaviors":[{"shellTransform":"a"},{"shellTransform":"b"}],"repeat":2}"""
+    )
+
+  test("a response-level repeat with no block writes the repeat alone"):
+    val is = Response.Is(
+      IsResponse(statusCode = Some(200)),
+      behaviors = Behaviors.of(Behavior.Repeat(4, responseLevel = true))
+    )
+    assertEquals(is.toJson.render, """{"is":{"statusCode":200},"repeat":4}""")
+
   test("the last block repeat takes effect when there is no response-level one"):
     val is = decodeIs("""{"is":{"statusCode":200},"behaviors":[{"repeat":1},{"repeat":2}]}""")
     assertEquals(is.behaviors.effectiveRepeat, Some(2))
 
-  test("_behaviors wins over behaviors, and the losing key rides along untouched"):
+  test("behaviors wins over _behaviors, and the ignored key rides along untouched"):
     val raw = """{"is":{"statusCode":200},"_behaviors":{"wait":1},"behaviors":[{"wait":2}]}"""
     val is = decodeIs(raw)
-    assertEquals(is.behaviors.entries, Vector(Behavior.Wait(WaitBehavior.Fixed(1L))))
-    assertEquals(is.extra, Vector("behaviors" -> parse("""[{"wait":2}]""")))
+    assertEquals(is.behaviors.entries, Vector(Behavior.Wait(WaitBehavior.Fixed(2L))))
+    assertEquals(is.extra, Vector("_behaviors" -> parse("""{"wait":1}""")))
     assert(is.toJson.semanticEquals(parse(raw)), is.toJson.render)
 
   test("a null _behaviors counts as absent, so behaviors is read"):
@@ -91,16 +143,17 @@ class ResponseBehaviorsSpec extends munit.FunSuite:
     )
     intercept[IllegalArgumentException](bad.toJson)
 
-  // An empty `_behaviors` still wins in the engine, so it keeps shadowing a `behaviors` array.
-  // Dropping it on write would switch that array on after nothing but a read and a write.
-  test("an empty _behaviors keeps shadowing a behaviors array"):
+  // Since rift#1738 a `behaviors` array runs beside any `_behaviors`, empty or not; the ignored
+  // `_behaviors` is carried, not dropped, so the document comes back as it was read.
+  test("a behaviors array runs beside an empty _behaviors, which rides along"):
     List(
       """{"is":{"statusCode":200},"_behaviors":{},"behaviors":[{"wait":1}]}""",
       """{"is":{"statusCode":200},"_behaviors":[],"behaviors":[{"wait":1}]}"""
     ).foreach: raw =>
       val is = decodeIs(raw)
-      assertEquals(is.behaviors.entries, Vector.empty, raw)
-      assertEquals(is.toJson.render, parse(raw).render)
+      assertEquals(is.behaviors.entries, Vector(Behavior.Wait(WaitBehavior.Fixed(1L))), raw)
+      assertEquals(is.extra.map(_._1), Vector("_behaviors"), raw)
+      assert(is.toJson.semanticEquals(parse(raw)), is.toJson.render)
 
   test("an empty or null block, or a null repeat beside a block repeat, round-trips as read"):
     List(
@@ -116,8 +169,47 @@ class ResponseBehaviorsSpec extends munit.FunSuite:
   test("an array under _behaviors beside behaviors round-trips without throwing"):
     val raw = """{"is":{"statusCode":200},"_behaviors":[{"wait":1}],"behaviors":[{"wait":2}]}"""
     val is = decodeIs(raw)
-    assertEquals(is.behaviors.entries, Vector(Behavior.Wait(WaitBehavior.Fixed(1L))))
-    assertEquals(is.toJson.render, parse(raw).render)
+    assertEquals(is.behaviors.entries, Vector(Behavior.Wait(WaitBehavior.Fixed(2L))))
+    assert(is.toJson.semanticEquals(parse(raw)), is.toJson.render)
+
+  // The engine refuses an object under `behaviors`; beside an ignored `_behaviors` the block is
+  // written back as the array under `behaviors`, the one spelling that runs there.
+  test("an object read from behaviors beside _behaviors is written back as the behaviors array"):
+    val raw = """{"is":{"statusCode":200},"behaviors":{"wait":2},"_behaviors":{"wait":1}}"""
+    val is = decodeIs(raw)
+    assertEquals(is.behaviors.entries, Vector(Behavior.Wait(WaitBehavior.Fixed(2L))))
+    assertEquals(
+      is.toJson.render,
+      """{"is":{"statusCode":200},"behaviors":[{"wait":2}],"_behaviors":{"wait":1}}"""
+    )
+
+  // Editing a decoded document whose `_behaviors` the engine ignores: the new block must land
+  // where it runs, never collide with the carried key or go under the ignored `_behaviors`.
+  private def withBlock(raw: String, block: Behavior*): Json =
+    val is = decodeIs(raw)
+    is.copy(behaviors = Behaviors.of(block*)).toJson
+
+  test("setting a block beside a carried behaviors placeholder replaces it with the array"):
+    List(
+      """{"is":{"statusCode":200},"behaviors":null,"_behaviors":{"wait":1}}""",
+      """{"is":{"statusCode":200},"behaviors":[],"_behaviors":{"wait":1}}"""
+    ).foreach: raw =>
+      assertEquals(
+        withBlock(raw, Behavior.Wait(WaitBehavior.Fixed(9L))).render,
+        """{"is":{"statusCode":200},"behaviors":[{"wait":9}],"_behaviors":{"wait":1}}""",
+        raw
+      )
+
+  test("setting an object block on a document with an ignored _behaviors writes the array"):
+    val raw = """{"is":{"statusCode":200},"repeat":3,"_behaviors":{"wait":1}}"""
+    assertEquals(
+      withBlock(raw, Behavior.Wait(WaitBehavior.Fixed(9L))).render,
+      """{"is":{"statusCode":200},"behaviors":[{"wait":9}],"_behaviors":{"wait":1}}"""
+    )
+
+  test("an empty block beside a carried behaviors placeholder leaves the document as read"):
+    val raw = """{"is":{"statusCode":200},"behaviors":null,"_behaviors":{"wait":1}}"""
+    assertEquals(withBlock(raw).render, parse(raw).render)
 
   // The engine refuses an array under `_behaviors`, so a lone one is written back where it runs.
   test("a lone array under _behaviors is written back under behaviors"):
@@ -201,11 +293,23 @@ class ResponseBehaviorsSpec extends munit.FunSuite:
         assertEquals(behaviors.entries, Vector(Behavior.Repeat(2, responseLevel = false)))
       case other => fail(s"expected a rift-script response, got $other")
 
-  test("the block rules hold on every type: an empty _behaviors keeps shadowing the array"):
-    roundTrip(
+  test("the block rules hold on every type: behaviors runs beside an ignored _behaviors"):
+    val raw =
       """{"proxy":{"to":"http://o","mode":"proxyAlways"},"_behaviors":{},"behaviors":[{"wait":1}]}"""
-    ) match
+    val decoded = Response.fromJson(parse(raw)).fold(e => fail(s"$raw: $e"), identity)
+    assert(decoded.toJson.semanticEquals(parse(raw)), decoded.toJson.render)
+    decoded match
       case Response.Proxy(_, behaviors, extra) =>
-        assertEquals(behaviors.entries, Vector.empty)
-        assertEquals(extra.map(_._1), Vector("_behaviors", "behaviors"))
+        assertEquals(behaviors.entries, Vector(Behavior.Wait(WaitBehavior.Fixed(1L))))
+        assertEquals(extra.map(_._1), Vector("_behaviors"))
       case other => fail(s"expected a proxy response, got $other")
+
+  test("the block rules hold on every type: a fault's top-level repeat voids _behaviors"):
+    val raw = """{"fault":"CONNECTION_RESET_BY_PEER","repeat":2,"_behaviors":{"repeat":5}}"""
+    val decoded = Response.fromJson(parse(raw)).fold(e => fail(s"$raw: $e"), identity)
+    assertEquals(decoded.toJson.render, parse(raw).render)
+    decoded match
+      case Response.Fault(_, behaviors, extra) =>
+        assertEquals(behaviors.effectiveRepeat, Some(2))
+        assertEquals(extra.map(_._1), Vector("_behaviors"))
+      case other => fail(s"expected a fault response, got $other")

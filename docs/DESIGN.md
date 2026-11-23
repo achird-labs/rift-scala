@@ -358,7 +358,10 @@ plus `Unknown(name, raw)` for forward compatibility. It reads both wire shapes: 
 object (keys run in the engine's fixed order, none repeat) and the `behaviors` array that
 `GET /imposters` writes (elements run in order, keys may repeat), plus a response-level `repeat`
 beside `is`. Writing keeps the spelling it read, and uses the array whenever a key repeats, since
-the object form would lose one. Engine 0.18.0, the pinned engine, runs every element; an engine
+the object form would lose one, or a response-level `repeat` is written: since rift#1738 the
+engine, like Mountebank, ignores `_behaviors` whole beside a `behaviors` key (even `null`) or a
+top-level `repeat`, and decoding follows the same precedence, carrying an ignored `_behaviors` on
+`extra` (#222). Engines from 0.18.0 run every element; an engine
 older than 0.18.0 folds the array and runs only the last of a repeated key. A multi-key array
 element is expanded into one step per key in the engine's run order, and a `null` value for a
 modeled key is refused. In the array, a `copy`/`lookup`/`shellTransform` step is written one
