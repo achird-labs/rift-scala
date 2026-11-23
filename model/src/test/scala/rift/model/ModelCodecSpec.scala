@@ -72,6 +72,42 @@ class ModelCodecSpec extends munit.FunSuite:
     assertEquals(d.allowCors, true)
     assertEquals(d.toJson.get("allowCORS"), Some(Json.Bool(true)))
 
+  // #219 — since rift#1453 the engine accepts any JSON value for allowCORS and enables it by
+  // JavaScript truthiness (Mountebank 2.9.2+), printing it verbatim in every imposter view. Decoding
+  // such a view must never fail. The table below is JS's falsy set (false, null, 0, -0, "") against
+  // a sample of truthy values that look falsy; rift-java 0.3.9 decodes this exact table the same.
+  private val allowCorsTruthiness: Vector[(String, Boolean)] = Vector(
+    "true" -> true,
+    "false" -> false,
+    "null" -> false,
+    "0" -> false,
+    "-0" -> false,
+    "0.0" -> false,
+    "\"\"" -> false,
+    "1" -> true,
+    "-1.5" -> true,
+    "\"yes\"" -> true,
+    "\"false\"" -> true,
+    "\"0\"" -> true,
+    "[]" -> true,
+    "{}" -> true,
+    """{"origin":"*"}""" -> true
+  )
+
+  test("a non-boolean allowCORS decodes by JavaScript truthiness, never failing"):
+    for (raw, enabled) <- allowCorsTruthiness do
+      val d = decode(s"""{"protocol":"http","allowCORS":$raw}""")
+      assertEquals(d.allowCors, enabled, s"allowCORS: $raw")
+
+  test("a decoded allowCORS re-encodes as true when truthy and is omitted when falsy"):
+    for (raw, enabled) <- allowCorsTruthiness do
+      val encoded = decode(s"""{"protocol":"http","allowCORS":$raw}""").toJson.get("allowCORS")
+      assertEquals(encoded, Option.when(enabled)(Json.Bool(true)), s"allowCORS: $raw")
+
+  test("a non-boolean allowCORS never lands on extra"):
+    val d = decode("""{"protocol":"http","allowCORS":"yes"}""")
+    assertEquals(d.extra, Vector.empty)
+
   test("default-valued fields are omitted from the wire"):
     val encoded = ImposterDefinition().toJson
     assertEquals(encoded.get("recordRequests"), None)

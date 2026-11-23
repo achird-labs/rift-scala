@@ -41,6 +41,17 @@ private[model] object JsonSupport:
       case Some(_) => Left(JsonError.Decode("expected a boolean", Vector.empty).under(key))
       case None => Right(default)
 
+  /** JavaScript truthiness of a JSON value: `false`, `null`, `0`/`-0` and `""` are falsy; every
+    * other value is truthy, including `"false"`, `"0"`, `[]` and `{}`. JSON cannot carry `NaN`, the
+    * one other falsy number.
+    */
+  def jsTruthy(json: Json): Boolean = json match
+    case Json.Bool(b) => b
+    case Json.Null => false
+    case Json.Num(n) => n.signum != 0
+    case Json.Str(s) => s.nonEmpty
+    case Json.Arr(_) | Json.Obj(_) => true
+
   def optInt(fields: Vector[(String, Json)], key: String): Either[JsonError.Decode, Option[Int]] =
     fields.field(key) match
       case Some(Json.Num(n)) if n.isValidInt => Right(Some(n.toInt))

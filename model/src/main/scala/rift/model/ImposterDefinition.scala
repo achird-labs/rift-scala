@@ -23,6 +23,10 @@ final case class ImposterDefinition(
     stubs: Vector[Stub] = Vector.empty,
     defaultResponse: Option[IsResponse] = None,
     defaultForward: Option[String] = None,
+    /** Written as `"allowCORS": true` when set. Read from any JSON value by JavaScript truthiness,
+      * since the engine accepts and echoes any value (rift#1453); a non-boolean one is therefore
+      * written back as `true`, or omitted when it was falsy.
+      */
     allowCors: Boolean = false,
     strictBehaviors: Boolean = false,
     tls: Option[TlsMaterial] = None,
@@ -108,7 +112,8 @@ object ImposterDefinition:
         case Some(r) => IsResponse.fromJson(r).map(Some(_)).left.map(_.under("defaultResponse"))
         case None => Right(None)
       defaultForward <- optString(fields, "defaultForward")
-      allowCors <- optBool(fields, "allowCORS", false)
+      // Any JSON value, enabled by JavaScript truthiness (rift#1453, Mountebank 2.9.2+); #219.
+      allowCors = fields.field("allowCORS").exists(jsTruthy)
       strictBehaviors <- optBool(fields, "strictBehaviors", false)
       // cert/key are flat on the wire — see the note on `toJson` above — so TlsMaterial is decoded
       // directly from the imposter's own fields, not from a nested "tls" object.
