@@ -141,13 +141,25 @@ class RiftWireShapeSpec extends munit.FunSuite:
       """{"engine":"javascript","file":"a.js"}"""
     )
 
-  // ── 4. RiftConfig.flowState — "backend" key + nested "redis" object ─────────────────────────
-  // Proof: types.rs:911-927 @ v0.14.0; RiftFlowStateConfig.java; zio-bdd RiftProtocol.scala:36.
-  test("flowState backend key is 'backend', not 'kind'"):
+  // ── 4. RiftConfig.flowState — ttlSeconds + flowIdSource; no backend selector ──────────────────
+  // Engine 0.22.0 removed the Redis backend (rift#1336, rift#1463) and stopped reading `backend`;
+  // rift-java 0.3.8 (#306/#313) models `RiftFlowStateConfig(ttlSeconds, flowIdSource, extra)` and
+  // carries a written `backend`/`redis` in `extra`. So does this model (#216).
+  test("flowState models ttlSeconds and carries a written backend on extra"):
     val json = parse("""{"backend":"inmemory","ttlSeconds":300}""")
     val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
-    assertEquals(cfg.backend, FlowStateBackend.InMemory)
-    assert(cfg.toJson.semanticEquals(json))
+    assertEquals(cfg.ttlSeconds, Some(300L))
+    assertEquals(cfg.extra, Vector("backend" -> Json.Str("inmemory")))
+    assertEquals(cfg.toJson.render, """{"ttlSeconds":300,"backend":"inmemory"}""")
+
+  test("flowState decodes without a backend key (the engine no longer requires one)"):
+    val json = parse("""{"ttlSeconds":60,"flowIdSource":"header:X-Flow-Id"}""")
+    val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(cfg, FlowStateConfig(Some(60L), Some("header:X-Flow-Id")))
+    assertEquals(cfg.toJson.render, """{"ttlSeconds":60,"flowIdSource":"header:X-Flow-Id"}""")
+
+  test("an empty FlowStateConfig encodes as an empty object, with no backend"):
+    assertEquals(FlowStateConfig().toJson.render, "{}")
 
   // Issue #156 — only the DSL validates the header name; decoding reproduces whatever a fixture or
   // an engine payload carried, so a malformed source survives a decode -> encode round trip.
@@ -157,18 +169,24 @@ class RiftWireShapeSpec extends munit.FunSuite:
     assertEquals(cfg.flowIdSource, Some("header:X:Y"))
     assert(cfg.toJson.semanticEquals(json))
 
-  test("flowState redis backend nests url/poolSize/keyPrefix under 'redis'"):
+  test("a legacy redis flowState still decodes; backend and redis ride on extra verbatim"):
     val json = parse(
-      """{"backend":"redis","ttlSeconds":60,
-        |"redis":{"url":"redis://localhost:6379","poolSize":20,"keyPrefix":"myapp:"}}""".stripMargin
-        .replace("\n", "")
+      """{"backend":"redis","ttlSeconds":60,"redis":{"url":"redis://localhost:6379","poolSize":20,"keyPrefix":"myapp:"}}"""
     )
     val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(cfg.ttlSeconds, Some(60L))
+    assertEquals(cfg.extra.map(_._1), Vector("backend", "redis"))
     assertEquals(
-      cfg.backend,
-      FlowStateBackend.Redis(RedisConfig("redis://localhost:6379", 20, "myapp:"))
+      cfg.extra.toMap.get("redis").map(_.render),
+      Some("""{"url":"redis://localhost:6379","poolSize":20,"keyPrefix":"myapp:"}""")
     )
-    assert(cfg.toJson.semanticEquals(json))
+    assert(cfg.toJson.semanticEquals(json), cfg.toJson.render)
+
+  test("a legacy backend of any value (even a non-string) decodes onto extra, never fails"):
+    val json = parse("""{"backend":42,"ttlSeconds":1}""")
+    val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
+    assertEquals(cfg.extra, Vector("backend" -> Json.Num(BigDecimal(42))))
+    assertEquals(cfg.toJson.render, """{"ttlSeconds":1,"backend":42}""")
 
   // ── 5. TlsMaterial — cert/key are flat top-level imposter fields, no "tls" wrapper ──────────
   // Proof: types.rs:835-840 @ v0.14.0; ImposterDefinition.java:37-38,141-142.
@@ -625,7 +643,7 @@ class RiftWireShapeSpec extends munit.FunSuite:
     val written = rift.dsl.imposter("a").flowState(rift.dsl.inMemoryFlowState).build.toJson
     assertEquals(
       written.get("_rift").map(_.render),
-      Some("""{"flowState":{"backend":"inmemory"}}""")
+      Some("""{"flowState":{}}""")
     )
 
   test("_rift: a modeled key smuggled through extra is refused on encode"):
@@ -663,22 +681,16 @@ class RiftWireShapeSpec extends munit.FunSuite:
   test("_rift.flowState: an unknown store option survives on extra"):
     val json = parse("""{"backend":"inmemory","ttlSeconds":60,"maxFlows":1000}""")
     val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
-    assertEquals(cfg.extra, Vector("maxFlows" -> Json.Num(BigDecimal(1000))))
-    assertEquals(cfg.toJson.render, json.render)
+    assertEquals(cfg.extra.map(_._1), Vector("backend", "maxFlows"))
+    assert(cfg.toJson.semanticEquals(json), cfg.toJson.render)
 
-  test("_rift.flowState: a redis block is modeled, not carried twice"):
+  test("_rift.flowState: a redis block is carried on extra in document order, beside unknowns"):
     val json = parse(
       """{"backend":"redis","redis":{"url":"redis://h:6379","poolSize":10,"keyPrefix":"rift:"},"futureOpt":true}"""
     )
     val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
-    assertEquals(cfg.extra, Vector("futureOpt" -> Json.Bool(true)))
-    assert(cfg.toJson.semanticEquals(json), cfg.toJson.render)
-
-  test("_rift.flowState: a redis key on an inmemory backend is carried, not dropped"):
-    val json = parse("""{"backend":"inmemory","redis":{"url":"redis://h:6379"}}""")
-    val cfg = FlowStateConfig.fromJson(json).fold(e => fail(e.toString), identity)
-    assertEquals(cfg.extra.map(_._1), Vector("redis"))
-    assert(cfg.toJson.semanticEquals(json), cfg.toJson.render)
+    assertEquals(cfg.extra.map(_._1), Vector("backend", "redis", "futureOpt"))
+    assertEquals(cfg.toJson.render, json.render)
 
   // ── 13. _rift.proxy — imposter-level proxy config ────────────────────────────────────────────
   // Proof: engine types.rs:987-1029 @ v0.14.0; rift-java RiftProxyConfig/RiftUpstreamConfig/

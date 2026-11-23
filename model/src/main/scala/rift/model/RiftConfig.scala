@@ -4,69 +4,25 @@ import rift.json.{Json, JsonError}
 import rift.json.JsonError.under
 import JsonSupport.*
 
-/** Redis backend settings for `_rift.flowState.redis` — types.rs:923-946, `RiftRedisConfig.java`.
-  */
-final case class RedisConfig(url: String, poolSize: Long = 10, keyPrefix: String = "rift:"):
-  def toJson: Json = Json.obj(
-    "url" -> Json.Str(url),
-    "poolSize" -> Json.Num(BigDecimal(poolSize)),
-    "keyPrefix" -> Json.Str(keyPrefix)
-  )
-
-object RedisConfig:
-  def fromJson(json: Json): Either[JsonError.Decode, RedisConfig] =
-    for
-      fields <- asObj(json, "redis")
-      url <- reqString(fields, "url")
-      poolSize <- optLong(fields, "poolSize").map(_.getOrElse(10L))
-      keyPrefix <- optString(fields, "keyPrefix").map(_.getOrElse("rift:"))
-    yield RedisConfig(url, poolSize, keyPrefix)
-
-/** `_rift.flowState`'s backend selector. The wire discriminant key is `"backend"` (not `"kind"`),
-  * and the Redis settings nest under a `"redis"` object rather than sitting flat next to it —
-  * types.rs:888-923, `RiftFlowStateConfig.java`, zio-bdd `RiftProtocol.scala:36`.
-  */
-enum FlowStateBackend:
-  case InMemory
-  case Redis(config: RedisConfig)
-
-  def toJson: Json = this match
-    case FlowStateBackend.InMemory => Json.obj("backend" -> Json.Str("inmemory"))
-    case FlowStateBackend.Redis(config) =>
-      Json.obj("backend" -> Json.Str("redis"), "redis" -> config.toJson)
-
-object FlowStateBackend:
-  def fromJson(json: Json): Either[JsonError.Decode, FlowStateBackend] =
-    for
-      fields <- asObj(json, "flowState backend")
-      kind <- reqString(fields, "backend")
-      backend <- kind match
-        case "inmemory" => Right(InMemory)
-        case "redis" =>
-          fields.field("redis") match
-            case Some(r) => RedisConfig.fromJson(r).map(Redis(_)).left.map(_.under("redis"))
-            case None =>
-              Left(JsonError.Decode("missing required field", Vector.empty).under("redis"))
-        case other =>
-          Left(
-            JsonError.Decode(s"unknown flow state backend: $other", Vector.empty).under("backend")
-          )
-    yield backend
-
-/** `_rift.flowState`. `extra` carries every key the model does not know, verbatim and in order —
-  * provider-store options since engine 0.17.0 — so a decode -> encode round trip never drops one.
+/** `_rift.flowState`: `ttlSeconds` and `flowIdSource`. `extra` carries every other key verbatim and
+  * in order — provider-store options since engine 0.17.0 — so a decode -> encode round trip never
+  * drops one.
+  *
+  * There is no backend selector. Engine 0.22.0 removed the Redis backend (rift#1336) and stopped
+  * reading `backend` (rift#1463); rift-java 0.3.8 dropped it from `RiftFlowStateConfig` likewise. A
+  * document that still writes `backend` or a `redis` block, exported from an older engine, decodes
+  * with those keys on `extra` and is written back with the same keys and values, typed keys first
+  * (#216).
   */
 final case class FlowStateConfig(
-    backend: FlowStateBackend = FlowStateBackend.InMemory,
     ttlSeconds: Option[Long] = None,
     flowIdSource: Option[String] = None,
     extra: Vector[(String, Json)] = Vector.empty
 ):
   def toJson: Json =
-    val backendFields = backend.toJson.asObject.getOrElse(Vector.empty)
     buildObj(
-      FlowStateConfig.knownKeys(backend),
-      backendFields ++ Vector(
+      FlowStateConfig.knownKeys,
+      Vector(
         ttlSeconds.map(t => "ttlSeconds" -> Json.Num(BigDecimal(t))),
         flowIdSource.map(s => "flowIdSource" -> Json.Str(s))
       ).flatten,
@@ -74,21 +30,14 @@ final case class FlowStateConfig(
     )
 
 object FlowStateConfig:
-  /** A `redis` block is modeled only on the redis backend; on any other it is carried, not dropped.
-    */
-  private def knownKeys(backend: FlowStateBackend): Set[String] =
-    val common = Set("backend", "ttlSeconds", "flowIdSource")
-    backend match
-      case FlowStateBackend.Redis(_) => common + "redis"
-      case FlowStateBackend.InMemory => common
+  private val knownKeys: Set[String] = Set("ttlSeconds", "flowIdSource")
 
   def fromJson(json: Json): Either[JsonError.Decode, FlowStateConfig] =
     for
       fields <- asObj(json, "flowState")
-      backend <- FlowStateBackend.fromJson(json)
       ttlSeconds <- optLong(fields, "ttlSeconds")
       flowIdSource <- optString(fields, "flowIdSource")
-    yield FlowStateConfig(backend, ttlSeconds, flowIdSource, fields.remainder(knownKeys(backend)))
+    yield FlowStateConfig(ttlSeconds, flowIdSource, fields.remainder(knownKeys))
 
 /** `_rift.scriptEngine` — the wire key is `"defaultEngine"`, not `"default"` — types.rs:1008-1017,
   * `RiftScriptEngineConfig.java:8`.
@@ -203,7 +152,7 @@ object ProxyConfig:
         case None => Right(None)
     yield ProxyConfig(upstream, pool)
 
-/** The imposter-level `_rift` extension block: flow-state backend, scripting, metrics, proxy.
+/** The imposter-level `_rift` extension block: flow state, scripting, metrics, proxy.
   *
   * `extra` carries every child the model does not know, verbatim and in order, so a decode ->
   * encode round trip never drops one. Engine 0.18.0 (rift#1152) adds `warnings` here on create and

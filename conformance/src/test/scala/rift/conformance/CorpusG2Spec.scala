@@ -27,7 +27,8 @@ import rift.model.*
   *     include it) and no DSL builder sets it, so no DSL-built stub can ever carry it. That's not a
   *     DSL authoring gap, it's scope: the DSL authors imposter *behavior*; `_verify` only exists to
   *     drive this corpus's own replay assertions (G3). G1 already proves `_verify` itself survives
-  *     the raw round-trip untouched.
+  *     the raw round-trip untouched. This bucket also drops an inert `_rift.flowState.backend:
+  *     "inmemory"` before comparing (see `stripInertBackend`).
   *   - `notDslExpressible` — a one-line reason each: either an engine feature gated behind a
   *     `requires` capability beyond the typed DSL's authoring surface (injection/proxy scripting),
   *     or a genuine DSL surface gap this run surfaced.
@@ -44,6 +45,25 @@ object CorpusG2Spec extends ZIOSpecDefault:
     case Json.Obj(fields) =>
       Json.Obj(fields.collect { case (k, v) if k != "_verify" => k -> stripVerify(v) })
     case Json.Arr(items) => Json.Arr(items.map(stripVerify))
+    case other => other
+
+  /** Drops `_rift.flowState.backend` when it is `"inmemory"`, which the engine-canonical corpus
+    * still writes. Engine 0.22.0 removed every other backend and stopped reading the key
+    * (rift#1336, rift#1463), so it is inert, and rift.dsl no longer writes it (#216), as rift-java
+    * 0.3.8 does not. Any other value is left in place, so a fixture naming a real backend would
+    * still fail.
+    */
+  private[conformance] def stripInertBackend(json: Json): Json = json match
+    case Json.Obj(top) =>
+      Json.Obj(top.map {
+        case ("_rift", Json.Obj(rift)) =>
+          "_rift" -> Json.Obj(rift.map {
+            case ("flowState", Json.Obj(fs)) =>
+              "flowState" -> Json.Obj(fs.filterNot(_ == ("backend" -> Json.Str("inmemory"))))
+            case kv => kv
+          })
+        case kv => kv
+      })
     case other => other
 
   // ── 01 · Basic REST API — pure REST: equals/and/matches predicates, cycling responses. ─────────
@@ -437,10 +457,28 @@ object CorpusG2Spec extends ZIOSpecDefault:
     suite("dslExpressibleModuloVerify — exact semanticEquals once `_verify` is stripped")(
       dslExpressibleModuloVerify.toVector.map { (id, built) =>
         test(s"$id is expressible via rift.dsl modulo _verify") {
-          assertTrue(built.toJson.semanticEquals(stripVerify(Corpus.imposterJson(fixtureById(id)))))
+          assertTrue(
+            built.toJson.semanticEquals(
+              stripInertBackend(stripVerify(Corpus.imposterJson(fixtureById(id))))
+            )
+          )
         }
       }*
     ),
+    test("stripInertBackend drops only _rift.flowState.backend == \"inmemory\"") {
+      def strip(s: String): String =
+        stripInertBackend(
+          Json.parse(s).fold(e => throw new AssertionError(e.toString), identity)
+        ).render
+      assertTrue(
+        strip("""{"_rift":{"flowState":{"backend":"inmemory","ttlSeconds":5}}}""") ==
+          """{"_rift":{"flowState":{"ttlSeconds":5}}}""",
+        strip("""{"_rift":{"flowState":{"backend":"redis","ttlSeconds":5}}}""") ==
+          """{"_rift":{"flowState":{"backend":"redis","ttlSeconds":5}}}""",
+        strip("""{"backend":"inmemory","_rift":{"metrics":{"backend":"inmemory"}}}""") ==
+          """{"backend":"inmemory","_rift":{"metrics":{"backend":"inmemory"}}}"""
+      )
+    },
     test("every corpus fixture is accounted for in the expressible/not-expressible split") {
       val documented =
         dslExpressible.keySet ++ dslExpressibleModuloVerify.keySet ++ notDslExpressible.keySet

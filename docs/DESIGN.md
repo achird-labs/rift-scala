@@ -362,8 +362,9 @@ the object form would lose one. Engine 0.18.0, the pinned engine, runs every ele
 older than 0.18.0 folds the array and runs only the last of a repeated key. A multi-key array
 element is expanded into one step per key in the engine's run order, and a `null` value for a
 modeled key is refused. The DSL writes one entry per key in the `_behaviors` object, as before.
-`RiftConfig` models the imposter-level `_rift` block: `flowState` (backend inmemory/redis,
-`ttlSeconds`, `flowIdSource`), `scriptEngine` (default engine + `timeoutMs`), named `scripts`
+`RiftConfig` models the imposter-level `_rift` block: `flowState` (`ttlSeconds`,
+`flowIdSource`; no backend selector since engine 0.22.0 removed Redis, so a legacy `backend`/`redis`
+key rides on `extra`, #216), `scriptEngine` (default engine + `timeoutMs`), named `scripts`
 registry, and the deprecated `metrics` and `proxy` (#158). `RiftConfig` and `FlowStateConfig`
 each carry an `extra` for keys the model does not type, such as the engine's `_rift.warnings`
 (#160, #171). `FaultConfig` models `latency {probability, ms | minMs..maxMs}`,
@@ -535,7 +536,6 @@ imposter("users")
   // rejected at construction: the engine matches it verbatim, and a name it can never match
   // silently falls back to the imposter-port flow, so every correlated space would share one flow
   .flowState(inMemoryFlowState.ttl(5.minutes).flowIdFromHeader("X-Flow-Id"))
-  .flowState(redisFlowState("redis://localhost:6379").keyPrefix("rift:"))
   // defaultEngine takes effect on engine >= 0.18.0, and only for scripts that name no engine
   // (raw JSON): the Script.* factories always name theirs
   .scriptEngine(ScriptEngine.Rhai, timeout = 2.seconds)

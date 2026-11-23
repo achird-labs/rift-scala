@@ -5,16 +5,16 @@ import rift.model.*
 
 import scala.concurrent.duration.FiniteDuration
 
-/** A named flow-state backend for an imposter's `_rift.flowState` block —
-  * `inMemoryFlowState.ttl(5.minutes)` / `redisFlowState(url).ttl(...)`.
+/** An imposter's `_rift.flowState` block — `inMemoryFlowState.ttl(5.minutes)`. The engine's
+  * in-memory store is its only flow-state store since 0.22.0 (rift#1336), so there is no backend to
+  * name.
   */
 final class FlowStateConfigBuilder private[dsl] (
-    private val backend: FlowStateBackend,
     private val ttlSecondsValue: Option[Long] = None,
     private val flowIdSourceValue: Option[String] = None
 ):
   def ttl(duration: FiniteDuration): FlowStateConfigBuilder =
-    new FlowStateConfigBuilder(backend, Some(duration.toSeconds), flowIdSourceValue)
+    new FlowStateConfigBuilder(Some(duration.toSeconds), flowIdSourceValue)
 
   /** Partition flow state by the value of the inbound request header `name`.
     *
@@ -27,10 +27,10 @@ final class FlowStateConfigBuilder private[dsl] (
     * shared by every space.
     */
   def flowIdFromHeader(name: String): FlowStateConfigBuilder =
-    new FlowStateConfigBuilder(backend, ttlSecondsValue, Some(s"header:${requireHeaderName(name)}"))
+    new FlowStateConfigBuilder(ttlSecondsValue, Some(s"header:${requireHeaderName(name)}"))
 
   private[dsl] def build: FlowStateConfig =
-    FlowStateConfig(backend, ttlSecondsValue, flowIdSourceValue)
+    FlowStateConfig(ttlSecondsValue, flowIdSourceValue)
 
 /** Where an imposter-level proxy sends traffic — the `_rift.proxy.upstream` block. */
 def upstream(
@@ -47,12 +47,7 @@ def connectionPool(
     idleTimeoutSecs: Long = ConnectionPoolConfig.defaultIdleTimeoutSecs
 ): ConnectionPoolConfig = ConnectionPoolConfig(maxIdlePerHost, idleTimeoutSecs)
 
-def inMemoryFlowState: FlowStateConfigBuilder = new FlowStateConfigBuilder(
-  FlowStateBackend.InMemory
-)
-def redisFlowState(url: String): FlowStateConfigBuilder = new FlowStateConfigBuilder(
-  FlowStateBackend.Redis(RedisConfig(url))
-)
+def inMemoryFlowState: FlowStateConfigBuilder = new FlowStateConfigBuilder()
 
 /** The imposter builder (DESIGN.md §5.1.3): port, protocol, stubs, and the `_rift` extension block.
   * Immutable — every step returns a new value.
