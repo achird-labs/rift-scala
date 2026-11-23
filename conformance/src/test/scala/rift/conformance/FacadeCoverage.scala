@@ -117,6 +117,33 @@ object FacadeCoverage:
       "silently discard — see issue #147 and upstream achird-labs/rift-java#207; the same construct " +
       "still reaches the engine on an imposter stub through the D2 raw-JSON seam"
 
+  /** Shared reason: rift 0.25.0's imposter clock, seed and WASM/component surface (rift-java 0.3.9,
+    * #356). rift-scala has no clock, component or WASM handle yet; adoption is issue #223.
+    */
+  private val wasmClockPending =
+    "not yet adopted: rift-scala exposes no imposter clock, component store or WASM instance " +
+      "handle, so this rift-java 0.3.9 capability is never called; adoption is tracked by #223"
+
+  /** Shared reason: an engine launch option rift-java 0.3.8 added to the `*Options` builders and
+    * `RiftContainer`, which `EmbeddedConfig`/`SpawnConfig`/`ContainerConfig` do not mirror yet — so
+    * the engine runs with its own default for it. Adoption is issue #220.
+    */
+  private val launchOptionPending =
+    "not yet adopted: EmbeddedConfig/SpawnConfig/ContainerConfig do not mirror this rift-java " +
+      "0.3.8 engine launch option, so it is never set and the engine runs with its own default; " +
+      "adoption is tracked by #220"
+
+  /** Shared reason: a rift-java 0.3.8 handle capability not wrapped yet. Adoption is issue #220. */
+  private val handlePending =
+    "not yet adopted: no rift-scala handle wraps this rift-java 0.3.8 capability yet, so it is " +
+      "never called; adoption is tracked by #220"
+
+  /** Shared reason: the facade's static/typed builder DSL, bypassed wholesale by rift.dsl (D2). */
+  private val facadeDslBypassed =
+    "the facade's typed builder DSL. rift-scala ships its own rift.dsl and builds the model " +
+      "directly, crossing to the engine as raw JSON (D2), so this facade builder is never " +
+      "reached; the Scala-side DSL counterparts still missing are tracked by #214 and #220"
+
   val entries: Vector[Coverage] = Vector(
     Coverage.Wrapped("RuleKind#SERVE", "rift.bridge.RuleKind#fromJava"),
     Coverage.Wrapped("RuleKind#FORWARD", "rift.bridge.RuleKind#fromJava"),
@@ -1104,10 +1131,6 @@ object FacadeCoverage:
       "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
     ),
     Coverage.Excluded(
-      "RiftDsl#redisFlowState(String)",
-      "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
-    ),
-    Coverage.Excluded(
       "RiftDsl#regex(String)",
       "the facade's static builder DSL. rift-scala ships its own rift.dsl and builds the model directly, crossing to the engine as raw JSON (D2), so the facade's combinators are bypassed — only status(int) is used, inside FacadeEncode.isSpec"
     ),
@@ -1194,5 +1217,114 @@ object FacadeCoverage:
     Coverage.Excluded(
       "VerificationTimes#times(int)",
       "an alias for exactly(int), which FacadeEncode.times uses"
-    )
+    ),
+    // rift-java 0.3.8 / 0.3.9 (engine 0.25.0) additions, seeded from FacadeParitySpec's red output.
+    Coverage.Excluded("ClockSource#HEADER", wasmClockPending),
+    Coverage.Excluded("ClockSource#WALL", wasmClockPending),
+    Coverage.Excluded("ComponentInfo#imports()", wasmClockPending),
+    Coverage.Excluded("ComponentInfo#reference()", wasmClockPending),
+    Coverage.Excluded("ComponentInfo#referencedBy()", wasmClockPending),
+    Coverage.Excluded("ComponentInfo#sha256()", wasmClockPending),
+    Coverage.Excluded("ComponentInfo#size()", wasmClockPending),
+    Coverage.Excluded("ComponentInfo#uploadedAt()", wasmClockPending),
+    Coverage.Excluded("ComponentInfo#world()", wasmClockPending),
+    Coverage.Excluded("Components#delete(String)", wasmClockPending),
+    Coverage.Excluded("Components#get(String)", wasmClockPending),
+    Coverage.Excluded("Components#list()", wasmClockPending),
+    Coverage.Excluded("Components#upload(Path)", wasmClockPending),
+    Coverage.Excluded("Components#upload(byte[])", wasmClockPending),
+    Coverage.Excluded("EmbeddedOptions#allowInjection()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions#allowWasm()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions#bodyMemoryBudget()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions#journalMaxBytes()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions#maxBodySize()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions#metricsPort()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions#requireAdminAuth()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions#scriptsDir()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions#strictWasm()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions#wasmLibrary()", optionsReadback),
+    Coverage.Excluded("EmbeddedOptions.Builder#allowInjection(boolean)", launchOptionPending),
+    Coverage.Excluded("EmbeddedOptions.Builder#allowWasm(boolean)", wasmClockPending),
+    Coverage.Excluded("EmbeddedOptions.Builder#bodyMemoryBudget(long)", launchOptionPending),
+    Coverage.Excluded("EmbeddedOptions.Builder#journalMaxBytes(long)", launchOptionPending),
+    Coverage.Excluded("EmbeddedOptions.Builder#maxBodySize(long)", launchOptionPending),
+    Coverage.Excluded("EmbeddedOptions.Builder#metricsPort(int)", launchOptionPending),
+    Coverage.Excluded("EmbeddedOptions.Builder#requireAdminAuth(boolean)", launchOptionPending),
+    Coverage.Excluded("EmbeddedOptions.Builder#scriptsDir(Path)", launchOptionPending),
+    Coverage.Excluded("EmbeddedOptions.Builder#strictWasm(Path)", wasmClockPending),
+    Coverage.Excluded("EmbeddedOptions.Builder#wasmLibrary(boolean)", wasmClockPending),
+    Coverage.Excluded("FlowState#clear()", handlePending),
+    Coverage.Excluded("GeneratorOperator#CONTAINS", facadeDslBypassed),
+    Coverage.Excluded("GeneratorOperator#DEEP_EQUALS", facadeDslBypassed),
+    Coverage.Excluded("GeneratorOperator#ENDS_WITH", facadeDslBypassed),
+    Coverage.Excluded("GeneratorOperator#EQUALS", facadeDslBypassed),
+    Coverage.Excluded("GeneratorOperator#EXISTS", facadeDslBypassed),
+    Coverage.Excluded("GeneratorOperator#MATCHES", facadeDslBypassed),
+    Coverage.Excluded("GeneratorOperator#STARTS_WITH", facadeDslBypassed),
+    Coverage.Excluded("Imposter#clock()", wasmClockPending),
+    Coverage.Excluded(
+      "Imposter#isEnabled()",
+      "rift-scala reads the flag from the decoded definition across the D2 seam (rift.model.ImposterDefinition.enabled, via Imposter.definition), so this facade accessor is never called"
+    ),
+    Coverage.Excluded("Imposter#wasmInstances()", wasmClockPending),
+    Coverage.Excluded("Imposter#wasmSnapshot()", wasmClockPending),
+    Coverage.Excluded("Imposter#wasmSnapshot(String)", wasmClockPending),
+    Coverage.Excluded("ImposterClock#advance(Duration)", wasmClockPending),
+    Coverage.Excluded("ImposterClock#get()", wasmClockPending),
+    Coverage.Excluded("ImposterClock#reset()", wasmClockPending),
+    Coverage.Excluded("ImposterClock#set(Instant)", wasmClockPending),
+    Coverage.Excluded("ImposterClock.Mode#FROZEN", wasmClockPending),
+    Coverage.Excluded("ImposterClock.Mode#WALL", wasmClockPending),
+    Coverage.Excluded("ImposterClock.Reading#mode()", wasmClockPending),
+    Coverage.Excluded("ImposterClock.Reading#now()", wasmClockPending),
+    Coverage.Excluded("ImposterClock.Reading#nowMs()", wasmClockPending),
+    Coverage.Excluded("InterceptOptions#attach()", handlePending),
+    Coverage.Excluded("InterceptOptions#attach(CaMaterial)", handlePending),
+    Coverage.Excluded("InterceptStatus#engineUrl()", handlePending),
+    Coverage.Excluded("InterceptStatus#port()", handlePending),
+    Coverage.Excluded("PredicateGeneratorSpec.Selector.JsonPath#selector()", facadeDslBypassed),
+    Coverage.Excluded("PredicateGeneratorSpec.Selector.XPath#ns()", facadeDslBypassed),
+    Coverage.Excluded("PredicateGeneratorSpec.Selector.XPath#selector()", facadeDslBypassed),
+    Coverage.Excluded("RecordedRequest#bodyOmitted()", recordedRequestSeam),
+    Coverage.Excluded("Rift#components()", wasmClockPending),
+    Coverage.Excluded("Rift#interceptStatus()", handlePending),
+    Coverage.Excluded("RiftContainer#withAllowWasm(boolean)", wasmClockPending),
+    Coverage.Excluded("RiftContainer#withBodyMemoryBudget(long)", launchOptionPending),
+    Coverage.Excluded("RiftContainer#withJournalMaxBytes(long)", launchOptionPending),
+    Coverage.Excluded("RiftContainer#withMaxBodySize(long)", launchOptionPending),
+    Coverage.Excluded("RiftContainer#withStrictWasm(Path)", wasmClockPending),
+    Coverage.Excluded("RiftDsl#lookupKeyFromHeader(String)", facadeDslBypassed),
+    Coverage.Excluded("RiftDsl#lookupKeyFromQuery(String)", facadeDslBypassed),
+    Coverage.Excluded("RiftDsl#merge(PredicateSpec,PredicateSpec[])", facadeDslBypassed),
+    Coverage.Excluded("RiftDsl#response()", facadeDslBypassed),
+    Coverage.Excluded("Scenarios#reset(String)", handlePending),
+    Coverage.Excluded("SpawnOptions#allowWasm()", optionsReadback),
+    Coverage.Excluded("SpawnOptions#apiKey()", optionsReadback),
+    Coverage.Excluded("SpawnOptions#bodyMemoryBudget()", optionsReadback),
+    Coverage.Excluded("SpawnOptions#journalMaxBytes()", optionsReadback),
+    Coverage.Excluded("SpawnOptions#maxBodySize()", optionsReadback),
+    Coverage.Excluded("SpawnOptions#metricsPort()", optionsReadback),
+    Coverage.Excluded("SpawnOptions#requireAdminAuth()", optionsReadback),
+    Coverage.Excluded("SpawnOptions#scriptsDir()", optionsReadback),
+    Coverage.Excluded("SpawnOptions#strictWasm()", optionsReadback),
+    Coverage.Excluded("SpawnOptions.Builder#allowWasm(boolean)", wasmClockPending),
+    Coverage.Excluded("SpawnOptions.Builder#apiKey(String)", launchOptionPending),
+    Coverage.Excluded("SpawnOptions.Builder#bodyMemoryBudget(long)", launchOptionPending),
+    Coverage.Excluded("SpawnOptions.Builder#journalMaxBytes(long)", launchOptionPending),
+    Coverage.Excluded("SpawnOptions.Builder#maxBodySize(long)", launchOptionPending),
+    Coverage.Excluded("SpawnOptions.Builder#metricsPort(int)", launchOptionPending),
+    Coverage.Excluded("SpawnOptions.Builder#requireAdminAuth(boolean)", launchOptionPending),
+    Coverage.Excluded("SpawnOptions.Builder#scriptsDir(Path)", launchOptionPending),
+    Coverage.Excluded("SpawnOptions.Builder#strictWasm(Path)", wasmClockPending),
+    Coverage.Excluded("WasmExport#HTTP", wasmClockPending),
+    Coverage.Excluded("WasmExport#RIFT", wasmClockPending),
+    Coverage.Excluded("WasmInstanceInfo#calls()", wasmClockPending),
+    Coverage.Excluded("WasmInstanceInfo#export()", wasmClockPending),
+    Coverage.Excluded("WasmInstanceInfo#id()", wasmClockPending),
+    Coverage.Excluded("WasmInstanceInfo#instantiatedAt()", wasmClockPending),
+    Coverage.Excluded("WasmInstanceInfo#knobsHash()", wasmClockPending),
+    Coverage.Excluded("WasmInstanceInfo#memoryBytes()", wasmClockPending),
+    Coverage.Excluded("WasmInstanceInfo#sha256()", wasmClockPending),
+    Coverage.Excluded("WasmInstanceScope#IMPOSTER", wasmClockPending),
+    Coverage.Excluded("WasmInstanceScope#REQUEST", wasmClockPending)
   )

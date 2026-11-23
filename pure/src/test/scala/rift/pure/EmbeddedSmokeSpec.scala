@@ -92,8 +92,10 @@ class EmbeddedSmokeSpec extends FunSuite:
         .fold(e => fail(s"setup failed: $e"), identity)
 
       assertEquals(imp.delete(), Right(()))
-      // Deleting the same imposter twice is an engine-side error on the second call.
-      imp.delete() match
+      // Reading a deleted imposter is an engine-side error. (A second delete() no longer is: since
+      // rift-java 0.3.8 an absent imposter's delete succeeds embedded, as it always did over HTTP —
+      // achird-labs/rift-java#318, rift#1371.)
+      imp.definition match
         case Left(RiftError.EngineError(_, msg)) => assert(msg.contains("not found"), msg)
         case other => fail(s"expected Left(EngineError(_, not found)), got $other")
     }
