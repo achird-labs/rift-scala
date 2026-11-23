@@ -29,6 +29,21 @@ class ModelCodecSpec extends munit.FunSuite:
   test("decoding an out-of-range port is an error, not a silent clamp"):
     assert(ImposterDefinition.fromJson(parse("""{"port":99999}""")).isLeft)
 
+  // #216: engine 0.22.0 removed the Redis flow-state backend. An imposter exported from an older
+  // engine (or Mountebank-era fixture) that still names it must keep decoding — the block rides on
+  // `FlowStateConfig.extra` and is written back as it was read.
+  test("an imposter whose _rift.flowState names the removed redis backend still decodes"):
+    val src =
+      """{"port":4545,"protocol":"http","_rift":{"flowState":{"backend":"redis","ttlSeconds":30,"redis":{"url":"redis://h:6379","poolSize":5}}}}"""
+    val d = decode(src)
+    val flowState = d.rift.flatMap(_.flowState).getOrElse(fail("flowState was dropped"))
+    assertEquals(flowState.ttlSeconds, Some(30L))
+    assertEquals(
+      d.toJson.get("_rift", "flowState", "redis").map(_.render),
+      Some("""{"url":"redis://h:6379","poolSize":5}""")
+    )
+    assertEquals(d.toJson.get("_rift", "flowState", "backend"), Some(Json.Str("redis")))
+
   // ── AC2: unknown keys survive via `extra` ─────────────────────────────────
   test("unknown imposter keys are preserved through a round-trip"):
     val src = """{"protocol":"http","futureKnob":{"a":[1]},"anotherOne":true}"""

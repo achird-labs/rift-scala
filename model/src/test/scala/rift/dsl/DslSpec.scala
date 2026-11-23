@@ -336,9 +336,37 @@ class DslSpec extends munit.FunSuite:
   test("flowIdFromHeader rejects every malformed name shape"):
     for bad <- List("", " X-Flow", "X-Flow ", "X Flow", "X-Flow:", "Flow-Idé", "X\tY", "X\nY") do
       intercept[IllegalArgumentException](inMemoryFlowState.flowIdFromHeader(bad))
-    // the validation holds on every backend and wherever it sits in the chain
-    intercept[IllegalArgumentException](redisFlowState("redis://h:6379").flowIdFromHeader(" X"))
+    // the validation holds wherever it sits in the chain
     intercept[IllegalArgumentException](inMemoryFlowState.ttl(5.minutes).flowIdFromHeader(""))
+
+  // #216 — engine 0.22.0 stopped reading `flowState.backend` (the Redis backend is gone), and
+  // rift-java 0.3.8 no longer writes it. The DSL writes only what the engine reads.
+  test("inMemoryFlowState writes ttlSeconds and flowIdSource, and no backend key"):
+    assertEquals(
+      imposter("a")
+        .flowState(inMemoryFlowState.ttl(5.minutes).flowIdFromHeader("X-Flow-Id"))
+        .build
+        .toJson
+        .get("_rift", "flowState")
+        .map(_.render),
+      Some("""{"ttlSeconds":300,"flowIdSource":"header:X-Flow-Id"}""")
+    )
+    assertEquals(
+      imposter("a")
+        .flowState(inMemoryFlowState)
+        .build
+        .toJson
+        .get("_rift", "flowState")
+        .map(_.render),
+      Some("{}")
+    )
+
+  test("the removed Redis flow-state surface no longer compiles"):
+    def errorsNaming(errors: String, name: String): Unit =
+      assert(errors.contains("is not a member of") && errors.contains(name), errors)
+    errorsNaming(compileErrors("""rift.dsl.redisFlowState("redis://h:6379")"""), "redisFlowState")
+    errorsNaming(compileErrors("""rift.model.RedisConfig("redis://h:6379")"""), "RedisConfig")
+    errorsNaming(compileErrors("rift.model.FlowStateBackend.InMemory"), "FlowStateBackend")
 
   test("flowIdFromHeader writes a valid token into flowIdSource unchanged"):
     def source(b: FlowStateConfigBuilder): Option[Json] =
